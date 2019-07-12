@@ -5,7 +5,7 @@ type Hash []byte
 
 // TxInfo is optional information that can be committed to a database along
 // with a new MerkleTree root.
-type TxInfo interface{}
+type TxInfo []byte
 
 // Prefix is the prefix of a Hash, for lookup of interior nodes.
 type Prefix []byte
