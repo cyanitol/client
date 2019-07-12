@@ -315,7 +315,10 @@ func (b *BadgeState) UpdateWithGregor(ctx context.Context, gstate gregor.State) 
 			}
 
 			msgID := item.Metadata().MsgID().(gregor1.MsgID)
-			username := b.env.GetUsername().String()
+			var username string
+			if b.env != nil {
+				username = b.env.GetUsername().String()
+			}
 			for _, x := range body {
 				if x.TeamName == "" || x.OpBy.Username == "" || x.OpBy.Username == username {
 					continue
