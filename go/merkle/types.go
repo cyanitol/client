@@ -6,7 +6,7 @@ import (
 	"github.com/keybase/client/go/msgpack"
 	"github.com/keybase/client/go/protocol/keybase1"
 	"github.com/keybase/client/go/sig3"
-	merkletree "github.com/keybase/merkletree"
+	merkletree "github.com/keybase/go-merkle-tree"
 	"github.com/pkg/errors"
 )
 

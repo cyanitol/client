@@ -3,7 +3,7 @@ package merkle
 import (
 	"crypto/sha512"
 
-	merkletree "github.com/keybase/merkletree"
+	merkletree "github.com/keybase/go-merkle-tree"
 )
 
 func ComputeSkipPointers(s TreeSeqno) []TreeSeqno {
