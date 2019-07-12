@@ -739,6 +739,12 @@
 			"revisionTime": "2019-06-26T18:24:48Z"
 		},
 		{
+			"checksumSHA1": "xQMD83xoSF7rKqmDC8iQf/2FPtM=",
+			"path": "github.com/keybase/merkletree",
+			"revision": "6f50818e15dd22ff190da22c92e471e7598cf971",
+			"revisionTime": "2019-07-12T15:54:49Z"
+		},
+		{
 			"checksumSHA1": "BPchgsOpEkhEBKK6NvSqGYTOcuA=",
 			"path": "github.com/keybase/msgpackzip",
 			"revision": "8309a3782fdb9c2d52c69d3f8080e2797883faa1",

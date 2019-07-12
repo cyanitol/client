@@ -1,10 +1,9 @@
 package merkle
 
 import (
-	"crypto/sha256"
 	"crypto/sha512"
 
-	merkletree "github.com/keybase/go-merkle-tree"
+	merkletree "github.com/keybase/merkletree"
 )
 
 func ComputeSkipPointers(s TreeSeqno) []TreeSeqno {
@@ -41,21 +40,13 @@ func ComputeSkipPath(start TreeSeqno, end TreeSeqno) []TreeSeqno {
 		z *= 2
 	}
 
+	// array reversal
 	for i := len(jumps)/2 - 1; i >= 0; i-- {
 		opp := len(jumps) - 1 - i
 		jumps[i], jumps[opp] = jumps[opp], jumps[i]
 	}
 
 	return jumps[1:] // ignore end
-}
-
-type SHA256Hasher struct{}
-
-var _ merkletree.Hasher = (*SHA256Hasher)(nil)
-
-func (h SHA256Hasher) Hash(x []byte) merkletree.Hash {
-	y := sha256.Sum256(x)
-	return merkletree.Hash(y[:])
 }
 
 type SHA512_256Hasher struct{}

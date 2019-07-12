@@ -3,7 +3,6 @@ package merkle
 import (
 	"crypto/hmac"
 	cryptorand "crypto/rand"
-	"crypto/sha256"
 	"crypto/sha512"
 
 	"github.com/pkg/errors"
@@ -17,12 +16,12 @@ func NewEncoder(encodingType EncodingType) *Encoder {
 	return &Encoder{encodingType: encodingType}
 }
 
+func (e *Encoder) EncodingType() EncodingType {
+	return e.encodingType
+}
+
 func (e *Encoder) BlindedPreimage(leaf Leaf, key Key, secret Secret) (BlindedPreimage, error) {
 	switch e.encodingType {
-	case EncodingTypeBlindedSHA256v1:
-		h := hmac.New(sha256.New, secret.Secret)
-		h.Write(key.Key)
-		return NewBlindedPreimage(leaf, h.Sum(nil))
 	case EncodingTypeBlindedSHA512_256v1:
 		h := hmac.New(sha512.New, secret.Secret)
 		h.Write(key.Key)
@@ -39,10 +38,6 @@ func (e *Encoder) Hash(preimage BlindedPreimage) ([]byte, error) {
 		return nil, err
 	}
 	switch e.encodingType {
-	case EncodingTypeBlindedSHA256v1:
-		h := hmac.New(sha256.New, preimage.BlindedEntropy)
-		h.Write(b)
-		return h.Sum(nil), nil
 	case EncodingTypeBlindedSHA512_256v1:
 		h := hmac.New(sha512.New, preimage.BlindedEntropy)
 		h.Write(b)
@@ -63,7 +58,7 @@ func (e *Encoder) Encode(leaf Leaf, key Key, secret Secret) ([]byte, error) {
 
 func (e *Encoder) GenerateSecret() (Secret, error) {
 	switch e.encodingType {
-	case EncodingTypeBlindedSHA256v1, EncodingTypeBlindedSHA512_256v1:
+	case EncodingTypeBlindedSHA512_256v1:
 		secret := make([]byte, 32)
 		_, err := cryptorand.Read(secret)
 		return NewSecret(secret), err
