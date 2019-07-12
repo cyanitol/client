@@ -21,14 +21,14 @@ const (
 
 const CurrentEncodingType = EncodingTypeBlindedSHA512_256v1
 
-const MaxChildrenPerLeaf = 2
+const MaxChildrenPerLeaf = 64
 
 func GetTreeConfig(encodingType EncodingType) (merkletree.Config, error) {
 	switch encodingType {
 	case EncodingTypeBlindedSHA256v1:
-		return merkletree.NewConfig(SHA256Hasher{}, 2, MaxChildrenPerLeaf, EncodedLeaf{}), nil
+		return merkletree.NewConfig(SHA256Hasher{}, 32, MaxChildrenPerLeaf, EncodedLeaf{}), nil
 	case EncodingTypeBlindedSHA512_256v1:
-		return merkletree.NewConfig(SHA512_256Hasher{}, 2, MaxChildrenPerLeaf, EncodedLeaf{}), nil
+		return merkletree.NewConfig(SHA512_256Hasher{}, 32, MaxChildrenPerLeaf, EncodedLeaf{}), nil
 	}
 	return merkletree.Config{}, errors.Errorf("unknown encoding type %q", encodingType)
 }

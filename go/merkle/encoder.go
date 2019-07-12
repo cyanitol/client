@@ -24,9 +24,10 @@ func (e *Encoder) BlindedPreimage(leaf Leaf, key Key, secret Secret) (BlindedPre
 		h.Write(key.Key)
 		return NewBlindedPreimage(leaf, h.Sum(nil))
 	case EncodingTypeBlindedSHA512_256v1:
-		h := hmac.New(sha512.New512_256, secret.Secret)
+		h := hmac.New(sha512.New, secret.Secret)
 		h.Write(key.Key)
-		return NewBlindedPreimage(leaf, h.Sum(nil))
+		z := h.Sum(nil)
+		return NewBlindedPreimage(leaf, z[:32])
 	default:
 		return BlindedPreimage{}, errors.Errorf("unknown encoding type %q", e.encodingType)
 	}
@@ -43,9 +44,10 @@ func (e *Encoder) Hash(preimage BlindedPreimage) ([]byte, error) {
 		h.Write(b)
 		return h.Sum(nil), nil
 	case EncodingTypeBlindedSHA512_256v1:
-		h := hmac.New(sha512.New512_256, preimage.BlindedEntropy)
+		h := hmac.New(sha512.New, preimage.BlindedEntropy)
 		h.Write(b)
-		return h.Sum(nil), nil
+		z := h.Sum(nil)
+		return z[:32], nil
 	default:
 		return nil, errors.Errorf("unknown encoding type %q", e.encodingType)
 	}
