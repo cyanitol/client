@@ -116,6 +116,8 @@ type SimpleFS struct {
 	subscribeToEmptyTlf         string
 
 	localHTTPServer *libhttpserver.Server
+
+	subscriber libkbfs.Subscriber
 }
 
 type inprogress struct {
@@ -146,7 +148,8 @@ func newSimpleFS(appStateUpdater env.AppStateUpdater, config libkbfs.Config) *Si
 		}
 	}
 	return &SimpleFS{
-		config:          config,
+		config: config,
+
 		handles:         map[keybase1.OpID]*handle{},
 		inProgress:      map[keybase1.OpID]*inprogress{},
 		log:             log,
@@ -154,6 +157,7 @@ func newSimpleFS(appStateUpdater env.AppStateUpdater, config libkbfs.Config) *Si
 		newFS:           defaultNewFS,
 		idd:             libkbfs.NewImpatientDebugDumperForForcedDumps(config),
 		localHTTPServer: localHTTPServer,
+		subscriber:      config.SubscriptionManager().Subscriber(config.KeybaseService()),
 	}
 }
 
@@ -2204,6 +2208,8 @@ func (k *SimpleFS) LocalChange(
 	ctx context.Context, node libkbfs.Node, _ libkbfs.WriteRange) {
 	k.subscribeLock.RLock()
 	defer k.subscribeLock.RUnlock()
+	p, ok := node.GetPathPlaintextSansTlf()
+	fmt.Printf("SONGGAO-LocalChange: %q %v\n", p, ok)
 	if node.GetFolderBranch() == k.subscribeCurrFB {
 		k.config.Reporter().NotifyPathUpdated(ctx, k.subscribeCurrTlfPathFromGUI)
 	}
@@ -2212,6 +2218,10 @@ func (k *SimpleFS) LocalChange(
 // BatchChanges implements the libkbfs.Observer interface for SimpleFS.
 func (k *SimpleFS) BatchChanges(
 	ctx context.Context, changes []libkbfs.NodeChange, _ []libkbfs.NodeID) {
+	for _, change := range changes {
+		p, ok := change.Node.GetPathPlaintextSansTlf()
+		fmt.Printf("SONGGAO-BatchChanges: %q %v\n", p, ok)
+	}
 	// Don't take any locks while processing these notifications,
 	// since it risks deadlock.
 	fbs := make(map[data.FolderBranch]bool, 1)
@@ -2704,4 +2714,27 @@ func (k *SimpleFS) SimpleFSGetStats(ctx context.Context) (
 		res.BlockCacheDbStats = status.BlockDBStats
 	}
 	return res, nil
+}
+
+// SimpleFSSubscribePath implements the SimpleFSInterface.
+func (k *SimpleFS) SimpleFSSubscribePath(
+	ctx context.Context, arg keybase1.SimpleFSSubscribePathArg) (string, error) {
+	interval := time.Second * time.Duration(arg.DeduplicateIntervalSecond)
+	sid, err := k.subscriber.SubscribePath(ctx, arg.KbfsPath, arg.Topic, &interval)
+	return string(sid), err
+}
+
+// SimpleFSSubscribe implements the SimpleFSInterface.
+func (k *SimpleFS) SimpleFSSubscribeNonPath(
+	ctx context.Context, arg keybase1.SimpleFSSubscribeNonPathArg) (string, error) {
+	interval := time.Second * time.Duration(arg.DeduplicateIntervalSecond)
+	sid, err := k.subscriber.SubscribeNonPath(ctx, arg.Topic, &interval)
+	return string(sid), err
+}
+
+// SimpleFSSubscribe implements the SimpleFSInterface.
+func (k *SimpleFS) SimpleFSUnsubscribe(
+	ctx context.Context, sid string) error {
+	k.subscriber.Unsubscribe(ctx, libkbfs.SubscriptionID(sid))
+	return nil
 }
