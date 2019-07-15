@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/keybase/client/go/contacts"
 	"github.com/keybase/client/go/libkb"
 	keybase1 "github.com/keybase/client/go/protocol/keybase1"
@@ -248,7 +247,6 @@ func imptofuSearch(mctx libkb.MetaContext, provider contacts.ContactsProvider, a
 		})
 	}
 
-	spew.Dump(emails, phones, lookupRes, res)
 	return res, nil
 }
 

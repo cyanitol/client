@@ -81,6 +81,12 @@ const parseRawResultToUser = (
       prettyName: result.contact.displayName,
       serviceMap,
     }
+  } else if (result.imptofu) {
+    return {
+      id: result.imptofu.assertion,
+      prettyName: result.imptofu.coercedQuery,
+      serviceMap: {},
+    }
   } else if (result.service) {
     if (result.service.serviceName !== service) {
       // This shouldn't happen
