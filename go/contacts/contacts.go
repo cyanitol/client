@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/keybase1"
@@ -33,6 +34,41 @@ func FormatComponentAssertion(input string, c keybase1.ContactComponent) string 
 		return FormatSBSAssertion(input, "phone")
 	default:
 		return ""
+	}
+}
+
+func findUsernamesAndTracking(mctx libkb.MetaContext, provider ContactsProvider, uidSet map[keybase1.UID]struct{},
+	res []keybase1.ProcessedContact) {
+
+	uidList := make([]keybase1.UID, 0, len(uidSet))
+	for uid := range uidSet {
+		uidList = append(uidList, uid)
+	}
+
+	// Uidmap everything to get Keybase usernames and full names.
+	usernames, err := provider.FindUsernames(mctx, uidList)
+	if err != nil {
+		mctx.Warning("Unable to find usernames for contacts: %s", err)
+		usernames = make(map[keybase1.UID]ContactUsernameAndFullName)
+	}
+
+	// Get tracking info and set "Following" field for contacts.
+	following, err := provider.FindFollowing(mctx, uidList)
+	if err != nil {
+		mctx.Warning("Unable to find tracking info for contacts: %s", err)
+		following = make(map[keybase1.UID]bool)
+	}
+
+	for i := range res {
+		v := &res[i]
+
+		if unamePkg, found := usernames[v.Uid]; found {
+			v.Username = unamePkg.Username
+			v.FullName = unamePkg.Fullname
+		}
+		if follow, found := following[v.Uid]; found {
+			v.Following = follow
+		}
 	}
 }
 
@@ -117,6 +153,10 @@ func ResolveContacts(mctx libkb.MetaContext, provider ContactsProvider, contacts
 							continue
 						}
 
+						assertionValue := strings.ToLower(strings.TrimSpace(component.ValueString()))
+						if lookupRes.Coerced != "" {
+							assertionValue = lookupRes.Coerced
+						}
 						res = append(res, keybase1.ProcessedContact{
 							ContactIndex: contactI,
 							ContactName:  contact.Name,
@@ -124,7 +164,7 @@ func ResolveContacts(mctx libkb.MetaContext, provider ContactsProvider, contacts
 							InputCoerced: lookupRes.Coerced,
 							Resolved:     true,
 							Uid:          lookupRes.UID,
-							Assertion:    FormatComponentAssertion(lookupRes.Coerced, component),
+							Assertion:    FormatComponentAssertion(assertionValue, component),
 						})
 						contactsFound[contactI] = struct{}{}
 						usersFound[lookupRes.UID] = struct{}{}
@@ -138,10 +178,7 @@ func ResolveContacts(mctx libkb.MetaContext, provider ContactsProvider, contacts
 	}
 
 	if len(res) > 0 {
-		// Uidmap everything to get Keybase usernames and full names.
-		provider.FillUsernames(mctx, res)
-		// Get tracking info and set "Following" field for contacts.
-		provider.FillFollowing(mctx, res)
+		findUsernamesAndTracking(mctx, provider, usersFound, res)
 
 		// And now that we have Keybase names and following information, make a
 		// decision about displayName and displayLabel.

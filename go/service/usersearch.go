@@ -23,6 +23,10 @@ type UserSearchHandler struct {
 	*BaseHandler
 	contactsProvider *contacts.CachedContactsProvider
 	savedContacts    *contacts.SavedContactsStore
+
+	// For testing - do not do API searches for keybase accounts, only
+	// do contact search and imptofu search (if asked for via RPC arguments).
+	disableServiceSearch bool
 }
 
 func NewUserSearchHandler(xp rpc.Transporter, g *libkb.GlobalContext, provider *contacts.CachedContactsProvider, pbs *contacts.SavedContactsStore) *UserSearchHandler {
@@ -259,9 +263,11 @@ func (h *UserSearchHandler) UserSearch(ctx context.Context, arg keybase1.UserSea
 		return nil, nil
 	}
 
-	res, err = doSearchRequest(mctx, arg)
-	if err != nil {
-		return nil, err
+	if !h.disableServiceSearch {
+		res, err = doSearchRequest(mctx, arg)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if arg.IncludeContacts {
