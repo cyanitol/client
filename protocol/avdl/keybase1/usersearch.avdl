@@ -39,14 +39,27 @@ protocol userSearch {
         string username;
     }
 
+    record ImpTofuSearchResult {
+        string coercedQuery;
+        string assertion; // for use in team / chat building
+
+        boolean resolved;
+        // If resolved:
+        UID uid; // uid
+        string username; // Keybase username
+        string fullName; // Keybase full name
+        boolean following; // whether resolved user is followed by current user
+    }
+
     record APIUserSearchResult {
         double score;
         union { null, APIUserKeybaseResult } keybase;
         union { null, APIUserServiceResult } service;
         union { null, ProcessedContact } contact;
+        union { null, ImpTofuSearchResult } imptofu;
         @jsonkey("services_summary")
         map<APIUserServiceIDWithContact, APIUserServiceSummary> servicesSummary;
     }
 
-    array<APIUserSearchResult> userSearch(string query, string service, int maxResults, boolean includeServicesSummary, boolean includeContacts);
+    array<APIUserSearchResult> userSearch(string query, string service, int maxResults, boolean includeServicesSummary, boolean includeContacts, boolean includeImptofu);
 }

@@ -94,11 +94,34 @@ func (o APIUserServiceSummary) DeepCopy() APIUserServiceSummary {
 	}
 }
 
+type ImpTofuSearchResult struct {
+	CoercedQuery string `codec:"coercedQuery" json:"coercedQuery"`
+	Assertion    string `codec:"assertion" json:"assertion"`
+	Resolved     bool   `codec:"resolved" json:"resolved"`
+	Uid          UID    `codec:"uid" json:"uid"`
+	Username     string `codec:"username" json:"username"`
+	FullName     string `codec:"fullName" json:"fullName"`
+	Following    bool   `codec:"following" json:"following"`
+}
+
+func (o ImpTofuSearchResult) DeepCopy() ImpTofuSearchResult {
+	return ImpTofuSearchResult{
+		CoercedQuery: o.CoercedQuery,
+		Assertion:    o.Assertion,
+		Resolved:     o.Resolved,
+		Uid:          o.Uid.DeepCopy(),
+		Username:     o.Username,
+		FullName:     o.FullName,
+		Following:    o.Following,
+	}
+}
+
 type APIUserSearchResult struct {
 	Score           float64                                               `codec:"score" json:"score"`
 	Keybase         *APIUserKeybaseResult                                 `codec:"keybase,omitempty" json:"keybase,omitempty"`
 	Service         *APIUserServiceResult                                 `codec:"service,omitempty" json:"service,omitempty"`
 	Contact         *ProcessedContact                                     `codec:"contact,omitempty" json:"contact,omitempty"`
+	Imptofu         *ImpTofuSearchResult                                  `codec:"imptofu,omitempty" json:"imptofu,omitempty"`
 	ServicesSummary map[APIUserServiceIDWithContact]APIUserServiceSummary `codec:"servicesSummary" json:"services_summary"`
 }
 
@@ -126,6 +149,13 @@ func (o APIUserSearchResult) DeepCopy() APIUserSearchResult {
 			tmp := (*x).DeepCopy()
 			return &tmp
 		})(o.Contact),
+		Imptofu: (func(x *ImpTofuSearchResult) *ImpTofuSearchResult {
+			if x == nil {
+				return nil
+			}
+			tmp := (*x).DeepCopy()
+			return &tmp
+		})(o.Imptofu),
 		ServicesSummary: (func(x map[APIUserServiceIDWithContact]APIUserServiceSummary) map[APIUserServiceIDWithContact]APIUserServiceSummary {
 			if x == nil {
 				return nil
@@ -147,6 +177,7 @@ type UserSearchArg struct {
 	MaxResults             int    `codec:"maxResults" json:"maxResults"`
 	IncludeServicesSummary bool   `codec:"includeServicesSummary" json:"includeServicesSummary"`
 	IncludeContacts        bool   `codec:"includeContacts" json:"includeContacts"`
+	IncludeImptofu         bool   `codec:"includeImptofu" json:"includeImptofu"`
 }
 
 type UserSearchInterface interface {

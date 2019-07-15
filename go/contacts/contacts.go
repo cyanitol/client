@@ -6,18 +6,31 @@ package contacts
 import (
 	"errors"
 	"fmt"
-	"strings"
+	"regexp"
 
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/keybase1"
 )
 
-func formatSBSAssertion(c keybase1.ContactComponent) string {
+var nonDigits = regexp.MustCompile("[^\\d]")
+
+func FormatSBSAssertion(value string, key string) string {
+	switch key {
+	case "phone":
+		return fmt.Sprintf("%s@phone", nonDigits.ReplaceAllString(value, ""))
+	case "email":
+		return fmt.Sprintf("[%s]@email", value)
+	default:
+		return fmt.Sprintf("%s@%s", value, key)
+	}
+}
+
+func FormatComponentAssertion(input string, c keybase1.ContactComponent) string {
 	switch {
 	case c.Email != nil:
-		return fmt.Sprintf("[%s]@email", *c.Email)
+		return FormatSBSAssertion(input, "email")
 	case c.PhoneNumber != nil:
-		return fmt.Sprintf("%s@phone", strings.TrimLeft(string(*c.PhoneNumber), "+"))
+		return FormatSBSAssertion(input, "phone")
 	default:
 		return ""
 	}
@@ -108,9 +121,10 @@ func ResolveContacts(mctx libkb.MetaContext, provider ContactsProvider, contacts
 							ContactIndex: contactI,
 							ContactName:  contact.Name,
 							Component:    component,
+							InputCoerced: lookupRes.Coerced,
 							Resolved:     true,
 							Uid:          lookupRes.UID,
-							Assertion:    formatSBSAssertion(component),
+							Assertion:    FormatComponentAssertion(lookupRes.Coerced, component),
 						})
 						contactsFound[contactI] = struct{}{}
 						usersFound[lookupRes.UID] = struct{}{}
@@ -175,7 +189,7 @@ func ResolveContacts(mctx libkb.MetaContext, provider ContactsProvider, contacts
 				DisplayName:  c.Name,
 				DisplayLabel: component.FormatDisplayLabel(addLabel),
 
-				Assertion: formatSBSAssertion(component),
+				Assertion: FormatComponentAssertion(component.ValueString(), component),
 			})
 		}
 	}

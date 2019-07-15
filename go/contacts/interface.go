@@ -5,6 +5,7 @@ package contacts
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/keybase1"
@@ -32,12 +33,23 @@ func (r ContactLookupMap) FindComponent(component keybase1.ContactComponent) (re
 	return res, found
 }
 
+const emailMapPrefix = "e:"
+const phoneMapPrefix = "p:"
+
 func makeEmailLookupKey(e keybase1.EmailAddress) string {
-	return fmt.Sprintf("e:%s", string(e))
+	return fmt.Sprintf("%s%s", emailMapPrefix, string(e))
 }
 
 func makePhoneLookupKey(p keybase1.RawPhoneNumber) string {
-	return fmt.Sprintf("p:%s", string(p))
+	return fmt.Sprintf("%s%s", phoneMapPrefix, string(p))
+}
+
+func (r ContactLookupMap) IsEmail(key string) bool {
+	return strings.HasPrefix(key, emailMapPrefix)
+}
+
+func (r ContactLookupMap) IsPhone(key string) bool {
+	return strings.HasPrefix(key, phoneMapPrefix)
 }
 
 type ContactsProvider interface {

@@ -115,16 +115,18 @@ type ContactsHandler struct {
 	savedContacts    *contacts.SavedContactsStore
 }
 
-func NewContactsHandler(xp rpc.Transporter, g *libkb.GlobalContext, pbs *contacts.SavedContactsStore) *ContactsHandler {
-	contactsProvider := &contacts.CachedContactsProvider{
+func NewCachedContactsProvider(g *libkb.GlobalContext) *contacts.CachedContactsProvider {
+	return &contacts.CachedContactsProvider{
 		Provider: &bulkLookupContactsProvider{},
 		Store:    contacts.NewContactCacheStore(g),
 	}
+}
 
+func NewContactsHandler(xp rpc.Transporter, g *libkb.GlobalContext, provider *contacts.CachedContactsProvider, pbs *contacts.SavedContactsStore) *ContactsHandler {
 	handler := &ContactsHandler{
 		Contextified:     libkb.NewContextified(g),
 		BaseHandler:      NewBaseHandler(g, xp),
-		contactsProvider: contactsProvider,
+		contactsProvider: provider,
 		savedContacts:    pbs,
 	}
 	return handler

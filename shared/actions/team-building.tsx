@@ -7,6 +7,7 @@ import * as Saga from '../util/saga'
 import * as RPCTypes from '../constants/types/rpc-gen'
 import {TypedState} from '../constants/reducer'
 import flags from '../util/feature-flags'
+import {validateNumber} from '../util/phone-numbers'
 
 const closeTeamBuilding = () => RouteTreeGen.createClearModals()
 export type NSAction = {payload: {namespace: TeamBuildingTypes.AllowedNamespace}}
@@ -15,10 +16,12 @@ const apiSearch = (
   query: string,
   service: TeamBuildingTypes.ServiceIdWithContact,
   maxResults: number,
-  includeServicesSummary: boolean
+  includeServicesSummary: boolean,
+  includeImptofu: boolean
 ): Promise<Array<TeamBuildingTypes.User>> => {
   return RPCTypes.userSearchUserSearchRpcPromise({
     includeContacts: flags.sbsContacts && service === 'keybase',
+    includeImptofu: includeImptofu && service === 'keybase',
     includeServicesSummary,
     maxResults,
     query,
@@ -75,14 +78,19 @@ function* searchResultCounts(state: TypedState, {payload: {namespace}}: NSAction
         if (!isStillInSameQuery(yield* Saga.selectState())) {
           break
         }
-        const action = yield apiSearch(teamBuildingSearchQuery, service, teamBuildingSearchLimit, true).then(
-          users =>
-            TeamBuildingGen.createSearchResultsLoaded({
-              namespace,
-              query: teamBuildingSearchQuery,
-              service,
-              users,
-            })
+        const action = yield apiSearch(
+          teamBuildingSearchQuery,
+          service,
+          teamBuildingSearchLimit,
+          true,
+          false
+        ).then(users =>
+          TeamBuildingGen.createSearchResultsLoaded({
+            namespace,
+            query: teamBuildingSearchQuery,
+            service,
+            users,
+          })
         )
         yield Saga.put(action)
       }
@@ -105,7 +113,25 @@ const search = (state: TypedState, {payload: {namespace}}: NSAction) => {
     return
   }
 
-  return apiSearch(teamBuildingSearchQuery, teamBuildingSelectedService, teamBuildingSearchLimit, true).then(
+  let query = teamBuildingSearchQuery
+  let includeImptofu = false
+  if (teamBuildingSelectedService === 'keybase') {
+    const phoneNumber = validateNumber(query, null)
+    if (phoneNumber.valid) {
+      includeImptofu = true
+      query = phoneNumber.e164
+    } else {
+      // Consider the query a valid email if it contains at sign and a period
+      // after the at sign.
+      const atIndex = query.indexOf('@')
+      const periodIndex = query.lastIndexOf('.')
+      if (atIndex !== -1 && periodIndex > atIndex) {
+        includeImptofu = true
+      }
+    }
+  }
+
+  return apiSearch(query, teamBuildingSelectedService, teamBuildingSearchLimit, true, includeImptofu).then(
     users =>
       TeamBuildingGen.createSearchResultsLoaded({
         namespace,

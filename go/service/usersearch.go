@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/keybase/client/go/contacts"
 	"github.com/keybase/client/go/libkb"
 	keybase1 "github.com/keybase/client/go/protocol/keybase1"
@@ -21,14 +22,16 @@ import (
 type UserSearchHandler struct {
 	libkb.Contextified
 	*BaseHandler
-	savedContacts *contacts.SavedContactsStore
+	contactsProvider *contacts.CachedContactsProvider
+	savedContacts    *contacts.SavedContactsStore
 }
 
-func NewUserSearchHandler(xp rpc.Transporter, g *libkb.GlobalContext, pbs *contacts.SavedContactsStore) *UserSearchHandler {
+func NewUserSearchHandler(xp rpc.Transporter, g *libkb.GlobalContext, provider *contacts.CachedContactsProvider, pbs *contacts.SavedContactsStore) *UserSearchHandler {
 	handler := &UserSearchHandler{
-		Contextified:  libkb.NewContextified(g),
-		BaseHandler:   NewBaseHandler(g, xp),
-		savedContacts: pbs,
+		Contextified:     libkb.NewContextified(g),
+		BaseHandler:      NewBaseHandler(g, xp),
+		contactsProvider: provider,
+		savedContacts:    pbs,
 	}
 	return handler
 }
@@ -183,32 +186,107 @@ func contactSearch(mctx libkb.MetaContext, store *contacts.SavedContactsStore, a
 	return res, nil
 }
 
+var nonDigits = regexp.MustCompile("[^\\d]")
+
+func prepareImptofuQuery(input string) string {
+	return nonDigits.ReplaceAllString(input, "")
+}
+
+func imptofuSearch(mctx libkb.MetaContext, provider contacts.ContactsProvider, arg keybase1.UserSearchArg) (res []keybase1.APIUserSearchResult, err error) {
+	var emails []keybase1.EmailAddress
+	var phones []keybase1.RawPhoneNumber
+	var sbsType string
+	query := strings.TrimSpace(strings.ToLower(arg.Query))
+	switch {
+	case strings.Contains(query, "@"):
+		sbsType = "email"
+		emails = append(emails, keybase1.EmailAddress(query))
+	case strings.HasPrefix(query, "+"):
+		// Service only takes E164 numbers.
+		sbsType = "phone"
+		query = "+" + prepareImptofuQuery(query)
+		phones = append(phones, keybase1.RawPhoneNumber(query))
+	default:
+		// Do nothing - this is not a query we are expecting.
+		return res, nil
+	}
+
+	lookupRes, err := provider.LookupAll(mctx, emails, phones, keybase1.RegionCode(""))
+	if err != nil {
+		return nil, err
+	}
+
+	for _, v := range lookupRes {
+		// Found a resolution
+		maybeCoerced := query
+		if v.Coerced != "" {
+			maybeCoerced = v.Coerced
+		}
+		imptofu := &keybase1.ImpTofuSearchResult{
+			CoercedQuery: maybeCoerced,
+			Resolved:     true,
+			Uid:          v.UID,
+			Assertion:    contacts.FormatSBSAssertion(maybeCoerced, sbsType),
+			Username:     v.UID.String(),
+		}
+		res = append(res, keybase1.APIUserSearchResult{
+			Score:   1.0,
+			Imptofu: imptofu,
+		})
+	}
+
+	if len(res) == 0 {
+		// Not resolved - add SBS result.
+		imptofu := &keybase1.ImpTofuSearchResult{
+			CoercedQuery: query,
+			Resolved:     false,
+			Assertion:    contacts.FormatSBSAssertion(query, sbsType),
+		}
+		res = append(res, keybase1.APIUserSearchResult{
+			Score:   1.0,
+			Imptofu: imptofu,
+		})
+	}
+
+	spew.Dump(emails, phones, lookupRes, res)
+	return res, nil
+}
+
 func (h *UserSearchHandler) UserSearch(ctx context.Context, arg keybase1.UserSearchArg) (res []keybase1.APIUserSearchResult, err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G()).WithLogTag("USEARCH")
 	defer mctx.TraceTimed(fmt.Sprintf("UserSearch#UserSearch(s=%q, q=%q)", arg.Service, arg.Query),
 		func() error { return err })()
 
 	if arg.Query == "" {
-		return res, nil
+		return nil, nil
 	}
 
 	res, err = doSearchRequest(mctx, arg)
+	if err != nil {
+		return nil, err
+	}
+
 	if arg.IncludeContacts {
 		contactsRes, err := contactSearch(mctx, h.savedContacts, arg)
 		if err != nil {
-			return nil, err
+			mctx.Error("Failed to search synced contacts: %s", err)
+		} else if len(contactsRes) > 0 {
+			res = append(contactsRes, res...)
 		}
-		if len(contactsRes) > 0 {
-			var res2 []keybase1.APIUserSearchResult
-			res2 = append(res2, contactsRes...)
-			res2 = append(res2, res...)
-			res = res2
+	}
 
-			maxRes := arg.MaxResults
-			if maxRes > 0 && len(res) > maxRes {
-				res = res[:maxRes]
-			}
+	if arg.IncludeImptofu {
+		imptofuRes, err := imptofuSearch(mctx, h.contactsProvider, arg)
+		if err != nil {
+			mctx.Error("Failed to do phone number / email search: %s", err)
+		} else if imptofuRes != nil {
+			res = append(imptofuRes, res...)
 		}
+	}
+
+	maxRes := arg.MaxResults
+	if maxRes > 0 && len(res) > maxRes {
+		res = res[:maxRes]
 	}
 
 	return res, nil

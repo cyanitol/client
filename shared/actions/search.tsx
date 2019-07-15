@@ -132,6 +132,7 @@ function callSearch(
 ): Promise<Array<RPCTypes.APIUserSearchResult>> {
   return RPCTypes.userSearchUserSearchRpcPromise({
     includeContacts: false,
+    includeImptofu: false,
     includeServicesSummary: false,
     maxResults: limit,
     query: trim(searchTerm),

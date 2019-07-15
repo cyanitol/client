@@ -121,6 +121,40 @@
     },
     {
       "type": "record",
+      "name": "ImpTofuSearchResult",
+      "fields": [
+        {
+          "type": "string",
+          "name": "coercedQuery"
+        },
+        {
+          "type": "string",
+          "name": "assertion"
+        },
+        {
+          "type": "boolean",
+          "name": "resolved"
+        },
+        {
+          "type": "UID",
+          "name": "uid"
+        },
+        {
+          "type": "string",
+          "name": "username"
+        },
+        {
+          "type": "string",
+          "name": "fullName"
+        },
+        {
+          "type": "boolean",
+          "name": "following"
+        }
+      ]
+    },
+    {
+      "type": "record",
       "name": "APIUserSearchResult",
       "fields": [
         {
@@ -147,6 +181,13 @@
             "ProcessedContact"
           ],
           "name": "contact"
+        },
+        {
+          "type": [
+            null,
+            "ImpTofuSearchResult"
+          ],
+          "name": "imptofu"
         },
         {
           "type": {
@@ -181,6 +222,10 @@
         },
         {
           "name": "includeContacts",
+          "type": "boolean"
+        },
+        {
+          "name": "includeImptofu",
           "type": "boolean"
         }
       ],
