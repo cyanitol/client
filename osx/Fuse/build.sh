@@ -6,10 +6,14 @@ dir=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 cd "$dir"
 
 version=${VERSION:?"Need to set VERSION for Fuse"}
+branch="osxfuse-$version"
+if [ "$version" = "3.10.0" ]; then
+    branch="master"
+fi
 
 # Checkout
 rm -rf osxfuse
-git clone --recursive -b osxfuse-$version git://github.com/osxfuse/osxfuse.git osxfuse
+git clone --recursive -b "$branch" git://github.com/osxfuse/osxfuse.git osxfuse
 
 # Patch osxfuse to turn it into kbfuse
 ./patch.sh
