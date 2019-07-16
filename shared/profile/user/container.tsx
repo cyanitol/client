@@ -14,7 +14,7 @@ import {RouteProps} from '../../route-tree/render-route'
 import ProfileSearch from '../search/bar'
 import flags from '../../util/feature-flags'
 
-type OwnProps = RouteProps< { username: string } >
+type OwnProps = RouteProps<{username: string}>
 
 const headerBackgroundColorType = (state, followThem) => {
   if (['broken', 'error'].includes(state)) {
@@ -61,9 +61,10 @@ const mapStateToProps = (state, ownProps) => {
       title: username,
     }
   } else {
-    // SBS profile
+    // SBS profile. But `nonUserDetails` might not have arrived yet,
+    // make sure the screen does not appear broken until then.
     const nonUserDetails = Constants.getNonUserDetails(state, username)
-    const name = nonUserDetails.assertionValue
+    const name = nonUserDetails.assertionValue || username
     const service = nonUserDetails.assertionKey
     // For SBS profiles, display service username as the "big username".
     let title = name
@@ -121,14 +122,15 @@ const mergeProps = (stateProps, dispatchProps, ownProps) => {
   }
 
   const notAUser = stateProps.state === 'notAUserYet'
-  let assertionKeys = notAUser
-    ? [stateProps.username]
-    : stateProps._assertions
-    ? stateProps._assertions
-        .sort((a, b) => a.priority - b.priority)
-        .keySeq()
-        .toArray()
-    : null
+  let assertionKeys =
+    notAUser && !!stateProps.service
+      ? [stateProps.username]
+      : stateProps._assertions
+      ? stateProps._assertions
+          .sort((a, b) => a.priority - b.priority)
+          .keySeq()
+          .toArray()
+      : null
 
   // For 'phone' or 'email' profiles do not display placeholder assertions.
   const service = stateProps.service

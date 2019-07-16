@@ -82,7 +82,7 @@ const BioLayout = p => (
 
 const ProveIt = p => {
   if (p.service === 'phone' || p.service === 'email') {
-    let verifyWhat
+    let verifyWhat = ''
     switch (p.service) {
       case 'phone':
         verifyWhat = 'phone number'
@@ -99,7 +99,7 @@ const ProveIt = p => {
   } else {
     const url = 'https://keybase.io/install'
     return (
-      <>
+      <React.Fragment>
         <Kb.Text type="BodySmall" style={styles.proveIt}>
           Tell {p.fullName || p.name} to join Keybase and prove their {upperFirst(p.service)}.
         </Kb.Text>
@@ -109,7 +109,7 @@ const ProveIt = p => {
             {url}
           </Kb.Text>
         </Kb.Text>
-      </>
+      </React.Fragment>
     )
   }
 }
@@ -130,7 +130,7 @@ const Proofs = p => {
   return (
     <Kb.Box2 direction="vertical" fullWidth={true}>
       {assertions}
-      {p.notAUser && p.service && <ProveIt {...p} />}
+      {!!p.notAUser && !!p.service && <ProveIt {...p} />}
     </Kb.Box2>
   )
 }
