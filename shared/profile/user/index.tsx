@@ -80,7 +80,7 @@ const BioLayout = p => (
   </Kb.Box2>
 )
 
-const ProveIt : React.ReactNode = p => {
+const ProveIt = p => {
   if (p.service === 'phone' || p.service === 'email') {
     let verifyWhat
     switch (p.service) {
@@ -465,7 +465,7 @@ export const styles = Styles.styleSheetCreate({
   backgroundColor: {
     ...Styles.globalStyles.fillAbsolute,
     bottom: undefined,
-    height: (avatarSize / 2) + Styles.globalMargins.tiny,
+    height: avatarSize / 2 + Styles.globalMargins.tiny,
   },
   bio: Styles.platformStyles({
     common: {alignSelf: 'flex-start'},
