@@ -9,6 +9,7 @@ import (
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/gregor1"
 	keybase1 "github.com/keybase/client/go/protocol/keybase1"
+	"github.com/keybase/client/go/teambot"
 	"github.com/keybase/clockwork"
 	"github.com/stretchr/testify/require"
 )
@@ -181,17 +182,17 @@ func TestEphemeralTeambotEK(t *testing.T) {
 	user1.waitForRotateByID(teamID, keybase1.Seqno(4))
 
 	// Force a wrongKID error on the bot user by expiring the wrongKID cache
-	key := ephemeral.TeambotEKWrongKIDCacheKey(teamID, botua.uid, teambotEK2.Generation())
+	key := teambot.TeambotEKWrongKIDCacheKey(teamID, botua.uid, teambotEK2.Generation())
 	expired := keybase1.ToTime(fc.Now())
 	mctx3.G().GetKVStore().PutObj(key, nil, expired)
-	permitted, ctime, err := ephemeral.TeambotWrongKIDPermitted(mctx3, teamID, botua.uid,
+	permitted, ctime, err := teambot.TeambotEKWrongKIDPermitted(mctx3, teamID, botua.uid,
 		teambotEK2.Generation(), keybase1.ToTime(fc.Now()))
 	require.NoError(t, err)
 	require.True(t, permitted)
 	require.Equal(t, expired, ctime)
 
-	fc.Advance(ephemeral.MaxTeambotEKWrongKIDPermitted) // expire wrong KID cache
-	permitted, ctime, err = ephemeral.TeambotWrongKIDPermitted(mctx3, teamID, botua.uid,
+	fc.Advance(teambot.MaxTeambotKeyWrongKIDPermitted) // expire wrong KID cache
+	permitted, ctime, err = teambot.TeambotEKWrongKIDPermitted(mctx3, teamID, botua.uid,
 		teambotEK2.Generation(), keybase1.ToTime(fc.Now()))
 	require.NoError(t, err)
 	require.False(t, permitted)
@@ -281,13 +282,11 @@ func TestEphemeralTeambotEK(t *testing.T) {
 
 		teambotEKNonBot1, err := ekLib1.GetTeambotEK(mctx1, teamID, botuaUID, i, nil)
 		require.NoError(t, err)
-		require.Equal(t, teambotEKBot.Generation(), teambotEKNonBot1.Generation())
-		require.Equal(t, teambotEKBot.Material(), teambotEKNonBot1.Material())
+		require.Equal(t, teambotEKBot, teambotEKNonBot1)
 
 		teambotEKNonBot2, err := ekLib2.GetTeambotEK(mctx2, teamID, botuaUID, i, nil)
 		require.NoError(t, err)
-		require.Equal(t, teambotEKBot.Generation(), teambotEKNonBot2.Generation())
-		require.Equal(t, teambotEKBot.Material(), teambotEKNonBot2.Material())
+		require.Equal(t, teambotEKBot, teambotEKNonBot2)
 	}
 
 	// bot asks for a non-existent generation, no new key is created.
