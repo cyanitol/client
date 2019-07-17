@@ -66,12 +66,10 @@ const mapStateToProps = (state, ownProps) => {
     const nonUserDetails = Constants.getNonUserDetails(state, username)
     const name = nonUserDetails.assertionValue || username
     const service = nonUserDetails.assertionKey
-    // For SBS profiles, display service username as the "big username".
-    let title = name
-    if (service === 'phone') {
-      // If it's 'phone', display formatted phone number.
-      title = nonUserDetails.formattedName || name
-    }
+    // For SBS profiles, display service username as the "big username". Some
+    // profiles will have a special formatting for the name, e.g. phone numbers
+    // will be formatted.
+    let title = nonUserDetails.formattedName || name
 
     return {
       ...commonProps,
@@ -146,7 +144,6 @@ const mergeProps = (stateProps, dispatchProps, ownProps) => {
     followersCount: stateProps.followersCount,
     followingCount: stateProps.followingCount,
     fullName: stateProps.fullName,
-    impTofu,
     name: stateProps.name,
     notAUser,
     onAddIdentity,
