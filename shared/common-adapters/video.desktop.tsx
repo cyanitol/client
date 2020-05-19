@@ -43,6 +43,7 @@ export default class extends React.PureComponent<Props, State> {
   }
 
   render() {
+    const {onUrlError} = this.props
     return (
       <CheckURL url={this.props.url}>
         <Measure bounds={true} onResize={this._onContainerResize}>
@@ -59,6 +60,7 @@ export default class extends React.PureComponent<Props, State> {
                 autoPlay={true}
                 preload="metadata"
                 onLoadedMetadata={this._onVideoLoadedmetadata}
+                onError={onUrlError && (() => onUrlError('video loading error'))}
               />
             </div>
           )}
@@ -68,7 +70,7 @@ export default class extends React.PureComponent<Props, State> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   container: {
     ...Styles.globalStyles.flexBoxColumn,
     ...Styles.globalStyles.flexBoxCenter,
@@ -86,4 +88,4 @@ const styles = Styles.styleSheetCreate({
       position: 'absolute',
     },
   }),
-})
+}))

@@ -4,12 +4,13 @@ import AttachmentMessage from './attachment/container'
 import TextMessage from './text/container'
 import ExplodingMessage from './exploding/container'
 import PaymentMessage from './payment/container'
+import JourneycardMessage from './journeycard/container'
 import {Position} from '../../../../common-adapters/relative-popup-hoc.types'
 import {StylesCrossPlatform} from '../../../../styles/css'
 
 type Props = {
   attachTo?: () => React.Component<any> | null
-  message: Types.DecoratedMessage
+  message: Types.Message
   onHidden: () => void
   position: Position
   style?: StylesCrossPlatform
@@ -44,17 +45,30 @@ class MessageAction extends React.PureComponent<Props> {
         )
       case 'setChannelname':
       case 'setDescription':
+      case 'pin':
       case 'systemAddedToTeam':
       case 'systemChangeRetention':
       case 'systemGitPush':
       case 'systemInviteAccepted':
-      case 'systemJoined':
-      case 'systemLeft':
+      case 'systemSBSResolved':
       case 'systemSimpleToComplex':
+      case 'systemChangeAvatar':
+      case 'systemNewChannel':
       case 'systemText':
       case 'systemUsersAddedToConversation':
         return (
           <TextMessage
+            attachTo={this.props.attachTo}
+            message={this.props.message}
+            onHidden={this.props.onHidden}
+            position={this.props.position}
+            style={this.props.style}
+            visible={this.props.visible}
+          />
+        )
+      case 'journeycard':
+        return (
+          <JourneycardMessage
             attachTo={this.props.attachTo}
             message={this.props.message}
             onHidden={this.props.onHidden}

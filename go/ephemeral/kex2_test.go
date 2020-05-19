@@ -107,7 +107,7 @@ func subTestKex2Provision(t *testing.T, upgradePerUserKey bool) {
 			device := &libkb.Device{
 				ID:          deviceID,
 				Description: &dname,
-				Type:        libkb.DeviceTypeDesktop,
+				Type:        keybase1.DeviceTypeV2_DESKTOP,
 			}
 			provisionee := engine.NewKex2Provisionee(tcY.G, device, secretY, userX.GetUID(), fakeSalt())
 			mctxY = mctxY.WithUIs(uis).WithNewProvisionalLoginContext()
@@ -176,7 +176,8 @@ func subTestKex2Provision(t *testing.T, upgradePerUserKey bool) {
 
 		// Now clear local store and make sure the server has reboxed userEK.
 		rawUserEKBoxStorage := NewUserEKBoxStorage()
-		rawUserEKBoxStorage.Delete(mctxY, userEKGenY)
+		err = rawUserEKBoxStorage.Delete(mctxY, userEKGenY)
+		require.NoError(t, err)
 		userEKBoxStorageY.ClearCache()
 
 		userEKYFetched, err := userEKBoxStorageY.Get(mctxY, userEKGenY, nil)

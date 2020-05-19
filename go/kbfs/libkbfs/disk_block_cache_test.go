@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/keybase/client/go/kbfs/data"
+	"github.com/keybase/client/go/kbfs/env"
 	"github.com/keybase/client/go/kbfs/ioutil"
 	"github.com/keybase/client/go/kbfs/kbfsblock"
 	"github.com/keybase/client/go/kbfs/kbfscrypto"
@@ -138,19 +139,13 @@ func (dbcg *testDiskBlockCacheGetter) DiskBlockCache() DiskBlockCache {
 	return dbcg.cache
 }
 
-func (dbcg *testDiskBlockCacheGetter) setDiskBlockCache(c DiskBlockCache) {
-	dbcg.lock.Lock()
-	defer dbcg.lock.Unlock()
-	dbcg.cache = c
-}
-
 func newTestDiskBlockCacheGetter(t *testing.T,
 	cache DiskBlockCache) *testDiskBlockCacheGetter {
 	return &testDiskBlockCacheGetter{cache: cache}
 }
 
 func shutdownDiskBlockCacheTest(cache DiskBlockCache) {
-	cache.Shutdown(context.Background())
+	<-cache.Shutdown(context.Background())
 }
 
 func setupRealBlockForDiskCache(t *testing.T, ptr data.BlockPointer, block data.Block,
@@ -482,7 +477,8 @@ func TestDiskBlockCacheStaticLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	require.True(t, int64(standardCache.currBytes) < currBytes)
-	require.Equal(t, 1+numBlocks-int(defaultNumBlocksToEvict), standardCache.numBlocks)
+	require.Equal(
+		t, 1+numBlocks-minNumBlocksToEvictInBatch, standardCache.numBlocks)
 }
 
 func TestDiskBlockCacheDynamicLimit(t *testing.T) {
@@ -528,7 +524,7 @@ func TestDiskBlockCacheDynamicLimit(t *testing.T) {
 
 	t.Log("Add a round of blocks to the cache. Verify that blocks were" +
 		" evicted each time we went past the limit.")
-	start := numBlocks - defaultNumBlocksToEvict
+	start := numBlocks - minNumBlocksToEvictInBatch
 	for i := 1; i <= numBlocks; i++ {
 		blockPtr, _, blockEncoded, serverHalf := setupBlockForDiskCache(
 			t, config)
@@ -536,7 +532,8 @@ func TestDiskBlockCacheDynamicLimit(t *testing.T) {
 			ctx, tlf.FakeID(10, tlf.Private), blockPtr.ID, blockEncoded,
 			serverHalf)
 		require.NoError(t, err)
-		require.Equal(t, start+(i%defaultNumBlocksToEvict), standardCache.numBlocks)
+		require.Equal(
+			t, start+(i%minNumBlocksToEvictInBatch), standardCache.numBlocks)
 	}
 
 	require.True(t, int64(standardCache.currBytes) < currBytes)
@@ -553,7 +550,8 @@ func TestDiskBlockCacheWithRetrievalQueue(t *testing.T) {
 	t.Log("Create a queue with 0 workers to rule it out from serving blocks.")
 	bg := newFakeBlockGetter(false)
 	q := newBlockRetrievalQueue(
-		0, 0, 0, newTestBlockRetrievalConfig(t, bg, cache))
+		0, 0, 0, newTestBlockRetrievalConfig(t, bg, cache),
+		env.EmptyAppStateUpdater{})
 	require.NotNil(t, q)
 	defer endBlockRetrievalQueueTest(t, q)
 
@@ -705,7 +703,10 @@ func TestDiskBlockCacheUnsyncTlf(t *testing.T) {
 
 	tempdir, err := ioutil.TempDir(os.TempDir(), "kbfscache")
 	require.NoError(t, err)
-	defer ioutil.RemoveAll(tempdir)
+	defer func() {
+		err := ioutil.RemoveAll(tempdir)
+		require.NoError(t, err)
+	}()
 
 	// Use a real config, since we need the real SetTlfSyncState
 	// implementation.
@@ -715,12 +716,17 @@ func TestDiskBlockCacheUnsyncTlf(t *testing.T) {
 	clock := clocktest.NewTestClockNow()
 	config.SetClock(clock)
 
-	config.EnableDiskLimiter(tempdir)
-	config.loadSyncedTlfsLocked()
+	err = config.EnableDiskLimiter(tempdir)
+	require.NoError(t, err)
+	err = config.loadSyncedTlfsLocked()
+	require.NoError(t, err)
 	config.diskCacheMode = DiskCacheModeLocal
 	err = config.MakeDiskBlockCacheIfNotExists()
 	require.NoError(t, err)
 	cache := config.DiskBlockCache().(*diskBlockCacheWrapped)
+	defer func() {
+		<-cache.Shutdown(context.Background())
+	}()
 	standardCache := cache.syncCache
 	err = standardCache.WaitUntilStarted()
 	require.NoError(t, err)
@@ -953,4 +959,40 @@ func TestDiskBlockCacheMark(t *testing.T) {
 	require.EqualError(t, err, data.NoSuchBlockError{ID: ids[2]}.Error())
 	_, _, _, err = cache.Get(ctx, tlfID, ids[4], DiskBlockAnyCache)
 	require.EqualError(t, err, data.NoSuchBlockError{ID: ids[4]}.Error())
+}
+
+func TestDiskBlockCacheRemoveBrokenBlocks(t *testing.T) {
+	t.Parallel()
+	t.Log("Test that blocks with corrupt metadata are removed.")
+	cache, config := initDiskBlockCacheTest(t)
+	defer shutdownDiskBlockCacheTest(cache)
+	wsCache := cache.workingSetCache
+	ctx := context.Background()
+
+	t.Log("Add one block, then corrupt its metadata.")
+	tlfID := tlf.FakeID(1, tlf.Private)
+	blockPtr1, _, blockEncoded1, serverHalf1 := setupBlockForDiskCache(
+		t, config)
+	err := cache.Put(
+		ctx, tlfID, blockPtr1.ID, blockEncoded1, serverHalf1,
+		DiskBlockWorkingSetCache)
+	require.NoError(t, err)
+	require.Equal(t, 1, wsCache.numBlocks)
+
+	err = wsCache.metaDb.Delete(blockPtr1.ID.Bytes(), nil)
+	require.NoError(t, err)
+
+	t.Log("Make the cache full, and put a new block, which should succeed " +
+		"and will remove the broken block.")
+	currBytes := int64(cache.workingSetCache.currBytes)
+	limiter := config.DiskLimiter().(*backpressureDiskLimiter)
+	limiter.diskCacheByteTracker.limit = currBytes
+
+	blockPtr2, _, blockEncoded2, serverHalf2 := setupBlockForDiskCache(
+		t, config)
+	err = cache.Put(
+		ctx, tlfID, blockPtr2.ID, blockEncoded2, serverHalf2,
+		DiskBlockWorkingSetCache)
+	require.NoError(t, err)
+	require.Equal(t, 1, wsCache.numBlocks)
 }

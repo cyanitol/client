@@ -1,48 +1,97 @@
 import React from 'react'
-import {Avatar, Box, Button, Input, Text, ButtonBar, WaitingButton} from '../../common-adapters'
-import {globalStyles, globalMargins} from '../../styles'
+import * as Kb from '../../common-adapters'
+import * as Styles from '../../styles'
+import * as TeamsGen from '../../actions/teams-gen'
+import * as Container from '../../util/container'
+import * as Constants from '../../constants/teams'
+import * as Types from '../../constants/types/teams'
+import {ModalTitle} from '../common'
 
-export type Props = {
-  description: string
-  onChangeDescription: (description: string) => void
-  onSetDescription: () => void
-  onClose: () => void
-  origDescription: string
-  teamname: string
-  waitingKey: string
+type Props = Container.RouteProps<{teamID: Types.TeamID}>
+
+const EditTeamDescription = (props: Props) => {
+  const teamID = Container.getRouteProps(props, 'teamID', Types.noTeamID)
+
+  const teamname = Container.useSelector(state => Constants.getTeamNameFromID(state, teamID))
+  const waitingKey = Constants.teamWaitingKey(teamID)
+  const waiting = Container.useAnyWaiting(waitingKey)
+  const error = Container.useSelector(state => state.teams.errorInEditDescription)
+  const origDescription = Container.useSelector(state => Constants.getTeamDetails(state, teamID).description)
+
+  if (teamID === Types.noTeamID || teamname === null) {
+    throw new Error(
+      `There was a problem loading the description page, please report this error (teamID: ${teamID}, teamname: ${teamname}).`
+    )
+  }
+
+  const [description, setDescription] = React.useState(origDescription)
+
+  const dispatch = Container.useDispatch()
+  const nav = Container.useSafeNavigation()
+  const onSave = () => dispatch(TeamsGen.createEditTeamDescription({description, teamID}))
+  const onClose = () => dispatch(nav.safeNavigateUpPayload())
+
+  const wasWaiting = Container.usePrevious(waiting)
+  React.useEffect(() => {
+    if (!waiting && wasWaiting && !error) dispatch(nav.safeNavigateUpPayload())
+  }, [waiting, wasWaiting, nav, dispatch, error])
+
+  return (
+    <Kb.Modal
+      mode="Default"
+      banners={
+        error
+          ? [
+              <Kb.Banner color="red" key="err">
+                {error}
+              </Kb.Banner>,
+            ]
+          : undefined
+      }
+      onClose={onClose}
+      footer={{
+        content: (
+          <Kb.ButtonBar fullWidth={true} style={styles.buttonBar}>
+            <Kb.Button label="Cancel" onClick={onClose} type="Dim" />
+            <Kb.Button
+              disabled={description === origDescription}
+              label="Save"
+              onClick={onSave}
+              waiting={waiting}
+            />
+          </Kb.ButtonBar>
+        ),
+      }}
+      header={{title: <ModalTitle teamID={teamID} title="Edit team description" />}}
+      allowOverflow={true}
+    >
+      <Kb.Box2 alignItems="center" direction="vertical" style={styles.container}>
+        <Kb.LabeledInput
+          placeholder="Team description"
+          onChangeText={setDescription}
+          value={description}
+          multiline={true}
+          rowsMin={3}
+          rowsMax={3}
+          maxLength={280}
+          autoFocus={true}
+        />
+      </Kb.Box2>
+    </Kb.Modal>
+  )
 }
 
-const EditTeamDescription = ({
-  description,
-  origDescription,
-  teamname,
-  onChangeDescription,
-  onClose,
-  onSetDescription,
-  waitingKey,
-}: Props) => (
-  <Box style={{...globalStyles.flexBoxColumn, alignItems: 'center', padding: globalMargins.large}}>
-    <Avatar isTeam={true} teamname={teamname} size={64} />
-    <Text style={{paddingBottom: globalMargins.medium, paddingTop: globalMargins.xtiny}} type="BodyBig">
-      {teamname}
-    </Text>
-    <Input
-      hintText="Brief description"
-      onChangeText={onChangeDescription}
-      value={description}
-      multiline={true}
-      style={{alignSelf: 'stretch', flexGrow: 1}}
-    />
-    <ButtonBar>
-      <Button label="Cancel" onClick={onClose} type="Dim" />
-      <WaitingButton
-        disabled={description === origDescription}
-        label="Save"
-        onClick={onSetDescription}
-        waitingKey={waitingKey}
-      />
-    </ButtonBar>
-  </Box>
-)
+const styles = Styles.styleSheetCreate(() => ({
+  buttonBar: {alignItems: 'center'},
+  container: {
+    ...Styles.padding(Styles.globalMargins.small),
+    width: '100%',
+  },
+  headerIcon: Styles.padding(Styles.globalMargins.tiny, 0, 0),
+  title: {
+    paddingBottom: Styles.globalMargins.medium,
+    paddingTop: Styles.globalMargins.xtiny,
+  },
+}))
 
 export default EditTeamDescription

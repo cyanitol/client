@@ -1,37 +1,29 @@
-import * as I from 'immutable'
 import * as React from 'react'
 import * as Styles from '../../../styles'
 import * as Constants from '../../../constants/fs'
+import * as Types from '../../../constants/types/fs'
 import {rowStyles, StillCommon, StillCommonProps} from './common'
 import * as Kb from '../../../common-adapters'
 import {PathType} from '../../../constants/types/fs'
 
-type TlfTypeProps = StillCommonProps & {
-  badgeCount: number
-  routePath: I.List<string>
-}
+type TlfTypeProps = StillCommonProps
 
 const TlfType = (props: TlfTypeProps) => (
   <StillCommon
-    name={props.name}
     path={props.path}
     onOpen={props.onOpen}
     inDestinationPicker={props.inDestinationPicker}
-    badge={props.badgeCount}
-    routePath={props.routePath}
-  >
-    <Kb.Box style={rowStyles.itemBox}>
-      <Kb.Box2 direction="horizontal" fullWidth={true}>
-        <Kb.Text
-          type={Constants.pathTypeToTextType(PathType.Folder)}
-          style={rowStyles.rowText}
-          lineClamp={Styles.isMobile ? 1 : undefined}
-        >
-          {props.name}
-        </Kb.Text>
-      </Kb.Box2>
-    </Kb.Box>
-  </StillCommon>
+    writingToJournal={false}
+    content={
+      <Kb.Text
+        type={Constants.pathTypeToTextType(PathType.Folder)}
+        style={rowStyles.rowText}
+        lineClamp={Styles.isMobile ? 1 : undefined}
+      >
+        {Types.getPathName(props.path)}
+      </Kb.Text>
+    }
+  />
 )
 
 export default TlfType

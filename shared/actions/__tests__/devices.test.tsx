@@ -1,14 +1,13 @@
 /* eslint-env jest */
-import * as I from 'immutable'
-import * as Types from '../../constants/types/devices'
 import * as Constants from '../../constants/devices'
-import * as Tabs from '../../constants/tabs'
+import * as Container from '../../util/container'
 import * as DevicesGen from '../devices-gen'
 import * as RPCTypes from '../../constants/types/rpc-gen'
 import * as RouteTreeGen from '../route-tree-gen'
-import devicesSaga from '../devices'
+import * as Tabs from '../../constants/tabs'
 import * as Testing from '../../util/testing'
-import HiddenString from '../../util/hidden-string'
+import * as Types from '../../constants/types/devices'
+import devicesSaga from '../devices'
 
 jest.mock('../../engine/require')
 
@@ -16,72 +15,69 @@ jest.mock('../../engine/require')
 const blankStore = Testing.getInitialStore()
 const initialStore = {
   ...blankStore,
-  config: blankStore.config.merge({
-    deviceID: '999',
-    loggedIn: true,
-    username: 'username',
-  }),
+  config: {...blankStore.config, deviceID: '999', loggedIn: true, username: 'username'},
 }
 
-const loadedStore = {
-  ...initialStore,
-  devices: initialStore.devices.merge({
-    deviceMap: I.Map([
-      [
-        Types.stringToDeviceID('123'),
-        Constants.makeDevice({
-          created: 0,
-          currentDevice: true,
-          deviceID: Types.stringToDeviceID('123'),
-          lastUsed: 4567,
-          name: 'a computer',
-          provisionedAt: 0,
-          provisionerName: '',
-          revokedAt: null,
-          revokedByName: null,
-          type: 'desktop',
-        }),
-      ],
-      [
-        Types.stringToDeviceID('456'),
-        Constants.makeDevice({
-          created: 0,
-          currentDevice: false,
-          deviceID: Types.stringToDeviceID('456'),
-          lastUsed: 4567,
-          name: 'a phone',
-          provisionedAt: 0,
-          provisionerName: '',
-          revokedAt: null,
-          revokedByName: null,
-          type: 'mobile',
-        }),
-      ],
-      [
-        Types.stringToDeviceID('789'),
-        Constants.makeDevice({
-          created: 0,
-          currentDevice: false,
-          deviceID: Types.stringToDeviceID('789'),
-          lastUsed: 4567,
-          name: 'paper key',
-          provisionedAt: 0,
-          provisionerName: '',
-          revokedAt: null,
-          revokedByName: null,
-          type: 'backup',
-        }),
-      ],
-    ]),
-  }),
-}
+const loadedStore = Container.produce(initialStore, draftState => {
+  const deviceMap = new Map<string, Types.Device>()
+
+  deviceMap.set(
+    Types.stringToDeviceID('123'),
+    Constants.makeDevice({
+      created: 1234,
+      currentDevice: true,
+      deviceID: Types.stringToDeviceID('123'),
+      lastUsed: 4567,
+      name: 'a computer',
+      provisionedAt: undefined,
+      provisionerName: undefined,
+      revokedAt: undefined,
+      revokedByName: undefined,
+      type: 'desktop',
+    })
+  )
+
+  deviceMap.set(
+    Types.stringToDeviceID('456'),
+    Constants.makeDevice({
+      created: 1234,
+      currentDevice: false,
+      deviceID: Types.stringToDeviceID('456'),
+      lastUsed: 4567,
+      name: 'a phone',
+      provisionedAt: undefined,
+      provisionerName: undefined,
+      revokedAt: undefined,
+      revokedByName: undefined,
+      type: 'mobile',
+    })
+  )
+
+  deviceMap.set(
+    Types.stringToDeviceID('789'),
+    Constants.makeDevice({
+      created: 1234,
+      currentDevice: false,
+      deviceID: Types.stringToDeviceID('789'),
+      lastUsed: 4567,
+      name: 'paper key',
+      provisionedAt: undefined,
+      provisionerName: undefined,
+      revokedAt: undefined,
+      revokedByName: undefined,
+      type: 'backup',
+    })
+  )
+  draftState.devices.deviceMap = deviceMap
+})
 
 const details = [
   {
     currentDevice: true,
     device: {
-      ctime: 1234,
+      cTime: 1234,
       deviceID: '123',
+      deviceNumberOfType: 0,
       encryptKey: 0,
       lastUsedTime: 4567,
       mTime: 2345,
@@ -95,8 +91,9 @@ const details = [
   {
     currentDevice: false,
     device: {
-      ctime: 1234,
+      cTime: 1234,
       deviceID: '456',
+      deviceNumberOfType: 0,
       encryptKey: 0,
       lastUsedTime: 4567,
       mTime: 2345,
@@ -110,8 +107,9 @@ const details = [
   {
     currentDevice: false,
     device: {
-      ctime: 1234,
+      cTime: 1234,
       deviceID: '789',
+      deviceNumberOfType: 0,
       encryptKey: 0,
       lastUsedTime: 4567,
       mTime: 2345,
@@ -124,9 +122,20 @@ const details = [
   },
 ]
 
-const startOnDevicesTab = dispatch => {
-  dispatch(RouteTreeGen.createSwitchRouteDef({loggedIn: true}))
-  dispatch(RouteTreeGen.createNavigateTo({path: [Tabs.devicesTab]}))
+const startOnDevicesTab = (dispatch: Container.Dispatch) => {
+  dispatch(RouteTreeGen.createSwitchLoggedIn({loggedIn: true}))
+  dispatch(RouteTreeGen.createNavigateAppend({path: [Tabs.devicesTab]}))
+}
+
+const expectNavWithDeviceID = (deviceID: string) => {
+  const navAppend = jest.spyOn(RouteTreeGen, 'createNavigateAppend')
+  const assertNavHasDeviceID = () =>
+    expect(navAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: expect.arrayContaining([expect.objectContaining({props: expect.objectContaining({deviceID})})]),
+      })
+    )
+  return {assertNavHasDeviceID}
 }
 
 const startReduxSaga = Testing.makeStartReduxSaga(devicesSaga, initialStore, startOnDevicesTab)
@@ -134,8 +143,8 @@ const startReduxSaga = Testing.makeStartReduxSaga(devicesSaga, initialStore, sta
 // const getRoute = getState => getRoutePath(getState().routeTree.routeState, [Tabs.devicesTab])
 
 describe('reload side effects', () => {
-  let init
-  let rpc
+  let init: any
+  let rpc: any
   beforeEach(() => {
     init = startReduxSaga()
     rpc = jest.spyOn(RPCTypes, 'deviceDeviceHistoryListRpcPromise')
@@ -172,8 +181,8 @@ describe('reload side effects', () => {
 })
 
 describe('load', () => {
-  let init
-  let rpc
+  let init: any
+  let rpc: any
   beforeEach(() => {
     init = startReduxSaga()
   })
@@ -199,15 +208,15 @@ describe('load', () => {
     rpc.mockImplementation(() => Promise.resolve())
     dispatch(DevicesGen.createLoad())
     return Testing.flushPromises().then(() => {
-      expect(getState().devices.deviceMap).toEqual(I.Map())
+      expect(getState().devices.deviceMap).toEqual(new Map())
       expect(rpc).toHaveBeenCalled()
     })
   })
 })
 
 describe('revoking other', () => {
-  let init
-  let rpc
+  let init: any
+  let rpc: any
   beforeEach(() => {
     init = Testing.makeStartReduxSaga(devicesSaga, loadedStore, startOnDevicesTab)()
   })
@@ -229,8 +238,8 @@ describe('revoking other', () => {
 })
 
 describe('revoking self', () => {
-  let init
-  let rpc
+  let init: any
+  let rpc: any
   beforeEach(() => {
     init = Testing.makeStartReduxSaga(devicesSaga, loadedStore, startOnDevicesTab)()
   })
@@ -255,7 +264,7 @@ describe('revoking self', () => {
 })
 
 describe('navs after revoking', () => {
-  let init
+  let init: any
   beforeEach(() => {
     init = Testing.makeStartReduxSaga(devicesSaga, loadedStore, startOnDevicesTab)()
   })
@@ -277,8 +286,8 @@ describe('navs after revoking', () => {
 })
 
 describe('shows revoke page correctly', () => {
-  let init
-  let rpc
+  let init: any
+  let rpc: any
   beforeEach(() => {
     init = Testing.makeStartReduxSaga(devicesSaga, loadedStore, startOnDevicesTab)()
   })
@@ -287,18 +296,18 @@ describe('shows revoke page correctly', () => {
   })
 
   it('shows revoke page', () => {
-    const {dispatch, getState} = init
+    const {dispatch} = init
     const deviceID = Types.stringToDeviceID('456')
+    const {assertNavHasDeviceID} = expectNavWithDeviceID(deviceID)
     dispatch(DevicesGen.createShowRevokePage({deviceID}))
-    // expect(getRoute(getState)).toEqual(I.List([Tabs.devicesTab, 'devicePage', 'deviceRevoke']))
-    expect(getState().devices.selectedDeviceID).toEqual(deviceID)
+    assertNavHasDeviceID()
   })
 
   it('requests endangered', () => {
     const {dispatch, getState} = init
     const deviceID = Types.stringToDeviceID('456')
     rpc = jest.spyOn(RPCTypes, 'rekeyGetRevokeWarningRpcPromise')
-    rpc.mockImplementation(() => Promise.resolve())
+    rpc.mockImplementation(() => Promise.resolve({}))
     dispatch(DevicesGen.createShowRevokePage({deviceID}))
     const targetDevice = deviceID
     const actingDevice = getState().config.deviceID
@@ -312,7 +321,7 @@ describe('shows revoke page correctly', () => {
     rpc.mockImplementation(() => Promise.resolve({}))
     dispatch(DevicesGen.createShowRevokePage({deviceID}))
     return Testing.flushPromises().then(() => {
-      expect(getState().devices.endangeredTLFMap.get(deviceID)).toEqual(I.Set())
+      expect(getState().devices.endangeredTLFMap.get(deviceID)).toEqual(new Set())
     })
   })
 
@@ -323,30 +332,30 @@ describe('shows revoke page correctly', () => {
     rpc.mockImplementation(() => Promise.resolve({endangeredTLFs: [{name: 'one'}, {name: 'two'}]}))
     dispatch(DevicesGen.createShowRevokePage({deviceID}))
     return Testing.flushPromises().then(() => {
-      expect(getState().devices.endangeredTLFMap.get(deviceID)).toEqual(I.Set.of('one', 'two'))
+      expect(getState().devices.endangeredTLFMap.get(deviceID)).toEqual(new Set(['one', 'two']))
     })
   })
 })
 
 describe('shows device page correctly', () => {
-  let init
+  let init: any
   beforeEach(() => {
     init = Testing.makeStartReduxSaga(devicesSaga, loadedStore, startOnDevicesTab)()
   })
   afterEach(() => {})
 
   it('shows device page', () => {
-    const {dispatch, getState} = init
+    const {dispatch} = init
     const deviceID = Types.stringToDeviceID('789')
+    const {assertNavHasDeviceID} = expectNavWithDeviceID(deviceID)
     dispatch(DevicesGen.createShowDevicePage({deviceID}))
-    // expect(getRoute(getState)).toEqual(I.List([Tabs.devicesTab, 'devicePage']))
-    expect(getState().devices.selectedDeviceID).toEqual(deviceID)
+    assertNavHasDeviceID()
   })
 })
 
 describe('shows paperkey page correctly', () => {
-  let init
-  let rpc
+  let init: any
+  let rpc: any
   beforeEach(() => {
     init = Testing.makeStartReduxSaga(devicesSaga, loadedStore, startOnDevicesTab)()
   })
@@ -356,8 +365,9 @@ describe('shows paperkey page correctly', () => {
 
   it('shows paperkey page', () => {
     const {dispatch} = init
+    const navAppend = jest.spyOn(RouteTreeGen, 'createNavigateAppend')
     dispatch(DevicesGen.createShowPaperKeyPage())
-    // expect(getRoute(getState)).toEqual(I.List([Tabs.devicesTab, 'devicePaperKey']))
+    expect(navAppend).toHaveBeenCalled()
   })
 
   it('creates a paperkey', () => {
@@ -370,8 +380,8 @@ describe('shows paperkey page correctly', () => {
 
   it('paperkey gets loaded', () => {
     const {dispatch, getState} = init
-    const paperKey = new HiddenString('a paper key')
-    expect(getState().devices.newPaperkey).toEqual(new HiddenString(''))
+    const paperKey = new Container.HiddenString('a paper key')
+    expect(getState().devices.newPaperkey).toEqual(new Container.HiddenString(''))
     dispatch(DevicesGen.createPaperKeyCreated({paperKey}))
     expect(getState().devices.newPaperkey).toEqual(paperKey)
   })

@@ -27,13 +27,13 @@ func newTlfHandler(xp rpc.Transporter, g *globals.Context) *tlfHandler {
 	return &tlfHandler{
 		BaseHandler:   NewBaseHandler(g.ExternalG(), xp),
 		Contextified:  globals.NewContextified(g),
-		DebugLabeler:  utils.NewDebugLabeler(g.GetLog(), "TlfHandler", false),
+		DebugLabeler:  utils.NewDebugLabeler(g.ExternalG(), "TlfHandler", false),
 		tlfInfoSource: chat.NewKBFSNameInfoSource(g),
 	}
 }
 
 func (h *tlfHandler) CryptKeys(ctx context.Context, arg keybase1.TLFQuery) (res keybase1.GetTLFCryptKeysRes, err error) {
-	defer h.Trace(ctx, func() error { return err },
+	defer h.Trace(ctx, &err,
 		fmt.Sprintf("CryptKeys(tlf=%s,mode=%v)", arg.TlfName, arg.IdentifyBehavior))()
 	var breaks []keybase1.TLFIdentifyFailure
 	ctx = globals.ChatCtx(ctx, h.G(), arg.IdentifyBehavior, &breaks, chat.NewCachingIdentifyNotifier(h.G()))
@@ -41,7 +41,7 @@ func (h *tlfHandler) CryptKeys(ctx context.Context, arg keybase1.TLFQuery) (res 
 }
 
 func (h *tlfHandler) PublicCanonicalTLFNameAndID(ctx context.Context, arg keybase1.TLFQuery) (res keybase1.CanonicalTLFNameAndIDWithBreaks, err error) {
-	defer h.Trace(ctx, func() error { return err },
+	defer h.Trace(ctx, &err,
 		fmt.Sprintf("PublicCanonicalTLFNameAndID(tlf=%s,mode=%v)", arg.TlfName,
 			arg.IdentifyBehavior))()
 	var breaks []keybase1.TLFIdentifyFailure
@@ -50,7 +50,7 @@ func (h *tlfHandler) PublicCanonicalTLFNameAndID(ctx context.Context, arg keybas
 }
 
 func (h *tlfHandler) CompleteAndCanonicalizePrivateTlfName(ctx context.Context, arg keybase1.TLFQuery) (res keybase1.CanonicalTLFNameAndIDWithBreaks, err error) {
-	defer h.Trace(ctx, func() error { return err },
+	defer h.Trace(ctx, &err,
 		fmt.Sprintf("CompleteAndCanonicalizePrivateTlfName(tlf=%s,mode=%v)", arg.TlfName,
 			arg.IdentifyBehavior))()
 	var breaks []keybase1.TLFIdentifyFailure

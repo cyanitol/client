@@ -2,21 +2,23 @@ import * as React from 'react'
 import * as Kb from '../../../common-adapters'
 import * as Types from '../../../constants/types/tracker2'
 import * as Styles from '../../../styles'
+import {TeamID} from '../../../constants/types/teams'
 import OpenMeta from './openmeta'
 import TeamInfo from './teaminfo'
 
-type Props = {
+export type Props = {
   // lint totally confused
   // eslint-disable-next-line no-use-before-define
-  teamShowcase: ReadonlyArray<Types._TeamShowcase>
+  teamShowcase: ReadonlyArray<Types.TeamShowcase>
   teamMeta: {
     [K in string]: {
       inTeam: boolean
+      teamID: TeamID
     }
   }
-  onJoinTeam: (arg0: string) => void
-  onViewTeam: (arg0: string) => void
-  onEdit: (() => void) | null
+  onJoinTeam: (teamname: string) => void
+  onViewTeam: (teamname: string) => void
+  onEdit?: () => void
 }
 
 const _TeamShowcase = p => (
@@ -45,8 +47,8 @@ const ShowcaseTeamsOffer = p => (
     <Kb.ClickableBox onClick={p.onEdit}>
       <Kb.Box2 direction="horizontal" gap="tiny">
         <Kb.Icon type="icon-team-placeholder-avatar-32" style={styles.placeholderTeam} />
-        <Kb.Text style={styles.youPublishTeam} type="BodyPrimaryLink">
-          Publish the teams you're in
+        <Kb.Text style={styles.youFeatureTeam} type="BodyPrimaryLink">
+          Feature the teams you're in
         </Kb.Text>
       </Kb.Box2>
     </Kb.ClickableBox>
@@ -66,27 +68,30 @@ const Teams = (p: Props) =>
           key={t.name}
           {...t}
           onJoinTeam={p.onJoinTeam}
-          onViewTeam={p.onViewTeam}
+          onViewTeam={() => p.onViewTeam(t.name)}
           inTeam={p.teamMeta[t.name].inTeam}
         />
       ))}
     </Kb.Box2>
   ) : null
 
-const styles = Styles.styleSheetCreate({
-  link: {color: Styles.globalColors.black},
-  placeholderTeam: {borderRadius: Styles.borderRadius},
-  showcase: {alignItems: 'center'},
-  showcases: {
-    alignItems: 'flex-start',
-    flexShrink: 0,
-    paddingBottom: Styles.globalMargins.small,
-    paddingLeft: Styles.globalMargins.tiny,
-  },
-  youPublishTeam: {
-    alignSelf: 'center',
-    color: Styles.globalColors.black_50,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      link: {color: Styles.globalColors.black},
+      placeholderTeam: {borderRadius: Styles.borderRadius},
+      showcase: {alignItems: 'center'},
+      showcases: {
+        alignItems: 'flex-start',
+        flexShrink: 0,
+        paddingBottom: Styles.globalMargins.small,
+        paddingLeft: Styles.globalMargins.tiny,
+      },
+      youFeatureTeam: {
+        alignSelf: 'center',
+        color: Styles.globalColors.black_50,
+      },
+    } as const)
+)
 
 export default Teams

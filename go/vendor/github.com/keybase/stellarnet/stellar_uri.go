@@ -111,19 +111,23 @@ func UnvalidatedStellarURIOriginDomain(uri string) (originDomain string, err err
 // ValidatedStellarURI contains the origin domain that ValidateStellarURI
 // confirmed
 type ValidatedStellarURI struct {
-	URI          string
-	Operation    string
-	OriginDomain string
-	Message      string
-	CallbackURL  string
-	XDR          string
-	TxEnv        *xdr.TransactionEnvelope
-	Recipient    string
-	Amount       string
-	AssetCode    string
-	AssetIssuer  string
-	Memo         string
-	MemoType     string
+	URI                  string
+	Operation            string
+	OriginDomain         string
+	Message              string
+	CallbackURL          string
+	XDR                  string
+	TxEnv                *xdr.TransactionEnvelope
+	Recipient            string
+	Amount               string
+	AssetCode            string
+	AssetIssuer          string
+	Memo                 string
+	MemoType             string
+	Signed               bool
+	ReplaceSourceAccount bool
+	ReplaceSeqnum        bool
+	UnknownReplaceFields bool
 }
 
 // ValidateStellarURI will check the validity of a web+stellar SEP7 URI.
@@ -205,17 +209,15 @@ func newUnvalidatedURI(uri string) (*unvalidatedURI, error) {
 }
 
 func (u *unvalidatedURI) Validate(getter HTTPGetter) (*ValidatedStellarURI, error) {
-	// origin_domain and signature are optional in the spec, but
-	// it seems like a really bad idea to allow any of these
-	// requests without them, so we are going to make them required.
-	if u.OriginDomain == "" {
+	// URIs without signatures are valid iff the origin domain is also not set
+	if u.OriginDomain == "" && u.Signature != "" {
 		return nil, ErrMissingParameter{Key: "origin_domain"}
 	}
-	if u.Signature == "" {
+	if u.OriginDomain != "" && u.Signature == "" {
 		return nil, ErrMissingParameter{Key: "signature"}
 	}
 
-	if !isDomainName(u.OriginDomain) {
+	if u.OriginDomain != "" && !isDomainName(u.OriginDomain) {
 		return nil, ErrInvalidParameter{Key: "origin_domain"}
 	}
 
@@ -261,31 +263,36 @@ func (u *unvalidatedURI) originDomainSigningKey(getter HTTPGetter) (string, erro
 	return strings.TrimSpace(sdoc.SigningKey), nil
 }
 
-func (u *unvalidatedURI) validateOriginDomain(getter HTTPGetter) error {
+// Validates the origin domain. Returns (isSigned, error)
+func (u *unvalidatedURI) validateOriginDomain(getter HTTPGetter) (bool, error) {
+	if u.Signature == "" {
+		return false, nil
+	}
+
 	signingKey, err := u.originDomainSigningKey(getter)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if signingKey == "" {
-		return ErrInvalidWellKnownOrigin{Wrapped: errors.New("no signing key")}
+		return false, ErrInvalidWellKnownOrigin{Wrapped: errors.New("no signing key")}
 	}
 
 	kp, err := keypair.Parse(signingKey)
 	if err != nil {
-		return ErrInvalidWellKnownOrigin{Wrapped: errors.New("invalid signing key")}
+		return false, ErrInvalidWellKnownOrigin{Wrapped: errors.New("invalid signing key")}
 	}
 
 	signature, err := base64.StdEncoding.DecodeString(u.Signature)
 	if err != nil {
-		return ErrBadSignature
+		return false, ErrBadSignature
 	}
 
 	if err := kp.Verify(u.payload(), signature); err != nil {
-		return ErrBadSignature
+		return false, ErrBadSignature
 	}
 
-	return nil
+	return true, nil
 }
 
 func (u *unvalidatedURI) payload() []byte {
@@ -303,7 +310,8 @@ func (u *unvalidatedURI) payload() []byte {
 }
 
 func (u *unvalidatedURI) validatePay(getter HTTPGetter) (*ValidatedStellarURI, error) {
-	if err := u.validateOriginDomain(getter); err != nil {
+	signed, err := u.validateOriginDomain(getter)
+	if err != nil {
 		return nil, err
 	}
 
@@ -313,6 +321,7 @@ func (u *unvalidatedURI) validatePay(getter HTTPGetter) (*ValidatedStellarURI, e
 	}
 
 	validated := u.newValidated("pay")
+	validated.Signed = signed
 	validated.Recipient = destination
 	validated.Amount = u.value("amount")
 	validated.AssetCode = u.value("asset_code")
@@ -342,34 +351,78 @@ func (u *unvalidatedURI) validateTx(getter HTTPGetter) (*ValidatedStellarURI, er
 		return nil, ErrMissingParameter{Key: "xdr"}
 	}
 
-	if err := u.validateOriginDomain(getter); err != nil {
+	signed, err := u.validateOriginDomain(getter)
+	if err != nil {
 		return nil, err
 	}
 
-	validated := u.newValidated("tx")
-	validated.XDR = xdrEncoded
-
 	// this isn't in the spec (as of May 2019), but the tx parameter
 	// is actually a TransactionEnvelope.
-	var txEnv xdr.TransactionEnvelope
-	if err := xdr.SafeUnmarshalBase64(xdrEncoded, &txEnv); err != nil {
+	var unvalidatedTxEnv xdr.TransactionEnvelope
+	if err := xdr.SafeUnmarshalBase64(xdrEncoded, &unvalidatedTxEnv); err != nil {
 		return nil, ErrInvalidParameter{Key: "xdr"}
 	}
-	validated.TxEnv = &txEnv
+
+	validatedTxEnv, err := validateTxEnv(unvalidatedTxEnv)
+	if err != nil {
+		return nil, err
+	}
+	validated := u.newValidated("tx")
+	validated.Signed = signed
+	validated.XDR = xdrEncoded
+	validated.TxEnv = &validatedTxEnv
 
 	return validated, nil
+}
+
+func validateTxEnv(txEnv xdr.TransactionEnvelope) (validated xdr.TransactionEnvelope, err error) {
+	var emptyTxEnv xdr.TransactionEnvelope
+	var emptySourceAccount xdr.AccountId
+	for _, op := range txEnv.Tx.Operations {
+		if op.SourceAccount != nil && *op.SourceAccount == emptySourceAccount {
+			return emptyTxEnv, ErrInvalidParameter{Key: "SourceAccount"}
+		}
+	}
+	return txEnv, nil
 }
 
 // newValidated returns a new ValidatedStellarURI with the common
 // fields populated.
 func (u *unvalidatedURI) newValidated(op string) *ValidatedStellarURI {
-	return &ValidatedStellarURI{
+
+	v := &ValidatedStellarURI{
 		URI:          u.raw,
 		Operation:    op,
 		OriginDomain: u.OriginDomain,
 		Message:      u.value("msg"),
-		CallbackURL:  u.value("callback"),
 	}
+
+	// sep7 spec says only "url:" callbacks are supported
+	callback := u.value("callback")
+	if strings.HasPrefix(callback, "url:") {
+		// strip the prefix
+		v.CallbackURL = strings.TrimPrefix(callback, "url:")
+	}
+
+	// check to see if the source account should be replaced
+	replace := u.value("replace")
+	if replace != "" {
+		pieces := strings.Split(replace, ";")
+		fieldsAndHints := strings.Split(pieces[0], ",")
+		for _, f := range fieldsAndHints {
+			parts := strings.Split(f, ":")
+			switch parts[0] {
+			case "sourceAccount":
+				v.ReplaceSourceAccount = true
+			case "seqNum":
+				v.ReplaceSeqnum = true
+			default:
+				v.UnknownReplaceFields = true
+			}
+		}
+	}
+
+	return v
 }
 
 func (u *unvalidatedURI) value(key string) string {

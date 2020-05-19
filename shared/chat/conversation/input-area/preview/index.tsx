@@ -1,6 +1,6 @@
 import React from 'react'
-import {Box, Box2, Text} from '../../../../common-adapters'
-import {globalColors, globalMargins, globalStyles} from '../../../../styles'
+import * as Kb from '../../../../common-adapters'
+import * as Styles from '../../../../styles'
 
 type Props = {
   channelname: string
@@ -14,41 +14,46 @@ type State = {
 
 export default class ChannelPreview extends React.Component<Props, State> {
   state = {clicked: null}
-  _onClick = join =>
+  _onClick = (join: boolean) =>
     this.setState(
       {clicked: join ? 'join' : 'leave'},
       join ? this.props.onJoinChannel : this.props.onLeaveChannel
     )
   render() {
     return (
-      <Box style={styleContainer}>
-        <Text type="BodySemibold" negative={true}>
+      <Kb.Box style={styles.container}>
+        <Kb.Text type="BodySemibold" negative={true}>
           Would you like to join #{this.props.channelname}?
-        </Text>
+        </Kb.Text>
         {!this.state.clicked && (
-          <Box2 direction="horizontal" gap="tiny">
-            <Text type="BodySemiboldLink" negative={true} onClick={() => this._onClick(true)}>
+          <Kb.Box2 direction="horizontal" gap="tiny">
+            <Kb.Text type="BodySemiboldLink" negative={true} onClick={() => this._onClick(true)}>
               Yes, join
-            </Text>
-            <Text type="BodySemiboldLink" negative={true} onClick={() => this._onClick(false)}>
+            </Kb.Text>
+            <Kb.Text type="BodySemiboldLink" negative={true} onClick={() => this._onClick(false)}>
               No, thanks
-            </Text>
-          </Box2>
+            </Kb.Text>
+          </Kb.Box2>
         )}
         {!!this.state.clicked && (
-          <Text type="BodySemibold" negative={true}>
+          <Kb.Text type="BodySemibold" negative={true}>
             {this.state.clicked === 'join' ? 'Joining...' : 'Leaving...'}
-          </Text>
+          </Kb.Text>
         )}
-      </Box>
+      </Kb.Box>
     )
   }
 }
 
-const styleContainer = {
-  ...globalStyles.flexBoxColumn,
-  alignItems: 'center',
-  backgroundColor: globalColors.blue,
-  paddingBottom: globalMargins.tiny,
-  paddingTop: globalMargins.tiny,
-}
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'center',
+        backgroundColor: Styles.globalColors.blue,
+        paddingBottom: Styles.globalMargins.tiny,
+        paddingTop: Styles.globalMargins.tiny,
+      },
+    } as const)
+)

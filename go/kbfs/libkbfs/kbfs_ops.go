@@ -28,6 +28,7 @@ import (
 
 const (
 	quotaUsageStaleTolerance = 10 * time.Second
+	initEditBlockTimeout     = 500 * time.Millisecond
 )
 
 // KBFSOpsStandard implements the KBFSOps interface, and is go-routine
@@ -47,19 +48,23 @@ type KBFSOpsStandard struct {
 	// Closing this channel will shutdown the reidentification
 	// watcher.
 	reIdentifyControlChan chan chan<- struct{}
+	initDoneCh            <-chan struct{}
 
 	favs *Favorites
+
+	syncedTlfObservers *syncedTlfObserverList
 
 	editActivity kbfssync.RepeatedWaitGroup
 	editLock     sync.Mutex
 	editShutdown bool
 
 	currentStatus            *kbfsCurrentStatus
-	quotaUsage               *EventuallyConsistentQuotaUsage
 	longOperationDebugDumper *ImpatientDebugDumper
 
 	initLock       sync.Mutex
 	initEditCancel context.CancelFunc
+	initEditReq    chan struct{}
+	initEditDone   chan struct{}
 	initSyncCancel context.CancelFunc
 }
 
@@ -67,10 +72,19 @@ var _ KBFSOps = (*KBFSOpsStandard)(nil)
 
 const longOperationDebugDumpDuration = time.Minute
 
+type ctxKBFSOpsSkipEditHistoryBlockType int
+
+// This context key indicates that we should not block on TLF edit
+// history initialization, as it would cause a deadlock.
+const ctxKBFSOpsSkipEditHistoryBlock ctxKBFSOpsSkipEditHistoryBlockType = 1
+
 // NewKBFSOpsStandard constructs a new KBFSOpsStandard object.
-func NewKBFSOpsStandard(appStateUpdater env.AppStateUpdater, config Config) *KBFSOpsStandard {
+// `initDone` should be closed when the rest of initialization (such
+// as journal initialization) has completed.
+func NewKBFSOpsStandard(
+	appStateUpdater env.AppStateUpdater, config Config,
+	initDoneCh <-chan struct{}) *KBFSOpsStandard {
 	log := config.MakeLogger("")
-	quLog := config.MakeLogger(QuotaUsageLogModule("KBFSOps"))
 	kops := &KBFSOpsStandard{
 		appStateUpdater:       appStateUpdater,
 		config:                config,
@@ -79,9 +93,9 @@ func NewKBFSOpsStandard(appStateUpdater env.AppStateUpdater, config Config) *KBF
 		ops:                   make(map[data.FolderBranch]*folderBranchOps),
 		opsByFav:              make(map[favorites.Folder]*folderBranchOps),
 		reIdentifyControlChan: make(chan chan<- struct{}),
-		favs: NewFavorites(config),
-		quotaUsage: NewEventuallyConsistentQuotaUsage(
-			config, quLog, config.MakeVLogger(quLog)),
+		initDoneCh:            initDoneCh,
+		favs:                  NewFavorites(config),
+		syncedTlfObservers:    newSyncedTlfObserverList(),
 		longOperationDebugDumper: NewImpatientDebugDumper(
 			config, longOperationDebugDumpDuration),
 		currentStatus: &kbfsCurrentStatus{},
@@ -182,6 +196,11 @@ func (fs *KBFSOpsStandard) PushConnectionStatusChange(
 	service string, newStatus error) {
 	fs.currentStatus.PushConnectionStatusChange(service, newStatus)
 
+	if service == MDServiceName {
+		fs.config.SubscriptionManagerPublisher().PublishChange(
+			keybase1.SubscriptionTopic_FILES_TAB_BADGE)
+	}
+
 	if fs.config.KeybaseService() == nil {
 		return
 	}
@@ -200,7 +219,8 @@ func (fs *KBFSOpsStandard) PushConnectionStatusChange(
 	}
 
 	if newStatus == nil {
-		fs.log.CDebugf(nil, "Asking for an edit re-init after reconnection")
+		fs.log.CDebugf(
+			context.TODO(), "Asking for an edit re-init after reconnection")
 		fs.editActivity.Add(1)
 		go fs.initTlfsForEditHistories()
 		go fs.initSyncedTlfs()
@@ -211,7 +231,8 @@ func (fs *KBFSOpsStandard) PushConnectionStatusChange(
 func (fs *KBFSOpsStandard) PushStatusChange() {
 	fs.currentStatus.PushStatusChange()
 
-	fs.log.CDebugf(nil, "Asking for an edit re-init after status change")
+	fs.log.CDebugf(
+		context.TODO(), "Asking for an edit re-init after status change")
 	fs.editActivity.Add(1)
 	go fs.initTlfsForEditHistories()
 	go fs.initSyncedTlfs()
@@ -261,12 +282,62 @@ func (fs *KBFSOpsStandard) InvalidateNodeAndChildren(
 	return ops.InvalidateNodeAndChildren(ctx, node)
 }
 
+func (fs *KBFSOpsStandard) waitForEditHistoryInitialization(
+	ctx context.Context) {
+	if !fs.config.Mode().TLFEditHistoryEnabled() ||
+		ctx.Value(ctxKBFSOpsSkipEditHistoryBlock) != nil {
+		return
+	}
+
+	reqChan, doneChan := func() (chan<- struct{}, <-chan struct{}) {
+		fs.initLock.Lock()
+		defer fs.initLock.Unlock()
+		return fs.initEditReq, fs.initEditDone
+	}()
+	// There hasn't been a logged-in event yet, so don't wait for the
+	// edit history to be initialized.
+	if reqChan == nil {
+		return
+	}
+
+	// Send a request to unblock, if needed.
+	select {
+	case reqChan <- struct{}{}:
+		fs.config.GetPerfLog().CDebugf(
+			ctx, "reqChan unblock waitForEditHistoryInitialization")
+	default:
+	}
+
+	select {
+	case <-doneChan:
+		// Avoid printing the log message if we don't need to wait at all.
+		return
+	default:
+	}
+
+	fs.log.CDebugf(ctx, "Waiting for the edit history to initialize")
+
+	// Don't wait too long for the edit history to be initialized, in
+	// case we are offline and someone is just trying to get the
+	// cached favorites.
+	ctx, cancel := context.WithTimeout(ctx, initEditBlockTimeout)
+	defer cancel()
+
+	// Wait for the initialization to complete.
+	select {
+	case <-doneChan:
+	case <-ctx.Done():
+	}
+}
+
 // GetFavorites implements the KBFSOps interface for
 // KBFSOpsStandard.
 func (fs *KBFSOpsStandard) GetFavorites(ctx context.Context) (
 	[]favorites.Folder, error) {
 	timeTrackerDone := fs.longOperationDebugDumper.Begin(ctx)
 	defer timeTrackerDone()
+
+	fs.waitForEditHistoryInitialization(ctx)
 
 	favs, err := fs.favs.Get(ctx)
 	if err != nil {
@@ -294,6 +365,118 @@ func (fs *KBFSOpsStandard) GetFavorites(ctx context.Context) (
 	return favs, nil
 }
 
+func (fs *KBFSOpsStandard) getConflictMaps(ctx context.Context) (
+	conflictMap map[ConflictJournalRecord]tlf.ID,
+	clearedMap map[string][]keybase1.Path,
+	cleared []ConflictJournalRecord, err error) {
+	journalManager, err := GetJournalManager(fs.config)
+	if err != nil {
+		// Journaling not enabled.
+		return nil, nil, nil, nil
+	}
+	conflicts, cleared, err := journalManager.GetJournalsInConflict(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if len(conflicts) == 0 && len(cleared) == 0 {
+		return nil, nil, nil, nil
+	}
+
+	clearedMap = make(map[string][]keybase1.Path)
+	for _, c := range cleared {
+		clearedMap[c.ServerViewPath.String()] = append(
+			clearedMap[c.ServerViewPath.String()], c.LocalViewPath)
+	}
+
+	conflictMap = make(map[ConflictJournalRecord]tlf.ID, len(conflicts))
+	for _, c := range conflicts {
+		conflictMap[ConflictJournalRecord{Name: c.Name, Type: c.Type}] = c.ID
+	}
+	return conflictMap, clearedMap, cleared, nil
+}
+
+func (fs *KBFSOpsStandard) findRelatedFolders(ctx context.Context,
+	conflictMap map[ConflictJournalRecord]tlf.ID,
+	clearedMap map[string][]keybase1.Path,
+	folderName string, folderType keybase1.FolderType) (
+	folderNormalView keybase1.FolderNormalView, found bool, err error) {
+	name := tlf.CanonicalName(folderName)
+	t := tlf.TypeFromFolderType(folderType)
+	c := ConflictJournalRecord{
+		Name: name,
+		Type: t,
+	}
+
+	// First check for any current automatically-resolving
+	// conflicts, and whether we're stuck.
+	tlfID, ok := conflictMap[c]
+	if ok {
+		fb := data.FolderBranch{Tlf: tlfID, Branch: data.MasterBranch}
+		ops := fs.getOps(ctx, fb, FavoritesOpNoChange)
+		s, err := ops.FolderConflictStatus(ctx)
+		if err != nil {
+			return keybase1.FolderNormalView{}, false, err
+		}
+		if s != keybase1.FolderConflictType_NONE {
+			folderNormalView.ResolvingConflict = true
+			folderNormalView.StuckInConflict =
+				s == keybase1.FolderConflictType_IN_CONFLICT_AND_STUCK
+			found = true
+		}
+	}
+	// Then check whether this favorite has any local conflict views.
+	p := tlfhandle.BuildProtocolPathForTlfName(t, name)
+	localViews, ok := clearedMap[p.String()]
+	if ok {
+		folderNormalView.LocalViews = localViews
+		found = true
+	}
+
+	return folderNormalView, found, nil
+}
+
+// GetFolderWithFavFlags implements the KBFSOps interface.
+func (fs *KBFSOpsStandard) GetFolderWithFavFlags(ctx context.Context, handle *tlfhandle.Handle) (keybase1.FolderWithFavFlags, error) {
+	favFolder := handle.ToFavorite()
+	folderWithFavFlags, err := fs.favs.GetFolderWithFavFlags(ctx, favFolder)
+	if err != nil {
+		return keybase1.FolderWithFavFlags{}, err
+	}
+	if folderWithFavFlags == nil {
+		folderWithFavFlags = &keybase1.FolderWithFavFlags{
+			Folder: favoriteToFolder(favFolder, handle.FavoriteData()),
+		}
+	}
+
+	// Add sync config.
+	if fs.config.IsSyncedTlf(handle.TlfID()) {
+		syncConfig, err := fs.GetSyncConfig(ctx, handle.TlfID())
+		if err != nil {
+			return keybase1.FolderWithFavFlags{}, err
+		}
+		folderWithFavFlags.Folder.SyncConfig = &syncConfig
+	}
+
+	// Add conflict state
+	conflictMap, clearedMap, _, err := fs.getConflictMaps(ctx)
+	if err != nil {
+		return keybase1.FolderWithFavFlags{}, err
+	}
+	folderNormalView, found, err := fs.findRelatedFolders(
+		ctx, conflictMap, clearedMap, favFolder.Name, favFolder.Type.FolderType())
+	if err != nil {
+		return keybase1.FolderWithFavFlags{}, err
+	}
+	if found {
+		conflictState :=
+			keybase1.NewConflictStateWithNormalview(folderNormalView)
+		folderWithFavFlags.Folder.ConflictState = &conflictState
+	}
+
+	return *folderWithFavFlags, nil
+}
+
 // GetFavoritesAll implements the KBFSOps interface for
 // KBFSOpsStandard.
 func (fs *KBFSOpsStandard) GetFavoritesAll(ctx context.Context) (
@@ -301,12 +484,14 @@ func (fs *KBFSOpsStandard) GetFavoritesAll(ctx context.Context) (
 	timeTrackerDone := fs.longOperationDebugDumper.Begin(ctx)
 	defer timeTrackerDone()
 
+	fs.waitForEditHistoryInitialization(ctx)
+
 	favs, err := fs.favs.GetAll(ctx)
 	if err != nil {
 		return keybase1.FavoritesResult{}, err
 	}
 
-	tlfIDs := fs.config.GetAllSyncedTlfs()
+	tlfMDs := fs.GetAllSyncedTlfMDs(ctx)
 
 	// If we have any synced TLFs, create a quick-index map for
 	// favorites based on name+type.
@@ -315,7 +500,7 @@ func (fs *KBFSOpsStandard) GetFavoritesAll(ctx context.Context) (
 		t    keybase1.FolderType
 	}
 	var indexedFavs map[mapKey]int
-	if len(tlfIDs) > 0 {
+	if len(tlfMDs) > 0 {
 		indexedFavs = make(map[mapKey]int, len(favs.FavoriteFolders))
 		for i, fav := range favs.FavoriteFolders {
 			indexedFavs[mapKey{fav.Name, fav.FolderType}] = i
@@ -323,7 +508,7 @@ func (fs *KBFSOpsStandard) GetFavoritesAll(ctx context.Context) (
 	}
 
 	// Add the sync config mode to each favorite.
-	for _, id := range tlfIDs {
+	for id, md := range tlfMDs {
 		config, err := fs.GetSyncConfig(ctx, id)
 		if err != nil {
 			return keybase1.FavoritesResult{}, err
@@ -334,13 +519,7 @@ func (fs *KBFSOpsStandard) GetFavoritesAll(ctx context.Context) (
 				"Folder %s has sync unexpectedly disabled", id))
 		}
 
-		fb := data.FolderBranch{Tlf: id, Branch: data.MasterBranch}
-		_, h, err := fs.GetRootNodeMetadata(ctx, fb)
-		if err != nil {
-			return keybase1.FavoritesResult{}, err
-		}
-
-		name := string(h.GetCanonicalName())
+		name := string(md.Handle.GetCanonicalName())
 		i, ok := indexedFavs[mapKey{name, id.Type().FolderType()}]
 		if ok {
 			favs.FavoriteFolders[i].SyncConfig = &config
@@ -357,21 +536,11 @@ func (fs *KBFSOpsStandard) GetFavoritesAll(ctx context.Context) (
 
 	// Add the conflict status for any folders in a conflict state to
 	// the favorite struct.
-	journalManager, err := GetJournalManager(fs.config)
-	if err != nil {
-		// Journaling not enabled.
-		return favs, nil
-	}
-	conflicts, cleared, err := journalManager.GetJournalsInConflict(ctx)
+	conflictMap, clearedMap, cleared, err := fs.getConflictMaps(ctx)
 	if err != nil {
 		return keybase1.FavoritesResult{}, err
 	}
 
-	if len(conflicts) == 0 && len(cleared) == 0 {
-		return favs, nil
-	}
-
-	clearedMap := make(map[string][]keybase1.Path)
 	for _, c := range cleared {
 		cs := keybase1.NewConflictStateWithManualresolvinglocalview(
 			keybase1.FolderConflictManualResolvingLocalView{
@@ -385,51 +554,13 @@ func (fs *KBFSOpsStandard) GetFavoritesAll(ctx context.Context) (
 				ResetMembers:  []keybase1.User{},
 				ConflictState: &cs,
 			})
-
-		clearedMap[c.ServerViewPath.String()] = append(
-			clearedMap[c.ServerViewPath.String()], c.LocalViewPath)
-	}
-
-	conflictMap := make(map[ConflictJournalRecord]tlf.ID, len(conflicts))
-	for _, c := range conflicts {
-		conflictMap[ConflictJournalRecord{Name: c.Name, Type: c.Type}] = c.ID
 	}
 
 	found := 0
 	for i, f := range favs.FavoriteFolders {
-		name := tlf.CanonicalName(f.Name)
-		t := tlf.TypeFromFolderType(f.FolderType)
-		c := ConflictJournalRecord{
-			Name: name,
-			Type: t,
-		}
-
-		folderNormalView := keybase1.FolderNormalView{}
-		currentFavFound := false
-
-		// First check for any current automatically-resolving
-		// conflicts, and whether we're stuck.
-		tlfID, ok := conflictMap[c]
-		if ok {
-			fb := data.FolderBranch{Tlf: tlfID, Branch: data.MasterBranch}
-			ops := fs.getOps(ctx, fb, FavoritesOpNoChange)
-			s, err := ops.FolderConflictStatus(ctx)
-			if err != nil {
-				return keybase1.FavoritesResult{}, err
-			}
-			if s != keybase1.FolderConflictType_NONE {
-				folderNormalView.ResolvingConflict = true
-				folderNormalView.StuckInConflict =
-					s == keybase1.FolderConflictType_IN_CONFLICT_AND_STUCK
-				currentFavFound = true
-			}
-		}
-		// Then check whether this favorite has any local conflict views.
-		p := tlfhandle.BuildProtocolPathForTlfName(t, name)
-		localViews, ok := clearedMap[p.String()]
-		if ok {
-			folderNormalView.LocalViews = localViews
-			currentFavFound = true
+		folderNormalView, currentFavFound, err := fs.findRelatedFolders(ctx, conflictMap, clearedMap, f.Name, f.FolderType)
+		if err != nil {
+			return keybase1.FavoritesResult{}, err
 		}
 
 		if currentFavFound {
@@ -446,6 +577,48 @@ func (fs *KBFSOpsStandard) GetFavoritesAll(ctx context.Context) (
 	}
 
 	return favs, nil
+}
+
+// GetBadge implements the KBFSOps interface for KBFSOpsStandard.
+func (fs *KBFSOpsStandard) GetBadge(ctx context.Context) (
+	keybase1.FilesTabBadge, error) {
+	journalManager, err := GetJournalManager(fs.config)
+	if err != nil {
+		// Journaling not enabled.
+		return keybase1.FilesTabBadge_NONE, nil
+	}
+
+	tlfsInConflict, numUploadingTlfs, err := journalManager.GetFoldersSummary()
+	if err != nil {
+		return keybase1.FilesTabBadge_NONE, err
+	}
+
+	for _, tlfID := range tlfsInConflict {
+		fb := data.FolderBranch{Tlf: tlfID, Branch: data.MasterBranch}
+		ops := fs.getOps(ctx, fb, FavoritesOpNoChange)
+		s, err := ops.FolderConflictStatus(ctx)
+		if err != nil {
+			return keybase1.FilesTabBadge_NONE, err
+		}
+		if s == keybase1.FolderConflictType_IN_CONFLICT_AND_STUCK {
+			return keybase1.FilesTabBadge_UPLOADING_STUCK, nil
+		}
+	}
+
+	if numUploadingTlfs == 0 {
+		return keybase1.FilesTabBadge_NONE, nil
+	}
+
+	serviceErrors, _ := fs.config.KBFSOps().StatusOfServices()
+	if serviceErrors[MDServiceName] != nil {
+		// Assume that if we're not connected to the mdserver,
+		// then data isn't uploading.  Technically it could still
+		// be uploading to the bserver, but that should be very
+		// rare.
+		return keybase1.FilesTabBadge_AWAITING_UPLOAD, nil
+	}
+
+	return keybase1.FilesTabBadge_UPLOADING, nil
 }
 
 // RefreshCachedFavorites implements the KBFSOps interface for
@@ -570,18 +743,9 @@ func (fs *KBFSOpsStandard) getOpsNoAdd(
 		} else if fb.Branch.IsLocalConflict() {
 			bType = conflict
 		}
-		var quotaUsage *EventuallyConsistentQuotaUsage
-		if fb.Tlf.Type() != tlf.SingleTeam {
-			// If this is a non-team TLF, pass in a shared quota usage
-			// object, since the status of each non-team TLF will show
-			// the same quota usage. TODO: for team TLFs, we should
-			// also pass in a shared instance (see
-			// `ConfigLocal.quotaUsage`).
-			quotaUsage = fs.quotaUsage
-		}
 		ops = newFolderBranchOps(
-			ctx, fs.appStateUpdater, fs.config, fb, bType, quotaUsage,
-			fs.currentStatus, fs.favs)
+			ctx, fs.appStateUpdater, fs.config, fb, bType,
+			fs.currentStatus, fs.favs, fs.syncedTlfObservers)
 		fs.ops[fb] = ops
 	}
 	return ops
@@ -620,7 +784,7 @@ func (fs *KBFSOpsStandard) getOpsByHandle(ctx context.Context,
 	if err := ops.doFavoritesOp(ctx, fop, handle); err != nil {
 		// Failure to favorite shouldn't cause a failure.  Just log
 		// and move on.
-		fs.log.CDebugf(ctx, "Couldn't add favorite: %v", err)
+		fs.log.CDebugf(ctx, "Couldn't add favorite: %+v", err)
 	}
 
 	fs.opsLock.Lock()
@@ -635,14 +799,18 @@ func (fs *KBFSOpsStandard) getOpsByHandle(ctx context.Context,
 	// Track under its name, so we can later tell it to remove itself
 	// from the favorites list.
 	fs.opsByFav[fav] = ops
-	ops.RegisterForChanges(&kbfsOpsFavoriteObserver{
+	err := ops.RegisterForChanges(&kbfsOpsFavoriteObserver{
 		kbfsOps: fs,
 		currFav: fav,
 	})
+	if err != nil {
+		fs.log.CDebugf(ctx, "Couldn't register for changes: %+v", err)
+	}
 	return ops
 }
 
-func (fs *KBFSOpsStandard) resetTlfID(ctx context.Context, h *tlfhandle.Handle) error {
+func (fs *KBFSOpsStandard) resetTlfID(
+	ctx context.Context, h *tlfhandle.Handle, newTlfID *tlf.ID) error {
 	if !h.IsBackedByTeam() {
 		return errors.WithStack(NonExistentTeamForHandleError{h})
 	}
@@ -652,26 +820,33 @@ func (fs *KBFSOpsStandard) resetTlfID(ctx context.Context, h *tlfhandle.Handle) 
 		return err
 	}
 
-	matches, epoch, err := h.TlfID().GetEpochFromTeamTLF(teamID)
-	if err != nil {
-		return err
-	}
-	if matches {
-		epoch++
+	var tlfID tlf.ID
+	if newTlfID != nil {
+		tlfID = *newTlfID
+		fs.log.CDebugf(ctx, "Resetting to TLF ID %s for TLF %s, %s",
+			tlfID, teamID, h.GetCanonicalName())
 	} else {
-		epoch = 0
-	}
+		matches, epoch, err := h.TlfID().GetEpochFromTeamTLF(teamID)
+		if err != nil {
+			return err
+		}
+		if matches {
+			epoch++
+		} else {
+			epoch = 0
+		}
 
-	// When creating a new TLF for an implicit team, always start with
-	// epoch 0.  A different path will handle TLF resets with an
-	// increased epoch, if necessary.
-	tlfID, err := tlf.MakeIDFromTeam(h.Type(), teamID, epoch)
-	if err != nil {
-		return err
-	}
+		// When creating a new TLF for an implicit team, always start with
+		// epoch 0.  A different path will handle TLF resets with an
+		// increased epoch, if necessary.
+		tlfID, err = tlf.MakeIDFromTeam(h.Type(), teamID, epoch)
+		if err != nil {
+			return err
+		}
 
-	fs.log.CDebugf(ctx, "Creating new TLF ID %s for team %s, %s",
-		tlfID, teamID, h.GetCanonicalName())
+		fs.log.CDebugf(ctx, "Creating new TLF ID %s for TLF %s, %s",
+			tlfID, teamID, h.GetCanonicalName())
+	}
 
 	err = fs.config.KBPKI().CreateTeamTLF(ctx, teamID, tlfID)
 	if err != nil {
@@ -692,7 +867,7 @@ func (fs *KBFSOpsStandard) createAndStoreTlfIDIfNeeded(
 		return nil
 	}
 
-	return fs.resetTlfID(ctx, h)
+	return fs.resetTlfID(ctx, h, nil)
 }
 
 func (fs *KBFSOpsStandard) transformReadError(
@@ -754,7 +929,7 @@ func (fs *KBFSOpsStandard) getOrInitializeNewMDMaster(ctx context.Context,
 			}
 		}
 
-		md, err = getSingleMD(
+		md, err = GetSingleMD(
 			ctx, fs.config, h.TlfID(), kbfsmd.NullBranchID, rev,
 			kbfsmd.Merged, nil)
 		// This will error if there's no corresponding MD, which is
@@ -1252,9 +1427,10 @@ func (fs *KBFSOpsStandard) Status(ctx context.Context) (
 	case nil:
 		if mdserver != nil && mdserver.IsConnected() {
 			var quErr error
+			uid := session.UID.AsUserOrTeam()
 			_, usageBytes, archiveBytes, limitBytes,
 				gitUsageBytes, gitArchiveBytes, gitLimitBytes, quErr =
-				fs.quotaUsage.GetAllTypes(
+				fs.config.GetQuotaUsage(uid).GetAllTypes(
 					ctx, quotaUsageStaleTolerance/2, quotaUsageStaleTolerance)
 			if quErr != nil {
 				// The error is ignored here so that other fields can still be populated
@@ -1359,13 +1535,14 @@ func (fs *KBFSOpsStandard) SyncFromServer(ctx context.Context,
 }
 
 // GetUpdateHistory implements the KBFSOps interface for KBFSOpsStandard
-func (fs *KBFSOpsStandard) GetUpdateHistory(ctx context.Context,
-	folderBranch data.FolderBranch) (history TLFUpdateHistory, err error) {
+func (fs *KBFSOpsStandard) GetUpdateHistory(
+	ctx context.Context, folderBranch data.FolderBranch,
+	start, end kbfsmd.Revision) (history TLFUpdateHistory, err error) {
 	timeTrackerDone := fs.longOperationDebugDumper.Begin(ctx)
 	defer timeTrackerDone()
 
 	ops := fs.getOps(ctx, folderBranch, FavoritesOpAdd)
-	return ops.GetUpdateHistory(ctx, folderBranch)
+	return ops.GetUpdateHistory(ctx, folderBranch, start, end)
 }
 
 // GetEditHistory implements the KBFSOps interface for KBFSOpsStandard
@@ -1452,6 +1629,12 @@ func (fs *KBFSOpsStandard) TeamNameChanged(
 	defer timeTrackerDone()
 
 	fs.log.CDebugf(ctx, "Got TeamNameChanged for %s", tid)
+
+	// Invalidate any cached ID->name mapping for the team if its name
+	// changed, since team names can change due to SBS resolutions
+	// (for implicit teams) or for subteam renames.
+	fs.config.KBPKI().InvalidateTeamCacheForID(tid)
+
 	fbo := fs.findTeamByID(ctx, tid)
 	if fbo != nil {
 		go fbo.TeamNameChanged(ctx, tid)
@@ -1469,6 +1652,19 @@ func (fs *KBFSOpsStandard) TeamAbandoned(
 	if fbo != nil {
 		go fbo.TeamAbandoned(ctx, tid)
 	}
+}
+
+// CheckMigrationPerms implements the KBFSOps interface for folderBranchOps.
+func (fs *KBFSOpsStandard) CheckMigrationPerms(
+	ctx context.Context, id tlf.ID) (err error) {
+	timeTrackerDone := fs.longOperationDebugDumper.Begin(ctx)
+	defer timeTrackerDone()
+
+	// We currently only migrate on the master branch of a TLF.
+	ops := fs.getOps(
+		ctx, data.FolderBranch{Tlf: id, Branch: data.MasterBranch},
+		FavoritesOpNoChange)
+	return ops.CheckMigrationPerms(ctx, id)
 }
 
 // MigrateToImplicitTeam implements the KBFSOps interface for KBFSOpsStandard.
@@ -1554,7 +1750,7 @@ func (fs *KBFSOpsStandard) NewNotificationChannel(
 	fs.opsLock.Lock()
 	defer fs.opsLock.Unlock()
 	fav := handle.ToFavorite()
-	if ops, ok := fs.opsByFav[fav]; ok {
+	if ops, ok := fs.opsByFav[fav]; ok { // nolint
 		ops.NewNotificationChannel(ctx, handle, convID, channelName)
 	} else if handle.TlfID() != tlf.NullID {
 		fs.editActivity.Add(1)
@@ -1574,12 +1770,12 @@ func (fs *KBFSOpsStandard) NewNotificationChannel(
 			"Handle %s for existing folder unexpectedly has no TLF ID",
 			handle.GetCanonicalName())
 	}
-	fs.favs.RefreshCacheWhenMTimeChanged(ctx)
+	fs.favs.RefreshCacheWhenMTimeChanged(ctx, handle.TlfID())
 }
 
 // Reset implements the KBFSOps interface for KBFSOpsStandard.
 func (fs *KBFSOpsStandard) Reset(
-	ctx context.Context, handle *tlfhandle.Handle) error {
+	ctx context.Context, handle *tlfhandle.Handle, newTlfID *tlf.ID) error {
 	timeTrackerDone := fs.longOperationDebugDumper.Begin(ctx)
 	defer timeTrackerDone()
 
@@ -1589,15 +1785,32 @@ func (fs *KBFSOpsStandard) Reset(
 	if err != nil {
 		return err
 	}
-	id, _, err := fs.config.MDServer().GetForHandle(
-		ctx, bareHandle, kbfsmd.Merged, nil)
-	if err == nil {
-		fs.log.CDebugf(ctx, "Folder %s can't be reset; still has ID %s",
-			handle.GetCanonicalPath(), id)
-		return errors.WithStack(FolderNotResetOnServer{handle})
-	} else if _, ok := errors.Cause(err).(kbfsmd.ServerErrorClassicTLFDoesNotExist); !ok {
-		// Return errors if they don't indicate the folder is new.
-		return err
+
+	if newTlfID != nil {
+		oldPath := handle.GetCanonicalPath()
+		fs.log.CDebugf(
+			ctx, "Checking that %s is an appropriate ID for TLF %s after reset",
+			*newTlfID, oldPath)
+		md, err := fs.config.MDOps().GetForTLF(ctx, *newTlfID, nil)
+		if err != nil {
+			return err
+		}
+		newPath := md.GetTlfHandle().GetCanonicalPath()
+		if newPath != oldPath {
+			return errors.Errorf("Cannot reset %s (%s) to TLF %s (%s)",
+				oldPath, handle.TlfID(), newPath, *newTlfID)
+		}
+	} else {
+		id, _, err := fs.config.MDServer().GetForHandle(
+			ctx, bareHandle, kbfsmd.Merged, nil)
+		if err == nil {
+			fs.log.CDebugf(ctx, "Folder %s can't be reset; still has ID %s",
+				handle.GetCanonicalPath(), id)
+			return errors.WithStack(FolderNotResetOnServer{handle})
+		} else if _, ok := errors.Cause(err).(kbfsmd.ServerErrorClassicTLFDoesNotExist); !ok {
+			// Return errors if they don't indicate the folder is new.
+			return err
+		}
 	}
 
 	fs.opsLock.Lock()
@@ -1606,6 +1819,8 @@ func (fs *KBFSOpsStandard) Reset(
 	fb := data.FolderBranch{Tlf: handle.TlfID(), Branch: data.MasterBranch}
 	ops, ok := fs.ops[fb]
 	if ok {
+		fs.config.MDServer().CancelRegistration(ctx, handle.TlfID())
+
 		err := ops.Reset(ctx, handle)
 		if err != nil {
 			return err
@@ -1622,7 +1837,7 @@ func (fs *KBFSOpsStandard) Reset(
 	// Reset the TLF by overwriting the TLF ID in the sigchain.  This
 	// assumes that the server is in implicit team mode for new TLFs,
 	// which at this point it should always be.
-	return fs.resetTlfID(ctx, handle)
+	return fs.resetTlfID(ctx, handle, newTlfID)
 }
 
 // ClearConflictView resets a TLF's journal and conflict DB to a non
@@ -1697,7 +1912,22 @@ func (fs *KBFSOpsStandard) ForceStuckConflictForTesting(
 		Tlf:    tlfID,
 		Branch: data.MasterBranch,
 	})
+	// Make sure the FBO is initialized.
+	_, _, _, err := fbo.getRootNode(ctx)
+	if err != nil {
+		return err
+	}
 	return fbo.forceStuckConflictForTesting(ctx)
+}
+
+// CancelUploads implements the KBFSOps interface for KBFSOpsStandard.
+func (fs *KBFSOpsStandard) CancelUploads(
+	ctx context.Context, folderBranch data.FolderBranch) error {
+	timeTrackerDone := fs.longOperationDebugDumper.Begin(ctx)
+	defer timeTrackerDone()
+
+	ops := fs.getOps(ctx, folderBranch, FavoritesOpAdd)
+	return ops.CancelUploads(ctx, folderBranch)
 }
 
 // GetSyncConfig implements the KBFSOps interface for KBFSOpsStandard.
@@ -1723,6 +1953,31 @@ func (fs *KBFSOpsStandard) SetSyncConfig(
 	return ops.SetSyncConfig(ctx, tlfID, config)
 }
 
+// GetAllSyncedTlfMDs implements the KBFSOps interface for KBFSOpsStandard.
+func (fs *KBFSOpsStandard) GetAllSyncedTlfMDs(
+	ctx context.Context) map[tlf.ID]SyncedTlfMD {
+	tlfIDs := fs.config.GetAllSyncedTlfs()
+	if len(tlfIDs) == 0 {
+		return nil
+	}
+
+	res := make(map[tlf.ID]SyncedTlfMD, len(tlfIDs))
+
+	// Add the sync config mode to each favorite.
+	for _, id := range tlfIDs {
+		fb := data.FolderBranch{Tlf: id, Branch: data.MasterBranch}
+		md, h, err := fs.GetRootNodeMetadata(ctx, fb)
+		if err != nil {
+			fs.log.CDebugf(
+				ctx, "Couldn't get sync config for TLF %s: %+v", id, err)
+			continue
+		}
+
+		res[id] = SyncedTlfMD{MD: md, Handle: h}
+	}
+	return res
+}
+
 func (fs *KBFSOpsStandard) changeHandle(ctx context.Context,
 	oldFav favorites.Folder, newHandle *tlfhandle.Handle) {
 	fs.opsLock.Lock()
@@ -1745,6 +2000,12 @@ func (fs *KBFSOpsStandard) AddRootNodeWrapper(f func(Node) Node) {
 	for _, op := range fs.ops {
 		op.addRootNodeWrapper(f)
 	}
+}
+
+// StatusOfServices implements the KBFSOps interface for
+// KBFSOpsStandard.
+func (fs *KBFSOpsStandard) StatusOfServices() (map[string]error, chan StatusUpdate) {
+	return fs.currentStatus.CurrentStatus()
 }
 
 // Notifier:
@@ -1772,6 +2033,19 @@ func (fs *KBFSOpsStandard) UnregisterFromChanges(
 	return nil
 }
 
+// RegisterForSyncedTlfs implements the Notifer interface for KBFSOpsStandard
+func (fs *KBFSOpsStandard) RegisterForSyncedTlfs(obs SyncedTlfObserver) error {
+	fs.syncedTlfObservers.add(obs)
+	return nil
+}
+
+// UnregisterFromSyncedTlfs implements the Notifer interface for KBFSOpsStandard
+func (fs *KBFSOpsStandard) UnregisterFromSyncedTlfs(
+	obs SyncedTlfObserver) error {
+	fs.syncedTlfObservers.remove(obs)
+	return nil
+}
+
 func (fs *KBFSOpsStandard) onTLFBranchChange(tlfID tlf.ID, newBID kbfsmd.BranchID) {
 	ops := fs.getOps(context.Background(),
 		data.FolderBranch{Tlf: tlfID, Branch: data.MasterBranch}, FavoritesOpNoChange)
@@ -1786,17 +2060,21 @@ func (fs *KBFSOpsStandard) onMDFlush(tlfID tlf.ID, bid kbfsmd.BranchID,
 }
 
 func (fs *KBFSOpsStandard) startInitEdit() (
-	context.Context, context.CancelFunc) {
+	ctx context.Context, cancel context.CancelFunc,
+	reqChan <-chan struct{}, doneChan chan<- struct{}) {
 	fs.initLock.Lock()
 	defer fs.initLock.Unlock()
-	ctx := CtxWithRandomIDReplayable(
+	ctx = CtxWithRandomIDReplayable(
 		context.Background(), CtxFBOIDKey, CtxFBOOpID, fs.log)
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel = context.WithCancel(ctx)
+	ctx = context.WithValue(ctx, ctxKBFSOpsSkipEditHistoryBlock, struct{}{})
 	if fs.initEditCancel != nil {
 		fs.initEditCancel()
 	}
 	fs.initEditCancel = cancel
-	return ctx, cancel
+	fs.initEditReq = make(chan struct{}, 1)
+	fs.initEditDone = make(chan struct{})
+	return ctx, cancel, fs.initEditReq, fs.initEditDone
 }
 
 func (fs *KBFSOpsStandard) initTlfsForEditHistories() {
@@ -1814,15 +2092,31 @@ func (fs *KBFSOpsStandard) initTlfsForEditHistories() {
 		return
 	}
 
-	ctx, cancel := fs.startInitEdit()
+	ctx, cancel, reqChan, doneChan := fs.startInitEdit()
 	defer cancel()
-
-	time.Sleep(fs.config.Mode().InitialDelayForBackgroundWork())
+	defer close(doneChan)
 
 	select {
+	case <-fs.initDoneCh:
 	case <-ctx.Done():
 		return
-	default:
+	}
+
+	doBlock := fs.config.Mode().BlockTLFEditHistoryIntialization()
+	if doBlock {
+		fs.log.CDebugf(ctx, "Waiting for a TLF edit history request")
+		select {
+		case <-reqChan:
+		case <-ctx.Done():
+			return
+		}
+	} else {
+		time.Sleep(fs.config.Mode().InitialDelayForBackgroundWork())
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 	}
 
 	fs.log.CDebugf(ctx, "Querying the kbfs-edits inbox for new TLFs")
@@ -1855,7 +2149,9 @@ func (fs *KBFSOpsStandard) initTlfsForEditHistories() {
 				"Handle %s for existing folder unexpectedly has no TLF ID",
 				h.GetCanonicalName())
 		}
-		time.Sleep(fs.config.Mode().BackgroundWorkPeriod())
+		if !doBlock {
+			time.Sleep(fs.config.Mode().BackgroundWorkPeriod())
+		}
 	}
 }
 
@@ -1886,6 +2182,12 @@ func (fs *KBFSOpsStandard) initSyncedTlfs() {
 	ctx, cancel := fs.startInitSync()
 	defer cancel()
 
+	select {
+	case <-fs.initDoneCh:
+	case <-ctx.Done():
+		return
+	}
+
 	time.Sleep(fs.config.Mode().InitialDelayForBackgroundWork())
 
 	select {
@@ -1908,6 +2210,8 @@ func (fs *KBFSOpsStandard) initSyncedTlfs() {
 		fs.log.CDebugf(ctx, "Initializing synced TLF: %s", tlfID)
 		md, err := fs.config.MDOps().GetForTLF(ctx, tlfID, nil)
 		if err != nil {
+			// Could be that the logged-in user doesn't have access to
+			// read this particular synced TLF.
 			fs.log.CDebugf(ctx, "Couldn't initialize TLF %s: %+v", tlfID, err)
 			continue
 		}

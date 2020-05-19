@@ -32,9 +32,7 @@ const Announcement = (props: Props) => {
             <Kb.Button small={true} label={props.confirmLabel} onClick={props.onConfirm} />
           )}
           {!!props.onDismiss && (
-            <Kb.Text type="BodyPrimaryLink" onClick={props.onDismiss}>
-              Later
-            </Kb.Text>
+            <Kb.Button small={true} label="Later" onClick={props.onDismiss} mode="Secondary" />
           )}
         </Kb.Box2>
       )}
@@ -42,9 +40,12 @@ const Announcement = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
-  container: {alignSelf: 'flex-start'},
-  icon: {flexShrink: 0, height: 32, width: 32},
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: {alignSelf: 'flex-start'},
+      icon: {flexShrink: 0, height: 32, width: 32},
+    } as const)
+)
 
 export default Announcement

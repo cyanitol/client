@@ -11,7 +11,8 @@
         "WRITER_2",
         "ADMIN_3",
         "OWNER_4",
-        "BOT_5"
+        "BOT_5",
+        "RESTRICTEDBOT_6"
       ]
     },
     {
@@ -23,7 +24,8 @@
         "SALTPACK_3",
         "GIT_METADATA_4",
         "SEITAN_INVITE_TOKEN_5",
-        "STELLAR_RELAY_6"
+        "STELLAR_RELAY_6",
+        "KVSTORE_7"
       ]
     },
     {
@@ -34,6 +36,16 @@
         "LIVE_1",
         "DELETED_2",
         "ABANDONED_3"
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "AuditMode",
+      "symbols": [
+        "STANDARD_0",
+        "JUST_CREATED_1",
+        "SKIP_2",
+        "STANDARD_NO_HIDDEN_3"
       ]
     },
     {
@@ -129,6 +141,12 @@
       "name": "TeamInviteID",
       "fields": [],
       "typedef": "string"
+    },
+    {
+      "type": "record",
+      "name": "TeamInviteMaxUses",
+      "fields": [],
+      "typedef": "int"
     },
     {
       "type": "record",
@@ -235,6 +253,13 @@
         {
           "type": "TeamMemberStatus",
           "name": "status"
+        },
+        {
+          "type": [
+            null,
+            "TeamBotSettings"
+          ],
+          "name": "botSettings"
         }
       ]
     },
@@ -276,6 +301,13 @@
             "items": "UserVersion"
           },
           "name": "bots"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "UserVersion"
+          },
+          "name": "restrictedBots"
         }
       ]
     },
@@ -312,6 +344,17 @@
         {
           "type": "TeamMemberStatus",
           "name": "status"
+        },
+        {
+          "type": [
+            null,
+            "Time"
+          ],
+          "name": "joinTime"
+        },
+        {
+          "type": "TeamRole",
+          "name": "role"
         }
       ]
     },
@@ -353,6 +396,13 @@
             "items": "TeamMemberDetails"
           },
           "name": "bots"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "TeamMemberDetails"
+          },
+          "name": "restrictedBots"
         }
       ]
     },
@@ -360,6 +410,10 @@
       "type": "record",
       "name": "TeamDetails",
       "fields": [
+        {
+          "type": "string",
+          "name": "name"
+        },
         {
           "type": "TeamMembersDetails",
           "name": "members"
@@ -388,9 +442,85 @@
     },
     {
       "type": "record",
+      "name": "TeamMemberRole",
+      "fields": [
+        {
+          "type": "UID",
+          "name": "uid"
+        },
+        {
+          "type": "string",
+          "name": "username"
+        },
+        {
+          "type": "FullName",
+          "name": "fullName"
+        },
+        {
+          "type": "TeamRole",
+          "name": "role"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UntrustedTeamInfo",
+      "fields": [
+        {
+          "type": "TeamName",
+          "name": "name"
+        },
+        {
+          "type": "boolean",
+          "name": "inTeam"
+        },
+        {
+          "type": "boolean",
+          "name": "open"
+        },
+        {
+          "type": "string",
+          "name": "description"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "name": "publicAdmins"
+        },
+        {
+          "type": "int",
+          "name": "numMembers"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "TeamMemberRole"
+          },
+          "name": "publicMembers"
+        }
+      ]
+    },
+    {
+      "type": "record",
       "name": "UserVersionPercentForm",
       "fields": [],
       "typedef": "string"
+    },
+    {
+      "type": "record",
+      "name": "TeamUsedInvite",
+      "fields": [
+        {
+          "type": "TeamInviteID",
+          "name": "inviteID"
+        },
+        {
+          "type": "UserVersionPercentForm",
+          "name": "uv"
+        }
+      ]
     },
     {
       "type": "record",
@@ -433,6 +563,14 @@
         },
         {
           "type": {
+            "type": "map",
+            "values": "TeamBotSettings",
+            "keys": "UserVersion"
+          },
+          "name": "restrictedBots"
+        },
+        {
+          "type": {
             "type": "array",
             "items": "UserVersion"
           },
@@ -445,6 +583,13 @@
             "keys": "TeamInviteID"
           },
           "name": "completedInvites"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "TeamUsedInvite"
+          },
+          "name": "usedInvites"
         }
       ]
     },
@@ -491,7 +636,7 @@
             "type": "array",
             "items": "UserVersion"
           },
-          "name": "onlyBots"
+          "name": "onlyRestrictedBots"
         },
         {
           "type": {
@@ -656,7 +801,8 @@
       "symbols": [
         "MAIN_0",
         "BLINDED_1",
-        "SELF_2"
+        "SELF_2",
+        "UNCOMMITTED_3"
       ]
     },
     {
@@ -703,7 +849,23 @@
         },
         {
           "type": "Seqno",
+          "name": "lastFull"
+        },
+        {
+          "type": "Seqno",
           "name": "latestSeqnoHint"
+        },
+        {
+          "type": "Seqno",
+          "name": "lastCommittedSeqno"
+        },
+        {
+          "type": {
+            "type": "map",
+            "values": "Time",
+            "keys": "Seqno"
+          },
+          "name": "linkReceiptTimes"
         },
         {
           "type": {
@@ -744,6 +906,18 @@
         {
           "type": "Time",
           "name": "cachedAt"
+        },
+        {
+          "type": "boolean",
+          "name": "needRotate"
+        },
+        {
+          "type": {
+            "type": "map",
+            "values": "MerkleRootV2",
+            "keys": "Seqno"
+          },
+          "name": "merkleRoots"
         }
       ]
     },
@@ -974,6 +1148,12 @@
         },
         {
           "type": "Seqno",
+          "name": "maxHiddenSeqno",
+          "mpackkey": "mhs",
+          "jsonkey": "mhs"
+        },
+        {
+          "type": "Seqno",
           "name": "maxMerkleProbe",
           "mpackkey": "mmp",
           "jsonkey": "mmp"
@@ -995,6 +1175,12 @@
           "name": "teamSeqno",
           "mpackkey": "s",
           "jsonkey": "t"
+        },
+        {
+          "type": "Seqno",
+          "name": "teamHiddenSeqno",
+          "mpackkey": "h",
+          "jsonkey": "h"
         }
       ]
     },
@@ -1005,7 +1191,8 @@
         "V0_0",
         "V1_1",
         "V2_2",
-        "V3_3"
+        "V3_3",
+        "V4_4"
       ]
     },
     {
@@ -1059,6 +1246,32 @@
             "keys": "Seqno"
           },
           "name": "tails"
+        },
+        {
+          "type": {
+            "type": "map",
+            "values": "LinkID",
+            "keys": "Seqno"
+          },
+          "name": "hiddenTails"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "Seqno"
+          },
+          "name": "preProbesToRetry"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "Seqno"
+          },
+          "name": "postProbesToRetry"
+        },
+        {
+          "type": "Time",
+          "name": "skipUntil"
         }
       ]
     },
@@ -1072,7 +1285,8 @@
         "EMAIL_3",
         "SBS_4",
         "SEITAN_5",
-        "PHONE_6"
+        "PHONE_6",
+        "INVITELINK_7"
       ]
     },
     {
@@ -1119,6 +1333,12 @@
     },
     {
       "type": "record",
+      "name": "TeamInviteDisplayName",
+      "fields": [],
+      "typedef": "string"
+    },
+    {
+      "type": "record",
       "name": "TeamInvite",
       "fields": [
         {
@@ -1140,6 +1360,20 @@
         {
           "type": "UserVersion",
           "name": "inviter"
+        },
+        {
+          "type": [
+            null,
+            "TeamInviteMaxUses"
+          ],
+          "name": "maxUses"
+        },
+        {
+          "type": [
+            null,
+            "UnixTime"
+          ],
+          "name": "etime"
         }
       ]
     },
@@ -1148,28 +1382,12 @@
       "name": "AnnotatedTeamInvite",
       "fields": [
         {
-          "type": "TeamRole",
-          "name": "role"
+          "type": "TeamInviteMetadata",
+          "name": "inviteMetadata"
         },
         {
-          "type": "TeamInviteID",
-          "name": "id"
-        },
-        {
-          "type": "TeamInviteType",
-          "name": "type"
-        },
-        {
-          "type": "TeamInviteName",
-          "name": "name"
-        },
-        {
-          "type": "UserVersion",
-          "name": "uv"
-        },
-        {
-          "type": "UserVersion",
-          "name": "inviter"
+          "type": "TeamInviteDisplayName",
+          "name": "displayName"
         },
         {
           "type": "string",
@@ -1180,8 +1398,81 @@
           "name": "teamName"
         },
         {
+          "type": "boolean",
+          "name": "isValid"
+        },
+        {
+          "type": "string",
+          "name": "validityDescription"
+        },
+        {
+          "type": "AnnotatedTeamInviteExt",
+          "name": "inviteExt"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "KeybaseInviteExt",
+      "fields": [
+        {
+          "type": "UserVersion",
+          "name": "inviteeUv"
+        },
+        {
           "type": "TeamMemberStatus",
           "name": "status"
+        },
+        {
+          "type": "FullName",
+          "name": "fullName"
+        },
+        {
+          "type": "string",
+          "name": "username"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "InvitelinkInviteExt",
+      "fields": [
+        {
+          "type": {
+            "type": "array",
+            "items": "AnnotatedTeamUsedInviteLogPoint"
+          },
+          "name": "annotatedUsedInvites"
+        }
+      ]
+    },
+    {
+      "type": "variant",
+      "name": "AnnotatedTeamInviteExt",
+      "switch": {
+        "type": "TeamInviteCategory",
+        "name": "c"
+      },
+      "cases": [
+        {
+          "label": {
+            "name": "KEYBASE",
+            "def": false
+          },
+          "body": "KeybaseInviteExt"
+        },
+        {
+          "label": {
+            "name": "INVITELINK",
+            "def": false
+          },
+          "body": "InvitelinkInviteExt"
+        },
+        {
+          "label": {
+            "def": true
+          },
+          "body": null
         }
       ]
     },
@@ -1254,6 +1545,113 @@
         {
           "type": "TeamApplication",
           "name": "appType"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamSignatureMetadata",
+      "fields": [
+        {
+          "type": "SignatureMetadata",
+          "name": "sigMeta"
+        },
+        {
+          "type": "UserVersion",
+          "name": "uv"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamInviteMetadataCancel",
+      "fields": [
+        {
+          "type": "TeamSignatureMetadata",
+          "name": "teamSigMeta"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamInviteMetadataCompleted",
+      "fields": [
+        {
+          "type": "TeamSignatureMetadata",
+          "name": "teamSigMeta"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "TeamInviteMetadataStatusCode",
+      "symbols": [
+        "ACTIVE_0",
+        "OBSOLETE_1",
+        "CANCELLED_2",
+        "COMPLETED_3"
+      ]
+    },
+    {
+      "type": "variant",
+      "name": "TeamInviteMetadataStatus",
+      "switch": {
+        "type": "TeamInviteMetadataStatusCode",
+        "name": "code"
+      },
+      "cases": [
+        {
+          "label": {
+            "name": "ACTIVE",
+            "def": false
+          },
+          "body": null
+        },
+        {
+          "label": {
+            "name": "OBSOLETE",
+            "def": false
+          },
+          "body": null
+        },
+        {
+          "label": {
+            "name": "CANCELLED",
+            "def": false
+          },
+          "body": "TeamInviteMetadataCancel"
+        },
+        {
+          "label": {
+            "name": "COMPLETED",
+            "def": false
+          },
+          "body": "TeamInviteMetadataCompleted"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamInviteMetadata",
+      "fields": [
+        {
+          "type": "TeamInvite",
+          "name": "invite"
+        },
+        {
+          "type": "TeamSignatureMetadata",
+          "name": "teamSigMeta"
+        },
+        {
+          "type": "TeamInviteMetadataStatus",
+          "name": "status"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "TeamUsedInviteLogPoint"
+          },
+          "name": "usedInvites"
         }
       ]
     },
@@ -1372,18 +1770,10 @@
         {
           "type": {
             "type": "map",
-            "values": "TeamInvite",
+            "values": "TeamInviteMetadata",
             "keys": "TeamInviteID"
           },
-          "name": "activeInvites"
-        },
-        {
-          "type": {
-            "type": "map",
-            "values": "TeamInvite",
-            "keys": "TeamInviteID"
-          },
-          "name": "obsoleteInvites"
+          "name": "inviteMetadatas"
         },
         {
           "type": "boolean",
@@ -1392,6 +1782,14 @@
         {
           "type": "TeamRole",
           "name": "openTeamJoinAs"
+        },
+        {
+          "type": {
+            "type": "map",
+            "values": "TeamBotSettings",
+            "keys": "UserVersion"
+          },
+          "name": "bots"
         },
         {
           "type": {
@@ -1456,6 +1854,34 @@
         {
           "type": "SignatureMetadata",
           "name": "sigMeta"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "AnnotatedTeamUsedInviteLogPoint",
+      "fields": [
+        {
+          "type": "string",
+          "name": "username"
+        },
+        {
+          "type": "TeamUsedInviteLogPoint",
+          "name": "teamUsedInviteLogPoint"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamUsedInviteLogPoint",
+      "fields": [
+        {
+          "type": "UserVersion",
+          "name": "uv"
+        },
+        {
+          "type": "int",
+          "name": "logPoint"
         }
       ]
     },
@@ -1570,6 +1996,11 @@
       "name": "TeamMemberOutFromReset",
       "fields": [
         {
+          "type": "TeamID",
+          "name": "teamID",
+          "jsonkey": "team_id"
+        },
+        {
           "type": "string",
           "name": "teamName",
           "jsonkey": "team_name"
@@ -1612,6 +2043,11 @@
           "type": "Seqno",
           "name": "latestHiddenSeqno",
           "jsonkey": "latest_hidden_seqno"
+        },
+        {
+          "type": "Seqno",
+          "name": "latestOffchainSeqno",
+          "jsonkey": "latest_offchain_version"
         },
         {
           "type": "boolean",
@@ -1749,6 +2185,12 @@
     },
     {
       "type": "record",
+      "name": "SeitanIKeyInvitelink",
+      "fields": [],
+      "typedef": "string"
+    },
+    {
+      "type": "record",
       "name": "SeitanPubKey",
       "fields": [],
       "typedef": "string"
@@ -1764,7 +2206,8 @@
       "name": "SeitanKeyAndLabelVersion",
       "symbols": [
         "V1_1",
-        "V2_2"
+        "V2_2",
+        "Invitelink_3"
       ]
     },
     {
@@ -1788,6 +2231,13 @@
             "def": false
           },
           "body": "SeitanKeyAndLabelVersion2"
+        },
+        {
+          "label": {
+            "name": "Invitelink",
+            "def": false
+          },
+          "body": "SeitanKeyAndLabelInvitelink"
         },
         {
           "label": {
@@ -1826,10 +2276,25 @@
       ]
     },
     {
+      "type": "record",
+      "name": "SeitanKeyAndLabelInvitelink",
+      "fields": [
+        {
+          "type": "SeitanIKeyInvitelink",
+          "name": "i"
+        },
+        {
+          "type": "SeitanKeyLabel",
+          "name": "l"
+        }
+      ]
+    },
+    {
       "type": "enum",
       "name": "SeitanKeyLabelType",
       "symbols": [
-        "SMS_1"
+        "SMS_1",
+        "GENERIC_2"
       ]
     },
     {
@@ -1846,6 +2311,13 @@
             "def": false
           },
           "body": "SeitanKeyLabelSms"
+        },
+        {
+          "label": {
+            "name": "GENERIC",
+            "def": false
+          },
+          "body": "SeitanKeyLabelGeneric"
         },
         {
           "label": {
@@ -1866,6 +2338,16 @@
         {
           "type": "string",
           "name": "n"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "SeitanKeyLabelGeneric",
+      "fields": [
+        {
+          "type": "string",
+          "name": "l"
         }
       ]
     },
@@ -2046,6 +2528,14 @@
         {
           "type": "boolean",
           "name": "allowNameLookupBurstCache"
+        },
+        {
+          "type": "boolean",
+          "name": "skipNeedHiddenRotateCheck"
+        },
+        {
+          "type": "AuditMode",
+          "name": "auditMode"
         }
       ]
     },
@@ -2090,6 +2580,10 @@
         {
           "type": "boolean",
           "name": "forceRefresh"
+        },
+        {
+          "type": "boolean",
+          "name": "hiddenChainIsOptional"
         }
       ]
     },
@@ -2289,14 +2783,6 @@
             "items": "AnnotatedMemberInfo"
           },
           "name": "teams"
-        },
-        {
-          "type": {
-            "type": "map",
-            "values": "AnnotatedTeamInvite",
-            "keys": "TeamInviteID"
-          },
-          "name": "annotatedActiveInvites"
         }
       ]
     },
@@ -2317,11 +2803,20 @@
         },
         {
           "type": "boolean",
-          "name": "emailSent"
-        },
-        {
-          "type": "boolean",
           "name": "chatSending"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamAddMembersResult",
+      "fields": [
+        {
+          "type": {
+            "type": "array",
+            "items": "User"
+          },
+          "name": "notAdded"
         }
       ]
     },
@@ -2336,6 +2831,14 @@
         {
           "type": "string",
           "name": "username"
+        },
+        {
+          "type": "FullName",
+          "name": "fullName"
+        },
+        {
+          "type": "UnixTime",
+          "name": "ctime"
         }
       ]
     },
@@ -2373,6 +2876,10 @@
         {
           "type": "TeamName",
           "name": "name"
+        },
+        {
+          "type": "TeamID",
+          "name": "teamID"
         },
         {
           "type": "int",
@@ -2422,6 +2929,34 @@
         {
           "type": "TeamRole",
           "name": "joinAs"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamBotSettings",
+      "fields": [
+        {
+          "type": "boolean",
+          "name": "cmds"
+        },
+        {
+          "type": "boolean",
+          "name": "mentions"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "name": "triggers"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "name": "convs"
         }
       ]
     },
@@ -2504,15 +3039,234 @@
     },
     {
       "type": "record",
+      "name": "TeamAvatar",
+      "fields": [
+        {
+          "type": "string",
+          "name": "avatarFilename"
+        },
+        {
+          "type": [
+            null,
+            "ImageCropRect"
+          ],
+          "name": "crop"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamCreateFancyInfo",
+      "fields": [
+        {
+          "type": "string",
+          "name": "name"
+        },
+        {
+          "type": "string",
+          "name": "description"
+        },
+        {
+          "type": "boolean",
+          "name": "joinSubteam"
+        },
+        {
+          "type": "TeamSettings",
+          "name": "openSettings"
+        },
+        {
+          "type": "boolean",
+          "name": "profileShowcase"
+        },
+        {
+          "type": [
+            null,
+            "TeamAvatar"
+          ],
+          "name": "avatar"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "name": "chatChannels"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "string"
+          },
+          "name": "subteams"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "UserRolePair"
+          },
+          "name": "users"
+        },
+        {
+          "type": [
+            null,
+            "string"
+          ],
+          "name": "emailInviteMessage"
+        }
+      ]
+    },
+    {
+      "type": "record",
       "name": "UserRolePair",
       "fields": [
         {
           "type": "string",
-          "name": "assertionOrEmail"
+          "name": "assertion"
         },
         {
           "type": "TeamRole",
           "name": "role"
+        },
+        {
+          "type": [
+            null,
+            "TeamBotSettings"
+          ],
+          "name": "botSettings"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "AssertionTeamMemberToRemove",
+      "fields": [
+        {
+          "type": "string",
+          "name": "assertion"
+        },
+        {
+          "type": "boolean",
+          "name": "removeFromSubtree"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "InviteTeamMemberToRemove",
+      "fields": [
+        {
+          "type": "TeamInviteID",
+          "name": "inviteID"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "TeamMemberToRemoveType",
+      "symbols": [
+        "ASSERTION_0",
+        "INVITEID_1"
+      ]
+    },
+    {
+      "type": "variant",
+      "name": "TeamMemberToRemove",
+      "switch": {
+        "type": "TeamMemberToRemoveType",
+        "name": "type"
+      },
+      "cases": [
+        {
+          "label": {
+            "name": "ASSERTION",
+            "def": false
+          },
+          "body": "AssertionTeamMemberToRemove"
+        },
+        {
+          "label": {
+            "name": "INVITEID",
+            "def": false
+          },
+          "body": "InviteTeamMemberToRemove"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "RemoveTeamMemberFailure",
+      "fields": [
+        {
+          "type": "TeamMemberToRemove",
+          "name": "teamMember"
+        },
+        {
+          "type": [
+            null,
+            "string"
+          ],
+          "name": "errorAtTarget"
+        },
+        {
+          "type": [
+            null,
+            "string"
+          ],
+          "name": "errorAtSubtree"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamRemoveMembersResult",
+      "fields": [
+        {
+          "type": {
+            "type": "array",
+            "items": "RemoveTeamMemberFailure"
+          },
+          "name": "failures"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamEditMembersResult",
+      "fields": [
+        {
+          "type": {
+            "type": "array",
+            "items": "UserRolePair"
+          },
+          "name": "failures"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UntrustedTeamExistsResult",
+      "fields": [
+        {
+          "type": "boolean",
+          "name": "exists"
+        },
+        {
+          "type": "StatusCode",
+          "name": "status"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "Invitelink",
+      "fields": [
+        {
+          "type": "SeitanIKeyInvitelink",
+          "name": "ikey"
+        },
+        {
+          "type": "string",
+          "name": "url"
         }
       ]
     },
@@ -2525,21 +3279,61 @@
             "type": "array",
             "items": "string"
           },
-          "name": "invited"
-        },
-        {
-          "type": {
-            "type": "array",
-            "items": "string"
-          },
-          "name": "alreadyInvited"
-        },
-        {
-          "type": {
-            "type": "array",
-            "items": "string"
-          },
           "name": "malformed"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "InviteLinkDetails",
+      "fields": [
+        {
+          "type": "TeamInviteID",
+          "name": "inviteID"
+        },
+        {
+          "type": "boolean",
+          "name": "inviterResetOrDel"
+        },
+        {
+          "type": "UID",
+          "name": "inviterUID"
+        },
+        {
+          "type": "string",
+          "name": "inviterUsername"
+        },
+        {
+          "type": "boolean",
+          "name": "isMember"
+        },
+        {
+          "type": {
+            "type": "map",
+            "values": "AvatarUrl",
+            "keys": "AvatarFormat"
+          },
+          "name": "teamAvatars"
+        },
+        {
+          "type": "string",
+          "name": "teamDesc"
+        },
+        {
+          "type": "TeamID",
+          "name": "teamID"
+        },
+        {
+          "type": "boolean",
+          "name": "teamIsOpen"
+        },
+        {
+          "type": "TeamName",
+          "name": "teamName"
+        },
+        {
+          "type": "int",
+          "name": "teamNumMembers"
         }
       ]
     },
@@ -2717,11 +3511,27 @@
         },
         {
           "type": "boolean",
+          "name": "deleteOtherEmojis"
+        },
+        {
+          "type": "boolean",
           "name": "deleteOtherMessages"
         },
         {
           "type": "boolean",
           "name": "deleteTeam"
+        },
+        {
+          "type": "boolean",
+          "name": "pinMessage"
+        },
+        {
+          "type": "boolean",
+          "name": "manageBots"
+        },
+        {
+          "type": "boolean",
+          "name": "manageEmojis"
         }
       ]
     },
@@ -2759,6 +3569,10 @@
       "name": "TeamProfileAddEntry",
       "fields": [
         {
+          "type": "TeamID",
+          "name": "teamID"
+        },
+        {
           "type": "TeamName",
           "name": "teamName"
         },
@@ -2771,9 +3585,302 @@
           "name": "disabledReason"
         }
       ]
+    },
+    {
+      "type": "record",
+      "name": "MemberEmail",
+      "fields": [
+        {
+          "type": "string",
+          "name": "email"
+        },
+        {
+          "type": "string",
+          "name": "role"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "MemberUsername",
+      "fields": [
+        {
+          "type": "string",
+          "name": "username"
+        },
+        {
+          "type": "string",
+          "name": "role"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamRolePair",
+      "fields": [
+        {
+          "type": "TeamRole",
+          "name": "role"
+        },
+        {
+          "type": "TeamRole",
+          "name": "implicitRole",
+          "jsonkey": "implicit_role"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamRoleMapAndVersion",
+      "fields": [
+        {
+          "type": {
+            "type": "map",
+            "values": "TeamRolePair",
+            "keys": "TeamID"
+          },
+          "name": "teams"
+        },
+        {
+          "type": "UserTeamVersion",
+          "name": "version",
+          "jsonkey": "user_team_version"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamRoleMapStored",
+      "fields": [
+        {
+          "type": "TeamRoleMapAndVersion",
+          "name": "data"
+        },
+        {
+          "type": "Time",
+          "name": "cachedAt"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UserTeamVersion",
+      "fields": [],
+      "typedef": "int"
+    },
+    {
+      "type": "record",
+      "name": "UserTeamVersionUpdate",
+      "fields": [
+        {
+          "type": "UserTeamVersion",
+          "name": "version"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "AnnotatedTeam",
+      "fields": [
+        {
+          "type": "TeamID",
+          "name": "teamID"
+        },
+        {
+          "type": "string",
+          "name": "name"
+        },
+        {
+          "type": "SubteamListResult",
+          "name": "transitiveSubteamsUnverified"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "TeamMemberDetails"
+          },
+          "name": "members"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "AnnotatedTeamInvite"
+          },
+          "name": "invites"
+        },
+        {
+          "type": "TeamSettings",
+          "name": "settings"
+        },
+        {
+          "type": "PerTeamKeyGeneration",
+          "name": "keyGeneration"
+        },
+        {
+          "type": "TeamShowcase",
+          "name": "showcase"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "TeamJoinRequest"
+          },
+          "name": "joinRequests"
+        },
+        {
+          "type": "boolean",
+          "name": "tarsDisabled"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamTreeMembershipValue",
+      "fields": [
+        {
+          "type": "TeamRole",
+          "name": "role"
+        },
+        {
+          "type": [
+            null,
+            "Time"
+          ],
+          "name": "joinTime"
+        },
+        {
+          "type": "TeamID",
+          "name": "teamID"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "TeamTreeMembershipStatus",
+      "symbols": [
+        "OK_0",
+        "ERROR_1",
+        "HIDDEN_2"
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamTreeError",
+      "fields": [
+        {
+          "type": "string",
+          "name": "message"
+        },
+        {
+          "type": "boolean",
+          "name": "willSkipSubtree"
+        },
+        {
+          "type": "boolean",
+          "name": "willSkipAncestors"
+        }
+      ]
+    },
+    {
+      "type": "variant",
+      "name": "TeamTreeMembershipResult",
+      "switch": {
+        "type": "TeamTreeMembershipStatus",
+        "name": "s"
+      },
+      "cases": [
+        {
+          "label": {
+            "name": "OK",
+            "def": false
+          },
+          "body": "TeamTreeMembershipValue"
+        },
+        {
+          "label": {
+            "name": "ERROR",
+            "def": false
+          },
+          "body": "TeamTreeError"
+        },
+        {
+          "label": {
+            "name": "HIDDEN",
+            "def": false
+          },
+          "body": null
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamTreeMembership",
+      "fields": [
+        {
+          "type": "string",
+          "name": "teamName"
+        },
+        {
+          "type": "TeamTreeMembershipResult",
+          "name": "result"
+        },
+        {
+          "type": "TeamID",
+          "name": "targetTeamID"
+        },
+        {
+          "type": "string",
+          "name": "targetUsername"
+        },
+        {
+          "type": "int",
+          "name": "guid"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamTreeMembershipsDoneResult",
+      "fields": [
+        {
+          "type": "int",
+          "name": "expectedCount"
+        },
+        {
+          "type": "TeamID",
+          "name": "targetTeamID"
+        },
+        {
+          "type": "string",
+          "name": "targetUsername"
+        },
+        {
+          "type": "int",
+          "name": "guid"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamTreeInitial",
+      "fields": [
+        {
+          "type": "int",
+          "name": "guid"
+        }
+      ]
     }
   ],
   "messages": {
+    "getUntrustedTeamInfo": {
+      "request": [
+        {
+          "name": "teamName",
+          "type": "TeamName"
+        }
+      ],
+      "response": "UntrustedTeamInfo"
+    },
     "teamCreate": {
       "request": [
         {
@@ -2812,6 +3919,32 @@
       ],
       "response": "TeamCreateResult"
     },
+    "teamCreateFancy": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "teamInfo",
+          "type": "TeamCreateFancyInfo"
+        }
+      ],
+      "response": "TeamID"
+    },
+    "teamGetByID": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "id",
+          "type": "TeamID"
+        }
+      ],
+      "response": "TeamDetails"
+    },
     "teamGet": {
       "request": [
         {
@@ -2825,28 +3958,15 @@
       ],
       "response": "TeamDetails"
     },
-    "teamGetMembers": {
+    "teamGetMembersByID": {
       "request": [
         {
           "name": "sessionID",
           "type": "int"
         },
         {
-          "name": "name",
-          "type": "string"
-        }
-      ],
-      "response": "TeamMembersDetails"
-    },
-    "teamImplicitAdmins": {
-      "request": [
-        {
-          "name": "sessionID",
-          "type": "int"
-        },
-        {
-          "name": "teamName",
-          "type": "string"
+          "name": "id",
+          "type": "TeamID"
         }
       ],
       "response": {
@@ -2921,23 +4041,6 @@
         "items": "TeamIDAndName"
       }
     },
-    "teamChangeMembership": {
-      "request": [
-        {
-          "name": "sessionID",
-          "type": "int"
-        },
-        {
-          "name": "name",
-          "type": "string"
-        },
-        {
-          "name": "req",
-          "type": "TeamChangeReq"
-        }
-      ],
-      "response": null
-    },
     "teamAddMember": {
       "request": [
         {
@@ -2945,11 +4048,15 @@
           "type": "int"
         },
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         },
         {
           "name": "email",
+          "type": "string"
+        },
+        {
+          "name": "phone",
           "type": "string"
         },
         {
@@ -2961,8 +4068,22 @@
           "type": "TeamRole"
         },
         {
+          "name": "botSettings",
+          "type": [
+            null,
+            "TeamBotSettings"
+          ]
+        },
+        {
           "name": "sendChatNotification",
           "type": "boolean"
+        },
+        {
+          "name": "emailInviteMessage",
+          "type": [
+            null,
+            "string"
+          ]
         }
       ],
       "response": "TeamAddMemberResult"
@@ -2974,8 +4095,8 @@
           "type": "int"
         },
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         },
         {
           "name": "assertions",
@@ -2989,11 +4110,25 @@
           "type": "TeamRole"
         },
         {
+          "name": "botSettings",
+          "type": [
+            null,
+            "TeamBotSettings"
+          ]
+        },
+        {
           "name": "sendChatNotification",
           "type": "boolean"
+        },
+        {
+          "name": "emailInviteMessage",
+          "type": [
+            null,
+            "string"
+          ]
         }
       ],
-      "response": null
+      "response": "TeamAddMembersResult"
     },
     "teamAddMembersMultiRole": {
       "request": [
@@ -3002,8 +4137,8 @@
           "type": "int"
         },
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         },
         {
           "name": "users",
@@ -3015,9 +4150,23 @@
         {
           "name": "sendChatNotification",
           "type": "boolean"
+        },
+        {
+          "name": "emailInviteMessage",
+          "type": [
+            null,
+            "string"
+          ]
+        },
+        {
+          "name": "addToChannels",
+          "type": {
+            "type": "array",
+            "items": "string"
+          }
         }
       ],
-      "response": null
+      "response": "TeamAddMembersResult"
     },
     "teamRemoveMember": {
       "request": [
@@ -3026,23 +4175,39 @@
           "type": "int"
         },
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         },
         {
-          "name": "username",
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "type": "string"
-        },
-        {
-          "name": "inviteID",
-          "type": "TeamInviteID"
+          "name": "member",
+          "type": "TeamMemberToRemove"
         }
       ],
       "response": null
+    },
+    "teamRemoveMembers": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "teamID",
+          "type": "TeamID"
+        },
+        {
+          "name": "members",
+          "type": {
+            "type": "array",
+            "items": "TeamMemberToRemove"
+          }
+        },
+        {
+          "name": "noErrorOnPartialFailure",
+          "type": "boolean"
+        }
+      ],
+      "response": "TeamRemoveMembersResult"
     },
     "teamLeave": {
       "request": [
@@ -3078,9 +4243,83 @@
         {
           "name": "role",
           "type": "TeamRole"
+        },
+        {
+          "name": "botSettings",
+          "type": [
+            null,
+            "TeamBotSettings"
+          ]
         }
       ],
       "response": null
+    },
+    "teamEditMembers": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "teamID",
+          "type": "TeamID"
+        },
+        {
+          "name": "users",
+          "type": {
+            "type": "array",
+            "items": "UserRolePair"
+          }
+        }
+      ],
+      "response": "TeamEditMembersResult"
+    },
+    "teamGetBotSettings": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "username",
+          "type": "string"
+        }
+      ],
+      "response": "TeamBotSettings"
+    },
+    "teamSetBotSettings": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "username",
+          "type": "string"
+        },
+        {
+          "name": "botSettings",
+          "type": "TeamBotSettings"
+        }
+      ],
+      "response": null
+    },
+    "untrustedTeamExists": {
+      "request": [
+        {
+          "name": "teamName",
+          "type": "TeamName"
+        }
+      ],
+      "response": "UntrustedTeamExistsResult"
     },
     "teamRename": {
       "request": [
@@ -3193,7 +4432,7 @@
       ],
       "response": null
     },
-    "teamTree": {
+    "teamTreeUnverified": {
       "request": [
         {
           "name": "sessionID",
@@ -3206,7 +4445,7 @@
       ],
       "response": "TeamTreeResult"
     },
-    "teamGetSubteams": {
+    "teamGetSubteamsUnverified": {
       "request": [
         {
           "name": "sessionID",
@@ -3226,8 +4465,8 @@
           "type": "int"
         },
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         }
       ],
       "response": null
@@ -3239,8 +4478,8 @@
           "type": "int"
         },
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         },
         {
           "name": "settings",
@@ -3256,7 +4495,7 @@
           "type": "int"
         },
         {
-          "name": "name",
+          "name": "teamname",
           "type": "string"
         },
         {
@@ -3277,7 +4516,7 @@
           "type": "int"
         },
         {
-          "name": "name",
+          "name": "teamname",
           "type": "string"
         },
         {
@@ -3290,6 +4529,71 @@
         }
       ],
       "response": "SeitanIKeyV2"
+    },
+    "teamCreateSeitanInvitelink": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "teamname",
+          "type": "string"
+        },
+        {
+          "name": "role",
+          "type": "TeamRole"
+        },
+        {
+          "name": "maxUses",
+          "type": "TeamInviteMaxUses"
+        },
+        {
+          "name": "etime",
+          "type": [
+            null,
+            "UnixTime"
+          ]
+        }
+      ],
+      "response": "Invitelink"
+    },
+    "teamCreateSeitanInvitelinkWithDuration": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "teamname",
+          "type": "string"
+        },
+        {
+          "name": "role",
+          "type": "TeamRole"
+        },
+        {
+          "name": "maxUses",
+          "type": "TeamInviteMaxUses"
+        },
+        {
+          "name": "expireAfter",
+          "type": [
+            null,
+            "string"
+          ]
+        }
+      ],
+      "response": "Invitelink"
+    },
+    "getInviteLinkDetails": {
+      "request": [
+        {
+          "name": "inviteID",
+          "type": "TeamInviteID"
+        }
+      ],
+      "response": "InviteLinkDetails"
     },
     "teamAddEmailsBulk": {
       "request": [
@@ -3397,8 +4701,8 @@
     "getTeamShowcase": {
       "request": [
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         }
       ],
       "response": "TeamShowcase"
@@ -3406,8 +4710,8 @@
     "getTeamAndMemberShowcase": {
       "request": [
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         }
       ],
       "response": "TeamAndMemberShowcase"
@@ -3415,8 +4719,8 @@
     "setTeamShowcase": {
       "request": [
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         },
         {
           "name": "isShowcased",
@@ -3445,8 +4749,8 @@
     "setTeamMemberShowcase": {
       "request": [
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         },
         {
           "name": "isShowcased",
@@ -3489,8 +4793,8 @@
     "getTarsDisabled": {
       "request": [
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         }
       ],
       "response": "boolean"
@@ -3498,8 +4802,8 @@
     "setTarsDisabled": {
       "request": [
         {
-          "name": "name",
-          "type": "string"
+          "name": "teamID",
+          "type": "TeamID"
         },
         {
           "name": "disabled",
@@ -3645,6 +4949,16 @@
       "response": "TeamID",
       "doc": "Gets a TeamID from a team name string. Returns an error if the\n   current user can't read the team."
     },
+    "getTeamName": {
+      "request": [
+        {
+          "name": "teamID",
+          "type": "TeamID"
+        }
+      ],
+      "response": "TeamName",
+      "doc": "Gets a TeamName from a team id string. Returns an error if the\n   current user can't read the team."
+    },
     "ftl": {
       "request": [
         {
@@ -3653,6 +4967,68 @@
         }
       ],
       "response": "FastTeamLoadRes"
+    },
+    "getTeamRoleMap": {
+      "request": [],
+      "response": "TeamRoleMapAndVersion"
+    },
+    "getAnnotatedTeam": {
+      "request": [
+        {
+          "name": "teamID",
+          "type": "TeamID"
+        }
+      ],
+      "response": "AnnotatedTeam"
+    },
+    "getAnnotatedTeamByName": {
+      "request": [
+        {
+          "name": "teamName",
+          "type": "string"
+        }
+      ],
+      "response": "AnnotatedTeam"
+    },
+    "loadTeamTreeMembershipsAsync": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "teamID",
+          "type": "TeamID"
+        },
+        {
+          "name": "username",
+          "type": "string"
+        }
+      ],
+      "response": "TeamTreeInitial"
+    },
+    "findAssertionsInTeamNoResolve": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "teamID",
+          "type": "TeamID"
+        },
+        {
+          "name": "assertions",
+          "type": {
+            "type": "array",
+            "items": "string"
+          }
+        }
+      ],
+      "response": {
+        "type": "array",
+        "items": "string"
+      }
     }
   },
   "namespace": "keybase.1"

@@ -44,6 +44,7 @@ kbnm_binpath=${KBNM_BINPATH:-}
 updater_binpath=${UPDATER_BINPATH:-}
 
 icon_path="$client_dir/media/icons/Keybase.icns"
+saltpack_icon="$client_dir/media/icons/saltpack.icns"
 
 echo "Loading release tool"
 "$client_dir/packaging/goinstall.sh" "github.com/keybase/release"
@@ -92,7 +93,7 @@ shared_support_dir="$out_dir/Keybase.app/Contents/SharedSupport"
 resources_dir="$out_dir/Keybase.app/Contents/Resources/"
 
 # The KeybaseInstaller.app installs KBFuse, keybase.Helper, services and CLI via a native app
-installer_url="https://prerelease.keybase.io/darwin-package/KeybaseInstaller-1.1.76-darwin.tgz"
+installer_url="https://prerelease.keybase.io/darwin-package/KeybaseInstaller-1.1.80-darwin.tgz"
 # KeybaseUpdater.app is the native updater UI (prompt dialogs)
 updater_url="https://prerelease.keybase.io/darwin-package/KeybaseUpdater-1.0.7-darwin.tgz"
 
@@ -185,7 +186,7 @@ package_electron() {(
   rm -rf "$shared_dir/node_modules"
 
   yarn install --pure-lockfile
-  yarn run package -- --appVersion="$app_version" --comment="$comment" --icon="$icon_path" --outDir="$build_dir"
+  yarn run package -- --appVersion="$app_version" --comment="$comment" --icon="$icon_path" --saltpackIcon="$saltpack_icon"  --outDir="$build_dir"
 
   # Create symlink for Electron to overcome Gatekeeper bug https://github.com/keybase/go-updater/pull/4
   cd "$out_dir/$app_name.app/Contents/MacOS"
@@ -230,6 +231,10 @@ sign() {(
   code_sign_identity="9FC3A5BC09FA2EE307C04060C918486411869B65" # "Developer ID Application: Keybase, Inc. (99229SGT5K)"
   # need to sign some stuff from electron that doesn't get picked up for some reason
   codesign --verbose --force --deep --timestamp --options runtime --sign "$code_sign_identity" "$app_name.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libffmpeg.dylib"
+  codesign --verbose --force --deep --timestamp --options runtime --sign "$code_sign_identity" "$app_name.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libEGL.dylib"
+  codesign --verbose --force --deep --timestamp --options runtime --sign "$code_sign_identity" "$app_name.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libGLESv2.dylib"
+  codesign --verbose --force --deep --timestamp --options runtime --sign "$code_sign_identity" "$app_name.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libswiftshader_libEGL.dylib"
+  codesign --verbose --force --deep --timestamp --options runtime --sign "$code_sign_identity" "$app_name.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libswiftshader_libGLESv2.dylib"
   codesign --verbose --force --deep --timestamp --options runtime --sign "$code_sign_identity" "$app_name.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/crashpad_handler"
   codesign --verbose --force --deep --timestamp --options runtime --sign "$code_sign_identity" "$app_name.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt"
 

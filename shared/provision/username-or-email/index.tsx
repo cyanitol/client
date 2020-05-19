@@ -1,10 +1,9 @@
-// TODO remove Container
 import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
-import Container from '../../login/forms/container'
-import * as Constants from '../../constants/provision'
+import UserCard from '../../login/user-card'
 import {maxUsernameLength} from '../../constants/signup'
+import {SignupScreen, errorBanner} from '../../signup/common'
 
 type Props = {
   error: string
@@ -13,124 +12,148 @@ type Props = {
   inlineSignUpLink: boolean
   onBack: () => void
   onForgotUsername: () => void
-  onGoToSignup: () => void
+  onGoToSignup: (username: string) => void
   onSubmit: (username: string) => void
+  resetBannerUser: string | null
   submittedUsername: string
+  waiting: boolean
 }
 
-const InlineError = (props: {onGoToSignup: (() => void) | null; error: string}) => (
-  <Kb.Box2 direction="vertical" centerChildren={true}>
-    <Kb.Text type="BodySmallError" style={styles.error}>
-      {props.error}
-    </Kb.Text>
-    {!!props.onGoToSignup && (
-      <Kb.Text onClick={props.onGoToSignup} style={styles.errorLink} type="BodySmallPrimaryLink">
-        Sign up for a new account?
-      </Kb.Text>
-    )}
-  </Kb.Box2>
+const Username = (props: Props) => {
+  const [username, setUsername] = React.useState(props.initialUsername)
+  const _onSubmit = props.onSubmit
+  const onSubmit = React.useCallback(() => {
+    _onSubmit(username)
+  }, [_onSubmit, username])
+
+  return (
+    <SignupScreen
+      banners={[
+        ...(props.resetBannerUser
+          ? [
+              <Kb.Banner color="green" key="resetBanner">
+                <Kb.BannerParagraph
+                  bannerColor="green"
+                  content={`You have successfully reset your account, ${props.resetBannerUser}. You can now log in as usual.`}
+                />
+              </Kb.Banner>,
+            ]
+          : []),
+        ...errorBanner(props.error),
+        ...(props.inlineSignUpLink
+          ? [
+              <Kb.Banner key="usernameTaken" color="blue">
+                <Kb.BannerParagraph
+                  bannerColor="blue"
+                  content={[
+                    "This username doesn't exist. Did you mean to ",
+                    {
+                      onClick: () => props.onGoToSignup(username),
+                      text: 'create a new account',
+                    },
+                    '?',
+                  ]}
+                />
+              </Kb.Banner>,
+            ]
+          : []),
+      ]}
+      buttons={[
+        {
+          disabled: !username,
+          label: 'Log in',
+          onClick: onSubmit,
+          type: 'Default',
+          waiting: props.waiting,
+        },
+      ]}
+      onBack={props.onBack}
+      title="Log in"
+      contentContainerStyle={styles.contentContainer}
+    >
+      <Kb.ScrollView
+        alwaysBounceVertical={false}
+        style={styles.fill}
+        contentContainerStyle={styles.scrollContentContainer}
+      >
+        <UserCard
+          style={styles.card}
+          avatarBackgroundStyle={styles.outerCardAvatar}
+          outerStyle={styles.outerCard}
+          lighterPlaceholders={true}
+          avatarSize={96}
+        >
+          <Kb.Box2 direction="vertical" fullWidth={true} style={styles.wrapper} gap="xsmall">
+            <Kb.LabeledInput
+              autoFocus={true}
+              placeholder="Username"
+              maxLength={maxUsernameLength}
+              onEnterKeyDown={onSubmit}
+              onChangeText={setUsername}
+              value={username}
+              textType="BodySemibold"
+            />
+            <Kb.Text
+              style={styles.forgotUsername}
+              type="BodySmallSecondaryLink"
+              onClick={props.onForgotUsername}
+            >
+              Forgot username?
+            </Kb.Text>
+          </Kb.Box2>
+        </UserCard>
+      </Kb.ScrollView>
+    </SignupScreen>
+  )
+}
+
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      card: Styles.platformStyles({
+        common: {
+          alignItems: 'stretch',
+          backgroundColor: Styles.globalColors.transparent,
+        },
+        isMobile: {
+          paddingLeft: 0,
+          paddingRight: 0,
+        },
+        isTablet: {
+          alignItems: 'center',
+        },
+      }),
+      contentContainer: Styles.platformStyles({isMobile: {...Styles.padding(0)}}),
+      fill: Styles.platformStyles({
+        isMobile: {height: '100%', width: '100%'},
+        isTablet: {width: 410},
+      }),
+      forgotUsername: {
+        alignSelf: 'flex-end',
+      },
+      outerCard: {
+        flex: 1,
+        height: Styles.isMobile ? undefined : 'unset',
+      },
+      outerCardAvatar: {
+        backgroundColor: Styles.globalColors.transparent,
+      },
+      scrollContentContainer: Styles.platformStyles({
+        isElectron: {
+          margin: 'auto',
+        },
+        isMobile: {...Styles.padding(Styles.globalMargins.small)},
+      }),
+      wrapper: {
+        width: Styles.globalStyles.mediumWidth,
+      },
+    } as const)
 )
 
-type State = {
-  username: string
+Username.navigationOptions = {
+  header: null,
+  headerBottomStyle: {height: undefined},
+  headerLeft: null, // no back button
 }
-
-class Username extends React.Component<Props, State> {
-  state = {username: this.props.initialUsername}
-
-  _submit = () => {
-    this.props.onSubmit(this.state.username)
-  }
-
-  render() {
-    let errorTextComponent
-    if (this.props.submittedUsername === this.state.username && !!this.props.inlineError) {
-      errorTextComponent = (
-        <InlineError
-          error={this.props.inlineError}
-          onGoToSignup={this.props.inlineSignUpLink ? this.props.onGoToSignup : null}
-        />
-      )
-    }
-
-    return (
-      <Container style={styles.container} outerStyle={styles.outerStyle} onBack={() => this.props.onBack()}>
-        <Kb.UserCard style={styles.card} outerStyle={styles.outerCard}>
-          <Kb.Input
-            autoFocus={true}
-            style={styles.input}
-            hintText="Username"
-            maxLength={maxUsernameLength}
-            errorText={this.props.submittedUsername === this.state.username ? this.props.error : ''}
-            errorTextComponent={errorTextComponent}
-            onEnterKeyDown={this._submit}
-            onChangeText={text => this.setState({username: text})}
-            value={this.state.username}
-          />
-          <Kb.WaitingButton
-            label="Continue"
-            fullWidth={true}
-            style={styles.button}
-            onClick={this._submit}
-            disabled={!this.state.username}
-            waitingKey={Constants.waitingKey}
-          />
-          <Kb.Text
-            style={styles.forgotUsername}
-            type="BodySmallSecondaryLink"
-            onClick={this.props.onForgotUsername}
-          >
-            Forgot your username?
-          </Kb.Text>
-        </Kb.UserCard>
-      </Container>
-    )
-  }
-}
-
-const styles = Styles.styleSheetCreate({
-  button: Styles.platformStyles({
-    common: {
-      alignSelf: 'center',
-      width: '100%',
-    },
-    isElectron: {
-      marginTop: Styles.globalMargins.medium,
-    },
-  }),
-  card: {
-    alignItems: 'stretch',
-  },
-  container: Styles.platformStyles({
-    common: {
-      flex: 1,
-    },
-    isElectron: {
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-  }),
-  error: {paddingTop: Styles.globalMargins.tiny, textAlign: 'center'},
-  errorLink: {
-    color: Styles.globalColors.redDark,
-    textDecorationLine: 'underline',
-  },
-  forgotUsername: {
-    alignSelf: 'center',
-    paddingTop: Styles.globalMargins.small,
-  },
-  input: Styles.platformStyles({
-    isMobile: {
-      flexGrow: 1,
-      marginBottom: Styles.globalMargins.small,
-    },
-  }),
-  outerCard: {
-    marginTop: 40,
-  },
-  outerStyle: {
-    backgroundColor: Styles.globalColors.white,
-  },
-})
 
 export default Username

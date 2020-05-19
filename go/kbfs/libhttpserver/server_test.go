@@ -30,7 +30,7 @@ func makeTestKBFSConfig(t *testing.T) (
 	require.NoError(t, err)
 	defer func() {
 		if err != nil {
-			ioutil.RemoveAll(tempdir)
+			_ = ioutil.RemoveAll(tempdir)
 		}
 	}()
 	err = cfg.EnableDiskLimiter(tempdir)
@@ -67,7 +67,7 @@ func TestServerDefault(t *testing.T) {
 	addr, err := s.Address()
 	require.NoError(t, err)
 
-	token, err := s.NewToken()
+	token, err := s.CurrentToken()
 	require.NoError(t, err)
 
 	resp, err := http.Get(fmt.Sprintf(
@@ -83,16 +83,26 @@ func TestServerDefault(t *testing.T) {
 	resp, err = http.Get(fmt.Sprintf(
 		"http://%s/files/private/alice,bob/non-existent?token=%s", addr, token))
 	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	resp, err = http.Get(fmt.Sprintf(
+		"http://%s/files/private/alice,bob/non-existent?token=%s&viewTypeInvariance=0", addr, token))
+	require.NoError(t, err)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
 	resp, err = http.Get(fmt.Sprintf(
-		"http://%s/files/private/alice,bob/test.txt?token=%s", addr, token))
+		"http://%s/files/private/alice,bob/test.txt?token=%s&viewTypeInvariance=0", addr, token))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusPreconditionFailed, resp.StatusCode)
+
+	resp, err = http.Get(fmt.Sprintf(
+		"http://%s/files/private/alice,bob/test.txt?token=%s&viewTypeInvariance=1", addr, token))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, resp.Header.Get("Content-Type"), "charset=")
 
 	resp, err = http.Get(fmt.Sprintf(
-		"http://%s/files/blah/alice,bob/non-existent?token=%s", addr, token))
+		"http://%s/files/blah/alice,bob/non-existent?token=%s&viewTypeInvariance=1", addr, token))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

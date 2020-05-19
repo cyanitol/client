@@ -40,7 +40,7 @@ func NewBackgroundTLFUpdater(g *libkb.GlobalContext) *BackgroundTLFUpdater {
 		shutdownCh:   make(chan struct{}),
 		clock:        clockwork.NewRealClock(),
 	}
-	g.PushShutdownHook(func() error { return b.Shutdown() })
+	g.PushShutdownHook(b.Shutdown)
 	return b
 }
 
@@ -64,12 +64,15 @@ func (b *BackgroundTLFUpdater) chat() libkb.ChatHelper {
 
 func (b *BackgroundTLFUpdater) Run() {
 	b.runAll()
-	go b.monitorAppState()
 }
 
 func (b *BackgroundTLFUpdater) runAll() {
 	b.Lock()
 	defer b.Unlock()
+	if b.G().IsMobileAppType() {
+		b.debug(context.Background(), "tlf updater disabled on mobile")
+		return
+	}
 	uid := b.G().Env.GetUID()
 	if uid.IsNil() {
 		b.debug(context.Background(), "not logged in, not starting")
@@ -86,32 +89,15 @@ func (b *BackgroundTLFUpdater) runAll() {
 	}
 }
 
-func (b *BackgroundTLFUpdater) Shutdown() error {
+func (b *BackgroundTLFUpdater) Shutdown(mctx libkb.MetaContext) error {
 	b.Lock()
 	defer b.Unlock()
 	if b.running {
-		b.debug(context.Background(), "shutting down")
+		b.debug(mctx.Ctx(), "shutting down")
 		b.running = false
 		close(b.shutdownCh)
 	}
 	return nil
-}
-
-func (b *BackgroundTLFUpdater) monitorAppState() {
-	ctx := context.Background()
-	b.debug(ctx, "monitorAppState: starting up")
-	state := keybase1.MobileAppState_FOREGROUND
-	for {
-		state = <-b.G().MobileAppState.NextUpdate(&state)
-		switch state {
-		case keybase1.MobileAppState_FOREGROUND:
-			b.debug(ctx, "monitorAppState: foregrounded, running all after: %v", b.initialWait)
-			b.runAll()
-		case keybase1.MobileAppState_BACKGROUND:
-			b.debug(ctx, "monitorAppState: backgrounded, suspending upgrade thread")
-			b.Shutdown()
-		}
-	}
 }
 
 func (b *BackgroundTLFUpdater) runAppType(appType keybase1.TeamApplication) {

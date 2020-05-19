@@ -2,7 +2,7 @@
 import * as CSS from './css'
 export {default as globalColors} from './colors'
 
-export declare const transition: (...properties: Array<string>) => Object
+export declare const transition: (...properties: Array<string>) => any
 
 type _fakeFontDefSeeCommentsOnThisStyle = {
   fontFamily: 'Keybase'
@@ -40,6 +40,9 @@ export declare const globalStyles: {
   flexOne: {
     flex: 1
   }
+  flexWrap: {
+    flexWrap: 'wrap'
+  }
   fontBold: {
     fontFamily: 'Keybase'
     fontWeight: '700'
@@ -47,6 +50,7 @@ export declare const globalStyles: {
   }
   fontExtrabold: _fakeFontDefSeeCommentsOnThisStyle
   fontRegular: _fakeFontDefSeeCommentsOnThisStyle
+  fontNyctographic: _fakeFontDefSeeCommentsOnThisStyle
   fontSemibold: _fakeFontDefSeeCommentsOnThisStyle
   fontTerminal: _fakeFontDefSeeCommentsOnThisStyle
   fontTerminalSemibold: _fakeFontDefSeeCommentsOnThisStyle
@@ -57,21 +61,27 @@ export declare const globalStyles: {
     width: '100%'
   }
   italic: _fakeFontDefSeeCommentsOnThisStyle
+  largeWidthPercent: string
   loadingTextStyle: CSS._StylesCrossPlatform
+  mediumSubNavWidth: number | string
+  mediumWidth: number | string
+  opacity0: {opacity: 0}
+  positionRelative: {position: 'relative'}
   rounded: {
     borderRadius: 3
   }
+  shortSubNavWidth: number | string
 }
 
 export declare const desktopStyles: {
-  boxShadow?: CSS._StylesDesktop
-  clickable?: CSS._StylesDesktop
-  editable?: CSS._StylesDesktop
-  fadeOpacity?: CSS._StylesDesktop
-  noSelect?: CSS._StylesDesktop
-  scrollable?: CSS._StylesDesktop
-  windowDragging?: CSS._StylesDesktop
-  windowDraggingClickable?: CSS._StylesDesktop
+  boxShadow: {boxShadow: ''}
+  clickable: {cursor: 'pointer'}
+  editable: {cursor: 'text'}
+  fadeOpacity: {transition: 'opacity .25s ease-in-out'}
+  noSelect: {userSelect: 'none'}
+  scrollable: {overflowY: 'auto'}
+  windowDragging: {WebkitAppRegion: 'drag'}
+  windowDraggingClickable: {WebkitAppRegion: 'no-drag'}
 }
 
 export declare const mobileStyles: {}
@@ -81,7 +91,9 @@ export declare const borderRadius: number
 export declare const hairlineWidth: number
 export declare function backgroundURL(...path: Array<string>): string
 
-export declare function styleSheetCreate<T extends {[K in string]: CSS.StylesCrossPlatform}>(map: T): T
+type NamedStyles = {[key: string]: CSS._StylesCrossPlatform}
+// order important!
+export declare function styleSheetCreate<O extends NamedStyles>(styles: () => O): O
 
 type _Elem = Object | null | false | void
 // CollapsibleStyle is a generic version of ?StylesMobile and family,
@@ -96,7 +108,6 @@ export declare const windowStyle: {
   height: number
 }
 
-// TODO: this typing is incomplete
 export declare function padding(
   top: number,
   right?: number,
@@ -114,9 +125,13 @@ export declare const styledKeyframes: any
 export declare const isAndroid: boolean
 export declare const isIOS: boolean
 export declare const isMobile: boolean
+export declare const isPhone: boolean
+export declare const isTablet: boolean
+export declare const isDarkMode: () => boolean
 export declare const isIPhoneX: boolean
 export declare const dimensionWidth: number
 export declare const dimensionHeight: number
+export declare const headerExtraHeight: number
 
 export {platformStyles, globalMargins, backgroundModeToColor, backgroundModeToTextColor} from './shared'
 export {
@@ -124,7 +139,10 @@ export {
   StylesMobile,
   StylesCrossPlatform,
   Color,
-  StylesCrossPlatformWithSomeDisallowed,
+  CustomStyles,
+  _StylesCrossPlatform,
+  _StylesDesktop,
+  _StylesMobile,
 } from './css'
 export {default as classNames} from 'classnames'
 export {default as styled} from '@emotion/styled'

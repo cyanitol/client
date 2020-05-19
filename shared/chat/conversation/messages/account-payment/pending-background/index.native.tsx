@@ -3,7 +3,8 @@ import * as Kb from '../../../../../common-adapters/mobile.native'
 import * as Styles from '../../../../../styles'
 import {Props} from '.'
 
-const patternImage = require('../../../../../images/payment-pattern-80.png')
+const lightPatternImage = require('../../../../../images/payment-pattern-80.png')
+const darkPatternImage = require('../../../../../images/dark-payment-pattern-80.png')
 
 type State = {
   yOffset: Kb.NativeAnimated.Value
@@ -28,7 +29,7 @@ class PendingBackground extends React.Component<Props, State> {
       <>
         <Kb.NativeAnimated.Image
           resizeMode="repeat"
-          source={patternImage}
+          source={Styles.isDarkMode() ? darkPatternImage : lightPatternImage}
           style={Styles.collapseStyles([
             styles.image,
             {
@@ -42,16 +43,19 @@ class PendingBackground extends React.Component<Props, State> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  image: {
-    bottom: -80,
-    height: 'auto',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    width: 'auto',
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      image: {
+        bottom: -80,
+        height: 'auto',
+        left: 0,
+        position: 'absolute',
+        right: 0,
+        top: 0,
+        width: 'auto',
+      },
+    } as const)
+)
 
 export default PendingBackground

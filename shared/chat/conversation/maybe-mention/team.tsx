@@ -13,12 +13,12 @@ export type Props = {
   inTeam: boolean
   isOpen: boolean
   name: string
+  numMembers: number
   onChat?: () => void
   onJoinTeam: (arg0: string) => void
-  onViewTeam: (arg0: string) => void
-  resolved: boolean
-  numMembers: number
+  onViewTeam: () => void
   publicAdmins: Array<string>
+  resolved: boolean
   style?: StylesTextCrossPlatform
 }
 
@@ -34,7 +34,7 @@ class TeamMention extends React.Component<Props, State> {
   }
 
   _onClick = () => {
-    if (!Styles.isMobile && this.props.onChat) {
+    if (this.props.onChat) {
       this.props.onChat()
     } else {
       this.setState({showPopup: true})
@@ -54,15 +54,19 @@ class TeamMention extends React.Component<Props, State> {
     const content = (
       <Kb.Text
         ref={this._mentionRef}
-        type="BodySemibold"
+        type="BodyBold"
         className={Styles.classNames({'hover-underline': !Styles.isMobile})}
-        style={Styles.collapseStyles([this.props.style, styles.resolved, styles.text])}
+        style={Styles.collapseStyles([this.props.style, styles.text])}
         allowFontScaling={this.props.allowFontScaling}
         onClick={this._onClick}
       >
-        {Styles.isMobile && ' '}
-        {text}
-        {Styles.isMobile && ' '}
+        <Kb.Text
+          type="BodyBold"
+          style={Styles.collapseStyles([this.props.style, styles.resolved, styles.text])}
+          allowFontScaling={this.props.allowFontScaling}
+        >
+          {text}
+        </Kb.Text>
       </Kb.Text>
     )
     const popups = (
@@ -99,34 +103,37 @@ class TeamMention extends React.Component<Props, State> {
         </Kb.Box2>
       )
     ) : (
-      <Kb.Text type="Body" style={this.props.style} allowFontScaling={this.props.allowFontScaling}>
+      <Kb.Text type="BodySemibold" style={this.props.style} allowFontScaling={this.props.allowFontScaling}>
         {text}
       </Kb.Text>
     )
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  container: Styles.platformStyles({
-    isElectron: {
-      display: 'inline-block',
-    },
-  }),
-  resolved: {
-    backgroundColor: Styles.globalColors.blue,
-    borderRadius: 2,
-    color: Styles.globalColors.white,
-  },
-  text: Styles.platformStyles({
-    common: {
-      letterSpacing: 0.3,
-      paddingLeft: 2,
-      paddingRight: 2,
-    },
-    isElectron: {
-      display: 'inline-block',
-    },
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: Styles.platformStyles({
+        isElectron: {
+          display: 'inline-block',
+        },
+      }),
+      resolved: {
+        backgroundColor: Styles.globalColors.blue,
+        borderRadius: 2,
+        color: Styles.globalColors.white,
+      },
+      text: Styles.platformStyles({
+        common: {
+          letterSpacing: 0.3,
+          paddingLeft: 2,
+          paddingRight: 2,
+        },
+        isElectron: {
+          display: 'inline-block',
+        },
+      }),
+    } as const)
+)
 
 export default TeamMention

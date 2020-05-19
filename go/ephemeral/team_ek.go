@@ -47,7 +47,7 @@ func (k *TeamEphemeralKeyer) Type() keybase1.TeamEphemeralKeyType {
 
 func postNewTeamEK(mctx libkb.MetaContext, teamID keybase1.TeamID, sig string,
 	boxes *[]keybase1.TeamEkBoxMetadata) (err error) {
-	defer mctx.TraceTimed("postNewTeamEK", func() error { return err })()
+	defer mctx.Trace("postNewTeamEK", &err)()
 
 	boxesJSON, err := json.Marshal(*boxes)
 	if err != nil {
@@ -57,10 +57,9 @@ func postNewTeamEK(mctx libkb.MetaContext, teamID keybase1.TeamID, sig string,
 		Endpoint:    "team/team_ek",
 		SessionType: libkb.APISessionTypeREQUIRED,
 		Args: libkb.HTTPArgs{
-			"team_id":           libkb.S{Val: string(teamID)},
-			"sig":               libkb.S{Val: sig},
-			"boxes":             libkb.S{Val: string(boxesJSON)},
-			"creator_device_id": libkb.S{Val: string(mctx.ActiveDevice().DeviceID())},
+			"team_id": libkb.S{Val: string(teamID)},
+			"sig":     libkb.S{Val: sig},
+			"boxes":   libkb.S{Val: string(boxesJSON)},
 		},
 	}
 	_, err = mctx.G().GetAPI().Post(mctx, apiArg)
@@ -71,7 +70,7 @@ func prepareNewTeamEK(mctx libkb.MetaContext, teamID keybase1.TeamID,
 	signingKey libkb.NaclSigningKeyPair, membersMetadata map[keybase1.UID]keybase1.UserEkMetadata,
 	merkleRoot libkb.MerkleRoot) (sig string, boxes *[]keybase1.TeamEkBoxMetadata,
 	metadata keybase1.TeamEkMetadata, myBox *keybase1.TeamEkBoxed, err error) {
-	defer mctx.TraceTimed("prepareNewTeamEK", func() error { return err })()
+	defer mctx.Trace("prepareNewTeamEK", &err)()
 
 	seed, err := newTeamEphemeralSeed()
 	if err != nil {
@@ -131,8 +130,8 @@ func prepareNewTeamEK(mctx libkb.MetaContext, teamID keybase1.TeamID,
 }
 
 func publishNewTeamEK(mctx libkb.MetaContext, teamID keybase1.TeamID,
-	merkleRoot libkb.MerkleRoot) (metadata keybase1.TeamEkMetadata, err error) {
-	defer mctx.TraceTimed("publishNewTeamEK", func() error { return err })()
+	merkleRoot libkb.MerkleRoot, forceCreateGeneration *keybase1.EkGeneration) (metadata keybase1.TeamEkMetadata, err error) {
+	defer mctx.Trace("publishNewTeamEK", &err)()
 
 	team, err := teams.Load(mctx.Ctx(), mctx.G(), keybase1.LoadTeamArg{
 		ID: teamID,
@@ -157,6 +156,13 @@ func publishNewTeamEK(mctx libkb.MetaContext, teamID keybase1.TeamID,
 	sig, boxes, teamEKMetadata, myBox, err := prepareNewTeamEK(mctx, teamID, signingKey, membersMetadata, merkleRoot)
 	if err != nil {
 		return metadata, err
+	}
+
+	if forceCreateGeneration != nil {
+		if *forceCreateGeneration+1 != teamEKMetadata.Generation {
+			return metadata, fmt.Errorf("Not posting new teamEK, expected %d, found %d", *forceCreateGeneration+1, teamEKMetadata.Generation)
+		}
+		mctx.Debug("forceCreateGeneration set to: %d", *forceCreateGeneration)
 	}
 
 	if err = postNewTeamEK(mctx, teamID, sig, boxes); err != nil {
@@ -198,7 +204,7 @@ func (k *TeamEphemeralKeyer) Fetch(mctx libkb.MetaContext, teamID keybase1.TeamI
 	}
 
 	if result.Result == nil {
-		err = newEKMissingBoxErr(mctx, TeamEKStr, generation)
+		err = newEKMissingBoxErr(mctx, TeamEKKind, generation)
 		return teamEK, err
 	}
 
@@ -218,7 +224,7 @@ func (k *TeamEphemeralKeyer) Fetch(mctx libkb.MetaContext, teamID keybase1.TeamI
 	teamEKMetadata := teamEKStatement.CurrentTeamEkMetadata
 	if generation != teamEKMetadata.Generation {
 		// sanity check that we got the right generation
-		return teamEK, newEKCorruptedErr(mctx, TeamEKStr, generation, teamEKMetadata.Generation)
+		return teamEK, newEKCorruptedErr(mctx, TeamEKKind, generation, teamEKMetadata.Generation)
 	}
 	teamEKBoxed := keybase1.TeamEkBoxed{
 		Box:              result.Result.Box,
@@ -231,8 +237,8 @@ func (k *TeamEphemeralKeyer) Fetch(mctx libkb.MetaContext, teamID keybase1.TeamI
 
 func (k *TeamEphemeralKeyer) Unbox(mctx libkb.MetaContext, boxed keybase1.TeamEphemeralKeyBoxed,
 	contentCtime *gregor1.Time) (ek keybase1.TeamEphemeralKey, err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("TeamEKBoxStorage#unbox: teamEKGeneration: %v", boxed.Generation()),
-		func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("TeamEKBoxStorage#unbox: teamEKGeneration: %v", boxed.Generation()),
+		&err)()
 
 	typ, err := boxed.KeyType()
 	if err != nil {
@@ -248,9 +254,8 @@ func (k *TeamEphemeralKeyer) Unbox(mctx libkb.MetaContext, boxed keybase1.TeamEp
 	userEK, err := userEKBoxStorage.Get(mctx, teamEKBoxed.UserEkGeneration, contentCtime)
 	if err != nil {
 		mctx.Debug("unable to get from userEKStorage %v", err)
-		switch err.(type) {
-		case EphemeralKeyError:
-			return ek, newEKUnboxErr(mctx, TeamEKStr, teamEKGeneration, UserEKStr,
+		if _, ok := err.(EphemeralKeyError); ok {
+			return ek, newEKUnboxErr(mctx, TeamEKKind, teamEKGeneration, UserEKKind,
 				teamEKBoxed.UserEkGeneration, contentCtime)
 		}
 		return ek, err
@@ -262,7 +267,7 @@ func (k *TeamEphemeralKeyer) Unbox(mctx libkb.MetaContext, boxed keybase1.TeamEp
 	msg, _, err := userKeypair.DecryptFromString(teamEKBoxed.Box)
 	if err != nil {
 		mctx.Debug("unable to decrypt teamEKBoxed %v", err)
-		return ek, newEKUnboxErr(mctx, TeamEKStr, teamEKGeneration, UserEKStr,
+		return ek, newEKUnboxErr(mctx, TeamEKKind, teamEKGeneration, UserEKKind,
 			teamEKBoxed.UserEkGeneration, contentCtime)
 	}
 
@@ -273,7 +278,8 @@ func (k *TeamEphemeralKeyer) Unbox(mctx libkb.MetaContext, boxed keybase1.TeamEp
 
 	keypair := seed.DeriveDHKey()
 	if !keypair.GetKID().Equal(teamEKBoxed.Metadata.Kid) {
-		return ek, fmt.Errorf("Failed to verify server given seed against signed KID %s", teamEKBoxed.Metadata.Kid)
+		return ek, fmt.Errorf("Failed to verify server given seed [%s] against signed KID [%s]. Box: %+v",
+			teamEKBoxed.Metadata.Kid, keypair.GetKID(), teamEKBoxed)
 	}
 
 	return keybase1.NewTeamEphemeralKeyWithTeam(keybase1.TeamEk{
@@ -287,28 +293,20 @@ func (k *TeamEphemeralKeyer) Unbox(mctx libkb.MetaContext, boxed keybase1.TeamEp
 // of posting a new key, causing the post to fail. Detect these conditions
 // and retry.
 func teamEKRetryWrapper(mctx libkb.MetaContext, retryFn func() error) (err error) {
-	knownRaceConditions := []keybase1.StatusCode{
-		keybase1.StatusCode_SCSigWrongKey,
-		keybase1.StatusCode_SCSigOldSeqno,
-		keybase1.StatusCode_SCEphemeralKeyBadGeneration,
-		keybase1.StatusCode_SCEphemeralKeyUnexpectedBox,
-		keybase1.StatusCode_SCEphemeralKeyMissingBox,
-		keybase1.StatusCode_SCEphemeralKeyWrongNumberOfKeys,
-	}
 	for tries := 0; tries < maxRetries; tries++ {
 		if err = retryFn(); err == nil {
 			return nil
 		}
-		retryableError := false
-		for _, code := range knownRaceConditions {
-			if libkb.IsAppStatusCode(err, code) {
-				mctx.Debug("teamEKRetryWrapper found a retryable error on try %d: %s", tries, err)
-				retryableError = true
-				break
-			}
-		}
-		if !retryableError {
+		if !libkb.IsEphemeralRetryableError(err) {
 			return err
+		}
+		mctx.Debug("teamEKRetryWrapper found a retryable error on try %d: %v",
+			tries, err)
+		select {
+		case <-mctx.Ctx().Done():
+			return mctx.Ctx().Err()
+		default:
+			// continue retrying
 		}
 	}
 	return err
@@ -316,9 +314,9 @@ func teamEKRetryWrapper(mctx libkb.MetaContext, retryFn func() error) (err error
 
 func ForcePublishNewTeamEKForTesting(mctx libkb.MetaContext, teamID keybase1.TeamID,
 	merkleRoot libkb.MerkleRoot) (metadata keybase1.TeamEkMetadata, err error) {
-	defer mctx.TraceTimed("ForcePublishNewTeamEKForTesting", func() error { return err })()
+	defer mctx.Trace("ForcePublishNewTeamEKForTesting", &err)()
 	err = teamEKRetryWrapper(mctx, func() error {
-		metadata, err = publishNewTeamEK(mctx, teamID, merkleRoot)
+		metadata, err = publishNewTeamEK(mctx, teamID, merkleRoot, nil)
 		return err
 	})
 	return metadata, err
@@ -326,7 +324,7 @@ func ForcePublishNewTeamEKForTesting(mctx libkb.MetaContext, teamID keybase1.Tea
 
 func boxTeamEKForUsers(mctx libkb.MetaContext, usersMetadata map[keybase1.UID]keybase1.UserEkMetadata,
 	teamEK keybase1.TeamEk) (teamBoxes *[]keybase1.TeamEkBoxMetadata, myTeamEKBoxed *keybase1.TeamEkBoxed, err error) {
-	defer mctx.TraceTimed("boxTeamEKForUsers", func() error { return err })()
+	defer mctx.Trace("boxTeamEKForUsers", &err)()
 
 	myUID := mctx.G().Env.GetUID()
 	boxes := make([]keybase1.TeamEkBoxMetadata, 0, len(usersMetadata))
@@ -369,7 +367,7 @@ type teamEKStatementResponse struct {
 // in the wild have EK support, we will make that case an error.
 func fetchTeamEKStatement(mctx libkb.MetaContext, teamID keybase1.TeamID) (
 	statement *keybase1.TeamEkStatement, latestGeneration keybase1.EkGeneration, wrongKID bool, err error) {
-	defer mctx.TraceTimed("fetchTeamEKStatement", func() error { return err })()
+	defer mctx.Trace("fetchTeamEKStatement", &err)()
 
 	apiArg := libkb.APIArg{
 		Endpoint:    "team/team_ek",
@@ -431,7 +429,7 @@ func extractTeamEKStatementFromSig(sig string) (signerKey *kbcrypto.NaclSigningK
 // key" and convert the error to a warning.
 func verifySigWithLatestPTK(mctx libkb.MetaContext, teamID keybase1.TeamID,
 	sig string) (statement *keybase1.TeamEkStatement, latestGeneration keybase1.EkGeneration, wrongKID bool, err error) {
-	defer mctx.TraceTimed("verifySigWithLatestPTK", func() error { return err })()
+	defer mctx.Trace("verifySigWithLatestPTK", &err)()
 
 	// Parse the statement before we verify the signing key. Even if the
 	// signing key is bad (likely because of a legacy PTK roll that didn't
@@ -488,8 +486,8 @@ type teamMemberEKStatementResponse struct {
 // the map of users the server returns are indeed valid team members of the
 // team and all signatures verify correctly for the users.
 func fetchTeamMemberStatements(mctx libkb.MetaContext,
-	teamID keybase1.TeamID) (statementMap map[keybase1.UID]*keybase1.UserEkStatement, err error) {
-	defer mctx.TraceTimed("fetchTeamMemberStatements", func() error { return err })()
+	teamID keybase1.TeamID) (statements map[keybase1.UID]*keybase1.UserEkStatement, err error) {
+	defer mctx.Trace("fetchTeamMemberStatements", &err)()
 
 	apiArg := libkb.APIArg{
 		Endpoint:    "team/member_eks",
@@ -503,44 +501,77 @@ func fetchTeamMemberStatements(mctx libkb.MetaContext,
 		return nil, err
 	}
 
-	parsedResponse := teamMemberEKStatementResponse{}
-	err = res.Body.UnmarshalAgain(&parsedResponse)
-	if err != nil {
+	memberEKStatements := teamMemberEKStatementResponse{}
+	if err = res.Body.UnmarshalAgain(&memberEKStatements); err != nil {
 		return nil, err
 	}
 
 	team, err := teams.Load(mctx.Ctx(), mctx.G(), keybase1.LoadTeamArg{
-		ID:          teamID,
-		ForceRepoll: true,
+		ID: teamID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	statementMap = make(map[keybase1.UID]*keybase1.UserEkStatement)
-	for uid, sig := range parsedResponse.Sigs {
-		// Verify the server only returns actual members of our team.
-		upak, _, err := mctx.G().GetUPAKLoader().LoadV2(
-			libkb.NewLoadUserArgWithMetaContext(mctx).WithUID(uid))
-		if err != nil {
-			return nil, err
+	var uids []keybase1.UID
+	for uid := range memberEKStatements.Sigs {
+		uids = append(uids, uid)
+	}
+
+	getArg := func(i int) *libkb.LoadUserArg {
+		if i >= len(uids) {
+			return nil
+		}
+		tmp := libkb.NewLoadUserArgWithMetaContext(mctx).WithUID(uids[i])
+		return &tmp
+	}
+
+	var upaks []*keybase1.UserPlusKeysV2AllIncarnations
+	statements = make(map[keybase1.UID]*keybase1.UserEkStatement)
+	processResult := func(i int, upak *keybase1.UserPlusKeysV2AllIncarnations) error {
+		mctx.Debug("processing member %d/%d %.2f%% complete", i, len(uids), (float64(i) / float64(len(uids)) * 100))
+		if upak == nil {
+			mctx.Debug("Unable to load user %v", uids[i])
+			return nil
 		}
 		uv := upak.Current.ToUserVersion()
-		isMember := team.IsMember(mctx.Ctx(), uv)
-		if !isMember {
-			return nil, fmt.Errorf("Server lied about team membership! %v is not a member of team %v", uv, teamID)
+		if !team.IsMember(mctx.Ctx(), uv) {
+			// Team membership may be stale, force a reload and check again
+			team, err = teams.Load(mctx.Ctx(), mctx.G(), keybase1.LoadTeamArg{
+				ID:          teamID,
+				ForceRepoll: true,
+			})
+			if err != nil {
+				return err
+			}
+			if !team.IsMember(mctx.Ctx(), uv) {
+				mctx.Debug("%v is not a member of team %v", uv, teamID)
+				return nil
+			}
 		}
-		memberStatement, _, wrongKID, err := verifySigWithLatestPUK(mctx, uid, sig)
-		// Check the wrongKID condition before checking the error, since an error
-		// is still returned in this case. TODO: Turn this warning into an error
-		// after EK support is sufficiently widespread.
+		upaks = append(upaks, upak)
+		return nil
+	}
+	if err = mctx.G().GetUPAKLoader().Batcher(mctx.Ctx(), getArg, processResult, 0); err != nil {
+		return nil, err
+	}
+	for _, upak := range upaks {
+		uid := upak.GetUID()
+		sig, ok := memberEKStatements.Sigs[uid]
+		if !ok {
+			mctx.Debug("missing memberEK statement for UID %v in team %v", uid, teamID)
+			continue
+		}
+		statement, _, wrongKID, err := verifySigWithLatestPUK(mctx, uid,
+			upak.Current.GetLatestPerUserKey(), sig)
 		if wrongKID {
-			mctx.Debug("Member %v revoked a device without generating new ephemeral keys. They might be running an old version?", uid)
+			mctx.Debug("UID %v has a statement signed with the wrongKID, skipping", uid)
 			// Don't box for this member since they have no valid userEK
 			continue
 		} else if err != nil {
 			return nil, err
 		}
-		statementMap[uid] = memberStatement
+		statements[uid] = statement
 	}
-	return statementMap, nil
+
+	return statements, nil
 }

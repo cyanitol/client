@@ -31,7 +31,7 @@ func (n nullTeamLoader) ImplicitAdmins(ctx context.Context, teamID keybase1.Team
 	return nil, fmt.Errorf("null team loader")
 }
 
-func (n nullTeamLoader) MapTeamAncestors(ctx context.Context, f func(t keybase1.TeamSigChainState) error, teamID keybase1.TeamID, reason string, forceFullReloadOnceToAssert func(t keybase1.TeamSigChainState) bool) error {
+func (n nullTeamLoader) MapTeamAncestors(ctx context.Context, f func(t keybase1.TeamSigChainState, n keybase1.TeamName) error, teamID keybase1.TeamID, reason string, forceFullReloadOnceToAssert func(t keybase1.TeamSigChainState) bool) error {
 	return fmt.Errorf("null team loader")
 }
 
@@ -71,6 +71,10 @@ func (n *nullTeamLoader) ForceRepollUntil(ctx context.Context, t gregor.TimeOrOf
 	return nil
 }
 
+func (n *nullTeamLoader) IsOpenCached(ctx context.Context, teamID keybase1.TeamID) (bool, error) {
+	return false, fmt.Errorf("null team loader")
+}
+
 func (n nullTeamLoader) ClearMem() {}
 
 type nullFastTeamLoader struct{}
@@ -107,7 +111,7 @@ type nullTeamAuditor struct{}
 
 var _ TeamAuditor = nullTeamAuditor{}
 
-func (n nullTeamAuditor) AuditTeam(m MetaContext, id keybase1.TeamID, isPublic bool, headMerkleSeqno keybase1.Seqno, chain map[keybase1.Seqno]keybase1.LinkID, maxSeqno keybase1.Seqno) (err error) {
+func (n nullTeamAuditor) AuditTeam(m MetaContext, id keybase1.TeamID, isPublic bool, headMerkleSeqno keybase1.Seqno, chain map[keybase1.Seqno]keybase1.LinkID, hiddenChain map[keybase1.Seqno]keybase1.LinkID, maxSeqno keybase1.Seqno, maxHiddenSeqno keybase1.Seqno, lastMerkleRoot *MerkleRoot, auditMode keybase1.AuditMode) (err error) {
 	return fmt.Errorf("null team auditor")
 }
 
@@ -153,6 +157,9 @@ func (n nullTeamBoxAuditor) BoxAuditTeam(m MetaContext, id keybase1.TeamID) (*ke
 func (n nullTeamBoxAuditor) Attempt(m MetaContext, id keybase1.TeamID, rotateBeforeAudit bool) keybase1.BoxAuditAttempt {
 	return *attemptNullBoxAuditor()
 }
+func (n nullTeamBoxAuditor) MaybeScheduleDelayedBoxAuditTeam(mctx MetaContext, teamID keybase1.TeamID) {
+}
+
 func newNullTeamBoxAuditor() nullTeamBoxAuditor { return nullTeamBoxAuditor{} }
 
 type nullHiddenTeamChainManager struct{}
@@ -181,7 +188,30 @@ func (n nullHiddenTeamChainManager) Freeze(MetaContext, keybase1.TeamID) error {
 func (n nullHiddenTeamChainManager) HintLatestSeqno(m MetaContext, id keybase1.TeamID, seqno keybase1.Seqno) error {
 	return nil
 }
+func (n nullHiddenTeamChainManager) Shutdown(m MetaContext) {}
+
+func (n nullHiddenTeamChainManager) TeamSupportsHiddenChain(m MetaContext, id keybase1.TeamID) (state bool, err error) {
+	return false, fmt.Errorf("null hidden team chain manager")
+}
+
+func (n nullHiddenTeamChainManager) ClearSupportFlagIfFalse(m MetaContext, id keybase1.TeamID) {}
 
 func newNullHiddenTeamChainManager() nullHiddenTeamChainManager {
 	return nullHiddenTeamChainManager{}
 }
+
+type nullTeamRoleMapManager struct{}
+
+var _ TeamRoleMapManager = nullTeamRoleMapManager{}
+
+func newNullTeamRoleMapManager() nullTeamRoleMapManager {
+	return nullTeamRoleMapManager{}
+}
+
+func (n nullTeamRoleMapManager) Get(m MetaContext, retryOnFail bool) (res keybase1.TeamRoleMapAndVersion, err error) {
+	return res, nil
+}
+func (n nullTeamRoleMapManager) Update(m MetaContext, version keybase1.UserTeamVersion) (err error) {
+	return nil
+}
+func (n nullTeamRoleMapManager) FlushCache() {}

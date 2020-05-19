@@ -1,93 +1,128 @@
 import * as React from 'react'
-import * as Constants from '../../constants/teams'
-import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
+import * as WaitingGen from '../../actions/waiting-gen'
+import * as Constants from '../../constants/teams'
+import * as Types from '../../constants/types/teams'
+import * as Kb from '../../common-adapters'
+import * as Container from '../../util/container'
+import {pluralize} from '../../util/string'
+import {useTeamDetailsSubscribe} from '../subscriber'
 
 export type Props = {
+  deleteWaiting: boolean
   onBack: () => void
   onDelete: () => void
+  subteamNames?: Array<string>
+  teamID: Types.TeamID
   teamname: string
 }
 
 const Header = (props: Props) => (
   <>
     <Kb.Avatar teamname={props.teamname} size={64} />
-    <Kb.Icon type="icon-team-delete-28" style={{marginRight: -60, marginTop: -20}} />
-    <Kb.Text style={styles.headerTeamname} type="BodySemibold">
-      {props.teamname}
-    </Kb.Text>
+    <Kb.Icon type="icon-team-delete-28" style={{marginRight: -60, marginTop: -20, zIndex: 1}} />
   </>
 )
 
 export type CheckboxesProps = {
-  box1: boolean
-  box2: boolean
-  box3: boolean
-  onSetBox1: (checked: boolean) => void
-  onSetBox2: (checked: boolean) => void
-  onSetBox3: (checked: boolean) => void
+  checkChats: boolean
+  checkFolder: boolean
+  checkNotify: boolean
+  onSetCheckChats: (checked: boolean) => void
+  onSetCheckFolder: (checked: boolean) => void
+  onSetCheckNotify: (checked: boolean) => void
 }
 
 const Checkboxes = (props: CheckboxesProps) => (
   <Kb.Box2 direction="vertical">
     <Kb.Checkbox
-      checked={props.box1}
+      checked={props.checkChats}
       label="Team chats will be lost"
-      onCheck={checked => props.onSetBox1(checked)}
+      onCheck={checked => props.onSetCheckChats(checked)}
     />
     <Kb.Checkbox
-      checked={props.box2}
+      checked={props.checkFolder}
       label="Data in the team folder will be lost"
-      onCheck={checked => props.onSetBox2(checked)}
+      onCheck={checked => props.onSetCheckFolder(checked)}
     />
     <Kb.Checkbox
-      checked={props.box3}
+      checked={props.checkNotify}
       label="Team members will be notified"
-      onCheck={checked => props.onSetBox3(checked)}
+      onCheck={checked => props.onSetCheckNotify(checked)}
     />
   </Kb.Box2>
 )
 
-type State = {
-  box1: boolean
-  box2: boolean
-  box3: boolean
-}
+const ReallyDeleteTeam = (props: Props) => {
+  const [checks, setChecks] = React.useState({
+    checkChats: false,
+    checkFolder: false,
+    checkNotify: false,
+  })
+  const {checkChats, checkFolder, checkNotify} = checks
+  const onCheck = (which: keyof typeof checks) => (enable: boolean) => setChecks({...checks, [which]: enable})
+  const disabled = !checkChats || !checkFolder || !checkNotify
+  const {deleteWaiting, onBack, teamID} = props
+  const error = Container.useAnyErrors(Constants.deleteTeamWaitingKey(props.teamID))
+  const prevDeleteWaiting = Container.usePrevious(deleteWaiting)
+  React.useEffect(() => {
+    if (prevDeleteWaiting !== undefined && !deleteWaiting && prevDeleteWaiting && !error) {
+      // Finished, nav up
+      onBack()
+    }
+  }, [deleteWaiting, prevDeleteWaiting, onBack, error])
 
-class _ReallyDeleteTeam extends React.Component<Props, State> {
-  state = {
-    box1: false,
-    box2: false,
-    box3: false,
-  }
+  const dispatch = Container.useDispatch()
+  React.useEffect(() => {
+    return () => {
+      dispatch(WaitingGen.createClearWaiting({key: Constants.deleteTeamWaitingKey(teamID)}))
+    }
+  }, [dispatch, teamID])
+  useTeamDetailsSubscribe(teamID)
 
-  render() {
+  if (props.subteamNames) {
     return (
       <Kb.ConfirmModal
-        confirmText={`Delete ${this.props.teamname}`}
         content={
-          <Checkboxes
-            box1={this.state.box1}
-            box2={this.state.box2}
-            box3={this.state.box3}
-            onSetBox1={box1 => this.setState({box1})}
-            onSetBox2={box2 => this.setState({box2})}
-            onSetBox3={box3 => this.setState({box3})}
-          />
+          <Kb.Text type="Body" center={true} style={{marginTop: Styles.globalMargins.medium}}>
+            Before you can delete <Kb.Text type="BodySemibold">{props.teamname}</Kb.Text>, delete its{' '}
+            {props.subteamNames.length} {pluralize('subteam', props.subteamNames.length)}:{' '}
+            <Kb.Text type="BodySemibold">{props.subteamNames.join(', ')}</Kb.Text>.
+          </Kb.Text>
         }
-        description="This cannot be undone. By deleting the team, you agree that:"
-        header={<Header {...this.props} />}
-        onCancel={this.props.onBack}
-        onConfirm={this.state.box1 && this.state.box2 && this.state.box3 ? this.props.onDelete : undefined}
-        prompt={`Are you sure you want to delete ${this.props.teamname}?`}
-        waitingKey={Constants.deleteTeamWaitingKey(this.props.teamname)}
+        header={<Header {...props} />}
+        prompt={
+          <Kb.Text type="Header" center={true} style={Styles.padding(0, Styles.globalMargins.small)}>
+            You can't delete {props.teamname} because it has subteams.
+          </Kb.Text>
+        }
+        onCancel={props.onBack}
       />
     )
   }
+
+  return (
+    <Kb.ConfirmModal
+      error={error ? error.message : ''}
+      confirmText="Delete team"
+      content={
+        <Checkboxes
+          checkChats={checkChats}
+          checkFolder={checkFolder}
+          checkNotify={checkNotify}
+          onSetCheckChats={onCheck('checkChats')}
+          onSetCheckFolder={onCheck('checkFolder')}
+          onSetCheckNotify={onCheck('checkNotify')}
+        />
+      }
+      description="This cannot be undone. By deleting the team, you agree that:"
+      header={<Header {...props} />}
+      onCancel={props.onBack}
+      onConfirm={disabled ? undefined : props.onDelete}
+      prompt={`Delete ${props.teamname}?`}
+      waitingKey={Constants.deleteTeamWaitingKey(props.teamID)}
+    />
+  )
 }
 
-const styles = Styles.styleSheetCreate({
-  headerTeamname: {color: Styles.globalColors.redDark, textDecorationLine: 'line-through'},
-})
-
-export default _ReallyDeleteTeam
+export default ReallyDeleteTeam

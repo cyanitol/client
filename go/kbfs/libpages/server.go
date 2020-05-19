@@ -29,6 +29,17 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
+// CertStoreType is a type for specifying if and what cert store should be used
+// for acme/autocert.
+type CertStoreType string
+
+// Possible cert store types.
+const (
+	NoCertStore      CertStoreType = ""
+	DiskCertStore    CertStoreType = "disk"
+	KVStoreCertStore CertStoreType = "kvstore"
+)
+
 // ServerConfig holds configuration parameters for Server.
 type ServerConfig struct {
 	// If DomainWhitelist is non-nil and non-empty, only domains in the
@@ -37,11 +48,11 @@ type ServerConfig struct {
 	// If DomainBlacklist is non-nil and non-empty, domains in the blacklist
 	// and all subdomains under them are blocked. When a domain is present in
 	// both blacklist and whitelist, the domain is blocked.
-	DomainBlacklist  []string
-	UseStaging       bool
-	Logger           *zap.Logger
-	UseDiskCertCache bool
-	StatsReporter    StatsReporter
+	DomainBlacklist []string
+	UseStaging      bool
+	Logger          *zap.Logger
+	CertStore       CertStoreType
+	StatsReporter   StatsReporter
 
 	domainListsOnce sync.Once
 	domainWhitelist map[string]bool
@@ -165,7 +176,7 @@ func (s *Server) handleError(w http.ResponseWriter, err error) {
 	case ErrKeybasePagesRecordTooMany, ErrInvalidKeybasePagesRecord:
 		http.Error(w, err.Error(), http.StatusPreconditionFailed)
 		return
-	case config.ErrDuplicateAccessControlPath, config.ErrInvalidPermissions,
+	case config.ErrDuplicatePerPathConfigPath, config.ErrInvalidPermissions,
 		config.ErrInvalidVersion, config.ErrUndefinedUsername:
 		http.Error(w, "invalid .kbp_config", http.StatusPreconditionFailed)
 		return
@@ -326,6 +337,10 @@ func (s *Server) setCommonResponseHeaders(w http.ResponseWriter) {
 	// TODO: allow user to opt-in some directives of Content-Security-Policy?
 }
 
+func (s *Server) setAccessControlAllowOriginHeader(w http.ResponseWriter, accessControlAllowOrigin string) {
+	w.Header().Set("Access-Control-Allow-Origin", accessControlAllowOrigin)
+}
+
 // ServeHTTP implements the http.Handler interface.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
@@ -427,6 +442,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accessControlAllowOrigin, err := cfg.GetAccessControlAllowOrigin(r.URL.Path)
+	if err != nil {
+		s.handleError(w, err)
+		return
+	}
+	if len(accessControlAllowOrigin) > 0 {
+		s.setAccessControlAllowOriginHeader(w, accessControlAllowOrigin)
+	}
+
 	http.FileServer(realFS.ToHTTPFileSystem(ctx)).ServeHTTP(w, r)
 }
 
@@ -460,20 +484,24 @@ const (
 	prodDiskCacheName       = "./kbp-cert-cache"
 )
 
-func makeACMEManager(
-	useStaging bool, useDiskCertCacache bool, hostPolicy autocert.HostPolicy) (
+func makeACMEManager(kbfsConfig libkbfs.Config, useStaging bool,
+	certStoreType CertStoreType, hostPolicy autocert.HostPolicy) (
 	*autocert.Manager, error) {
 	manager := &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: hostPolicy,
 	}
 
-	if useDiskCertCacache {
+	switch certStoreType {
+	case DiskCertStore:
 		if useStaging {
 			manager.Cache = autocert.DirCache(stagingDiskCacheName)
 		} else {
 			manager.Cache = autocert.DirCache(prodDiskCacheName)
 		}
+	case KVStoreCertStore:
+		manager.Cache = newCertStoreBackedByKVStore(kbfsConfig)
+	default:
 	}
 
 	if useStaging {
@@ -507,7 +535,7 @@ func ListenAndServe(ctx context.Context,
 	server := &Server{
 		config:     config,
 		kbfsConfig: kbfsConfig,
-		rootLoader: DNSRootLoader{log: config.Logger},
+		rootLoader: NewDNSRootLoader(config.Logger),
 	}
 	server.siteCache, err = lru.NewWithEvict(fsCacheSize, server.siteCacheEvict)
 	if err != nil {
@@ -515,7 +543,7 @@ func ListenAndServe(ctx context.Context,
 	}
 
 	manager, err := makeACMEManager(
-		config.UseStaging, config.UseDiskCertCache, server.allowDomain)
+		kbfsConfig, config.UseStaging, config.CertStore, server.allowDomain)
 	if err != nil {
 		return err
 	}
@@ -545,8 +573,8 @@ func ListenAndServe(ctx context.Context,
 		shutdownCtx, cancel := context.WithTimeout(
 			context.Background(), gracefulShutdownTimeout)
 		defer cancel()
-		httpsServer.Shutdown(shutdownCtx)
-		httpServer.Shutdown(shutdownCtx)
+		_ = httpsServer.Shutdown(shutdownCtx)
+		_ = httpServer.Shutdown(shutdownCtx)
 	}()
 
 	go func() {

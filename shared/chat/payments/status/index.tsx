@@ -15,7 +15,7 @@ const Kb = {
   Text,
 }
 
-type Status = 'error' | 'pending' | 'completed'
+type Status = 'error' | 'pending' | 'completed' | 'claimable'
 
 type State = {
   showPopup: boolean
@@ -32,16 +32,31 @@ export type Props = {
   text: string
 }
 
-const getIcon = status => {
+const getIcon = (status: Status) => {
   switch (status) {
     case 'completed':
       return 'iconfont-success'
+    case 'claimable':
+      return 'iconfont-success'
     case 'pending':
-      return 'iconfont-time'
+      return 'iconfont-clock'
     case 'error':
       return 'iconfont-remove'
     default:
-      return 'iconfont-time'
+      return 'iconfont-clock'
+  }
+}
+
+const statusColor = (s: Status) => {
+  switch (s) {
+    case 'completed':
+      return Styles.globalColors.purpleDarkOrWhite
+    case 'claimable':
+      return undefined
+    case 'pending':
+      return Styles.globalColors.black_50OrWhite
+    case 'error':
+      return Styles.globalColors.redDarkOrWhite
   }
 }
 
@@ -69,17 +84,22 @@ class PaymentStatus extends React.Component<Props, State> {
         ref={this.statusRef}
         type="BodyExtrabold"
         allowFontScaling={!!this.props.allowFontScaling}
-        style={styles[this.props.status]}
         onClick={this._showPopup}
       >
         {' '}
-        {this.props.text}{' '}
-        <Kb.Icon
-          type={getIcon(this.props.status)}
-          fontSize={12}
-          boxStyle={styles.iconBoxStyle}
-          style={styles[this.props.status + 'Icon']}
-        />{' '}
+        <Kb.Text
+          type="BodyExtrabold"
+          allowFontScaling={!!this.props.allowFontScaling}
+          style={styles[this.props.status]}
+        >
+          {this.props.text}{' '}
+          <Kb.Icon
+            type={getIcon(this.props.status)}
+            fontSize={12}
+            boxStyle={styles.iconBoxStyle}
+            color={statusColor(this.props.status)}
+          />
+        </Kb.Text>{' '}
       </Kb.Text>
     )
     const popups = this.props.isSendError ? (
@@ -94,16 +114,16 @@ class PaymentStatus extends React.Component<Props, State> {
         attachTo={this._getAttachmentRef}
         visible={this.state.showPopup}
         paymentID={this.props.paymentID}
-        position={'top center'}
+        position="top center"
         message={this.props.message}
         onHidden={this._hidePopup}
       />
     )
     return Styles.isMobile ? (
-      <React.Fragment>
+      <>
         {text}
         {popups}
-      </React.Fragment>
+      </>
     ) : (
       <Kb.Box2
         style={styles.container}
@@ -118,39 +138,48 @@ class PaymentStatus extends React.Component<Props, State> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  completed: {
-    backgroundColor: Styles.globalColors.purple_10,
-    borderRadius: Styles.globalMargins.xxtiny,
-    color: Styles.globalColors.purpleDark,
-  },
-  completedIcon: {
-    color: Styles.globalColors.purpleDark,
-  },
-  container: Styles.platformStyles({
-    isElectron: {
-      display: 'inline-block',
-    },
-  }),
-  error: {
-    backgroundColor: Styles.globalColors.red_10,
-    borderRadius: Styles.globalMargins.xxtiny,
-    color: Styles.globalColors.redDark,
-  },
-  errorIcon: {
-    color: Styles.globalColors.redDark,
-  },
-  iconBoxStyle: Styles.platformStyles({
-    isElectron: {
-      display: 'inline',
-    },
-  }),
-  pending: {
-    backgroundColor: Styles.globalColors.black_05,
-    borderRadius: Styles.globalMargins.xxtiny,
-    color: Styles.globalColors.black_50,
-  },
-  pendingIcon: {},
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      claimable: {
+        backgroundColor: Styles.globalColors.purple_10OrPurple,
+        borderRadius: Styles.globalMargins.xxtiny,
+        color: Styles.globalColors.purpleDarkOrWhite,
+        paddingLeft: Styles.globalMargins.xtiny,
+        paddingRight: Styles.globalMargins.xtiny,
+      },
+      completed: {
+        backgroundColor: Styles.globalColors.purple_10OrPurple,
+        borderRadius: Styles.globalMargins.xxtiny,
+        color: Styles.globalColors.purpleDarkOrWhite,
+        paddingLeft: Styles.globalMargins.xtiny,
+        paddingRight: Styles.globalMargins.xtiny,
+      },
+      container: Styles.platformStyles({
+        isElectron: {
+          display: 'inline-block',
+        },
+      }),
+      error: {
+        backgroundColor: Styles.globalColors.red_10OrRed,
+        borderRadius: Styles.globalMargins.xxtiny,
+        color: Styles.globalColors.redDarkOrWhite,
+        paddingLeft: Styles.globalMargins.xtiny,
+        paddingRight: Styles.globalMargins.xtiny,
+      },
+      iconBoxStyle: Styles.platformStyles({
+        isElectron: {
+          display: 'inline',
+        },
+      }),
+      pending: {
+        backgroundColor: Styles.globalColors.greyLight,
+        borderRadius: Styles.globalMargins.xxtiny,
+        color: Styles.globalColors.black_50OrWhite,
+        paddingLeft: Styles.globalMargins.xtiny,
+        paddingRight: Styles.globalMargins.xtiny,
+      },
+    } as const)
+)
 
 export default PaymentStatus

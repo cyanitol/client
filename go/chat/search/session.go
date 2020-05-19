@@ -29,9 +29,9 @@ type searchSession struct {
 	numConvsSearched int
 	inboxIndexStatus *inboxIndexStatus
 	// convID -> hit
-	convMap      map[string]types.RemoteConversation
+	convMap      map[chat1.ConvIDStr]types.RemoteConversation
 	reindexConvs []chat1.ConversationID
-	hitMap       map[string]chat1.ChatSearchInboxHit
+	hitMap       map[chat1.ConvIDStr]chat1.ChatSearchInboxHit
 	convList     []types.RemoteConversation
 }
 
@@ -55,20 +55,20 @@ func newSearchSession(query, origQuery string, uid gregor1.UID,
 		indexer:          indexer,
 		opts:             opts,
 		inboxIndexStatus: newInboxIndexStatus(indexUICh),
-		hitMap:           make(map[string]chat1.ChatSearchInboxHit),
+		hitMap:           make(map[chat1.ConvIDStr]chat1.ChatSearchInboxHit),
 	}
 }
 
 func (s *searchSession) getConv(convID chat1.ConversationID) types.RemoteConversation {
 	s.Lock()
 	defer s.Unlock()
-	return s.convMap[convID.String()]
+	return s.convMap[convID.ConvIDStr()]
 }
 
 func (s *searchSession) setHit(convID chat1.ConversationID, convHit chat1.ChatSearchInboxHit) {
 	s.Lock()
 	defer s.Unlock()
-	s.hitMap[convID.String()] = convHit
+	s.hitMap[convID.ConvIDStr()] = convHit
 }
 
 func (s *searchSession) incrementNumConvsSearched() {
@@ -80,11 +80,11 @@ func (s *searchSession) incrementNumConvsSearched() {
 // searchConv finds all messages that match the given set of tokens and opts,
 // results are ordered desc by msg id.
 func (s *searchSession) searchConv(ctx context.Context, convID chat1.ConversationID) (msgIDs []chat1.MessageID, err error) {
-	defer s.indexer.Trace(ctx, func() error { return err }, fmt.Sprintf("searchConv convID: %s", convID))()
+	defer s.indexer.Trace(ctx, &err, fmt.Sprintf("searchConv convID: %s", convID))()
 	var allMsgIDs mapset.Set
 	for token := range s.tokens {
 		matchedIDs := mapset.NewThreadUnsafeSet()
-		idMap, err := s.indexer.store.GetHits(ctx, s.uid, convID, token)
+		idMap, err := s.indexer.store.GetHits(ctx, convID, token)
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +149,7 @@ func (s *searchSession) getMsgsAndIDSet(ctx context.Context, convID chat1.Conver
 	}
 	res := []chat1.MessageUnboxed{}
 	for _, msg := range msgs {
-		if msg.IsValid() && msg.IsVisible() {
+		if msg.IsValidFull() && msg.IsVisible() {
 			res = append(res, msg)
 		}
 	}
@@ -163,7 +163,7 @@ func (s *searchSession) getMsgsAndIDSet(ctx context.Context, convID chat1.Conver
 func (s *searchSession) searchHitsFromMsgIDs(ctx context.Context, conv types.RemoteConversation,
 	msgIDs []chat1.MessageID) (convHits *chat1.ChatSearchInboxHit, err error) {
 	convID := conv.GetConvID()
-	defer s.indexer.Trace(ctx, func() error { return err },
+	defer s.indexer.Trace(ctx, &err,
 		fmt.Sprintf("searchHitsFromMsgIDs convID: %s msgIDs: %d", convID, len(msgIDs)))()
 	if msgIDs == nil {
 		return nil, nil
@@ -193,7 +193,7 @@ func (s *searchSession) searchHitsFromMsgIDs(ctx context.Context, conv types.Rem
 	return &chat1.ChatSearchInboxHit{
 		ConvID:   convID,
 		TeamType: conv.GetTeamType(),
-		ConvName: conv.GetName(),
+		ConvName: utils.GetRemoteConvDisplayName(conv),
 		Hits:     hits,
 		Time:     hits[0].HitMessage.Valid().Ctime,
 	}, nil
@@ -241,7 +241,7 @@ func (s *searchSession) searchHitBatch(ctx context.Context, convID chat1.Convers
 }
 
 func (s *searchSession) convFullyIndexed(ctx context.Context, conv chat1.Conversation) (bool, error) {
-	md, err := s.indexer.store.GetMetadata(ctx, s.uid, conv.GetConvID())
+	md, err := s.indexer.store.GetMetadata(ctx, conv.GetConvID())
 	if err != nil {
 		return false, err
 	}
@@ -249,7 +249,10 @@ func (s *searchSession) convFullyIndexed(ctx context.Context, conv chat1.Convers
 }
 
 func (s *searchSession) updateInboxIndex(ctx context.Context, conv chat1.Conversation) {
-	md, err := s.indexer.store.GetMetadata(ctx, s.uid, conv.GetConvID())
+	if err := s.indexer.store.Flush(); err != nil {
+		s.indexer.Debug(ctx, "updateInboxIndex: failed to flush: %s", err)
+	}
+	md, err := s.indexer.store.GetMetadata(ctx, conv.GetConvID())
 	if err != nil {
 		s.indexer.Debug(ctx, "updateInboxIndex: unable to GetMetadata %v", err)
 		return
@@ -263,7 +266,7 @@ func (s *searchSession) percentIndexed() int {
 
 func (s *searchSession) reindexConvWithUIUpdate(ctx context.Context, rconv types.RemoteConversation) error {
 	conv := rconv.Conv
-	if _, err := s.indexer.reindexConv(ctx, rconv, s.uid, 0, s.inboxIndexStatus); err != nil {
+	if _, err := s.indexer.reindexConv(ctx, rconv, 0, s.inboxIndexStatus); err != nil {
 		return err
 	}
 	s.updateInboxIndex(ctx, conv)
@@ -291,7 +294,7 @@ func (s *searchSession) searchConvWithUIUpdate(ctx context.Context, convID chat1
 	}
 	if len(msgIDs) != hits.Size() {
 		s.indexer.Debug(ctx, "Search: hit mismatch, found %d msgIDs in index, %d hits in conv: %v, %v",
-			len(msgIDs), hits.Size(), conv.GetName(), conv.GetConvID())
+			len(msgIDs), hits.Size(), utils.GetRemoteConvDisplayName(conv), conv.ConvIDStr)
 	}
 	if hits == nil {
 		return nil
@@ -328,7 +331,7 @@ func (s *searchSession) searchDone(ctx context.Context, stage string) bool {
 // if PRESEARCH_SYNC is set. As conversations are processed they are passed to
 // the `search` stage via `preSearchCh`.
 func (s *searchSession) preSearch(ctx context.Context) (err error) {
-	defer s.indexer.Trace(ctx, func() error { return err }, "searchSession.preSearch")()
+	defer s.indexer.Trace(ctx, &err, "searchSession.preSearch")()
 	for _, conv := range s.convList {
 		select {
 		case <-ctx.Done():
@@ -345,6 +348,8 @@ func (s *searchSession) preSearch(ctx context.Context) (err error) {
 				}
 				s.reindexConvs = append(s.reindexConvs, conv.GetConvID())
 			}
+		default:
+			// Nothing to do for other modes.
 		}
 	}
 
@@ -363,11 +368,14 @@ func (s *searchSession) preSearch(ctx context.Context) (err error) {
 		switch s.opts.ReindexMode {
 		case chat1.ReIndexingMode_PRESEARCH_SYNC:
 			if err := s.reindexConvWithUIUpdate(ctx, conv); err != nil {
-				s.indexer.Debug(ctx, "Search: Unable to reindexConv: %v, %v, %v", conv.GetName(), conv.GetConvID(), err)
+				s.indexer.Debug(ctx, "Search: Unable to reindexConv: %v, %v, %v",
+					utils.GetRemoteConvDisplayName(conv), conv.GetConvID(), err)
 				s.inboxIndexStatus.rmConv(conv.Conv)
 				continue
 			}
 			s.updateInboxIndex(ctx, conv.Conv)
+		default:
+			// Nothing to do for other modes.
 		}
 	}
 	return nil
@@ -376,7 +384,7 @@ func (s *searchSession) preSearch(ctx context.Context) (err error) {
 // search performs the actual search on each conversation after it completes
 // preSearch via `preSearchCh`
 func (s *searchSession) search(ctx context.Context) (err error) {
-	defer s.indexer.Trace(ctx, func() error { return err }, "searchSession.search")()
+	defer s.indexer.Trace(ctx, &err, "searchSession.search")()
 	for _, conv := range s.convList {
 		select {
 		case <-ctx.Done():
@@ -396,7 +404,7 @@ func (s *searchSession) search(ctx context.Context) (err error) {
 // postSearch is the final pipeline stage, reindexing conversations if
 // POSTSEARCH_SYNC is set.
 func (s *searchSession) postSearch(ctx context.Context) (err error) {
-	defer s.indexer.Trace(ctx, func() error { return err }, "searchSession.postSearch")()
+	defer s.indexer.Trace(ctx, &err, "searchSession.postSearch")()
 	switch s.opts.ReindexMode {
 	case chat1.ReIndexingMode_POSTSEARCH_SYNC:
 	default:
@@ -420,7 +428,7 @@ func (s *searchSession) postSearch(ctx context.Context) (err error) {
 		}
 		if err := s.reindexConvWithUIUpdate(ctx, conv); err != nil {
 			s.indexer.Debug(ctx, "Search: postSearch: error reindexing: conv: %v convID: %v err: %v",
-				conv.GetName(), conv.GetConvID(), err)
+				utils.GetRemoteConvDisplayName(conv), conv.ConvIDStr, err)
 			s.inboxIndexStatus.rmConv(conv.Conv)
 			continue
 		}
@@ -446,11 +454,11 @@ func (s *searchSession) initRun(ctx context.Context) (shouldRun bool, err error)
 		return false, err
 	}
 
-	s.convMap, err = s.indexer.allConvs(ctx, s.uid, s.opts.ConvID)
+	s.convMap, err = s.indexer.allConvs(ctx, s.opts.ConvID)
 	if err != nil {
 		return false, err
 	}
-	s.convList = s.indexer.convsByMTime(ctx, s.uid, s.convMap)
+	s.convList = s.indexer.convsPrioritySorted(ctx, s.convMap)
 	if len(s.convList) == 0 {
 		return false, nil
 	}

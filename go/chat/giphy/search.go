@@ -24,7 +24,7 @@ const Host = "giphy.com"
 const giphyProxy = "https://giphy-proxy.core.keybaseapi.com"
 
 func getPreferredPreview(mctx libkb.MetaContext, img gifImage) (string, bool, error) {
-	isMobile := mctx.G().GetEnv().GetAppType() == libkb.MobileAppType
+	isMobile := mctx.G().IsMobileAppType()
 	if len(img.MP4) == 0 && len(img.URL) == 0 {
 		return "", false, errors.New("no preview")
 	}
@@ -114,8 +114,9 @@ func httpClient(mctx libkb.MetaContext, host string) *http.Client {
 	xprt.Proxy = libkb.MakeProxy(env)
 
 	return &http.Client{
-		Transport: &xprt,
-		Timeout:   10 * time.Second,
+		Transport: libkb.NewInstrumentedRoundTripper(mctx.G(),
+			func(*http.Request) string { return host + " Giphy" }, libkb.NewClosingRoundTripper(&xprt)),
+		Timeout: 10 * time.Second,
 	}
 }
 
@@ -165,17 +166,17 @@ func ProxyURL(sourceURL string) (res string, err error) {
 func Asset(mctx libkb.MetaContext, sourceURL string) (res io.ReadCloser, length int64, err error) {
 	proxyURL, err := ProxyURL(sourceURL)
 	if err != nil {
-		return res, length, err
+		return nil, 0, err
 	}
 	req, err := http.NewRequest("GET", proxyURL, nil)
 	if err != nil {
-		return res, length, err
+		return nil, 0, err
 	}
 	req.Header.Add("Accept", "image/*")
 	req.Host = MediaHost
 	resp, err := ctxhttp.Do(mctx.Ctx(), WebClient(mctx), req)
 	if err != nil {
-		return res, length, err
+		return nil, 0, err
 	}
 	return resp.Body, resp.ContentLength, nil
 }

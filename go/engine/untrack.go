@@ -24,7 +24,7 @@ type UntrackEngine struct {
 
 // NewUntrackEngine creates a default UntrackEngine for tracking theirName.
 func NewUntrackEngine(g *libkb.GlobalContext, arg *UntrackEngineArg) *UntrackEngine {
-	if libkb.SigVersion(arg.SigVersion) == libkb.KeybaseNullSigVersion {
+	if arg.SigVersion == libkb.KeybaseNullSigVersion {
 		arg.SigVersion = libkb.GetDefaultSigVersion(g)
 	}
 
@@ -53,7 +53,7 @@ func (e *UntrackEngine) SubConsumers() []libkb.UIConsumer {
 }
 
 func (e *UntrackEngine) Run(m libkb.MetaContext) (err error) {
-	defer m.Trace("UntrackEngine#Run", func() error { return err })()
+	defer m.Trace("UntrackEngine#Run", &err)()
 
 	e.arg.Me, err = e.loadMe()
 	if err != nil {
@@ -175,8 +175,6 @@ func (e *UntrackEngine) loadThem(m libkb.MetaContext) (them *libkb.User, remoteL
 			err = libkb.NewUntrackError("Username mismatch: expected @%s, got @%s", e.arg.Username, trackedUsername)
 			return
 		}
-
-		uidTrusted = true
 	}
 
 	them = libkb.NewUserThin(e.arg.Username.String(), uid)
@@ -191,7 +189,7 @@ func (e *UntrackEngine) storeLocalUntrack(m libkb.MetaContext, them *libkb.User)
 }
 
 func (e *UntrackEngine) storeRemoteUntrack(m libkb.MetaContext, them *libkb.User) (err error) {
-	defer m.Trace("UntrackEngine#StoreRemoteUntrack", func() error { return err })()
+	defer m.Trace("UntrackEngine#StoreRemoteUntrack", &err)()
 
 	me := e.arg.Me
 	arg := libkb.SecretKeyArg{
@@ -203,7 +201,7 @@ func (e *UntrackEngine) storeRemoteUntrack(m libkb.MetaContext, them *libkb.User
 		return
 	}
 
-	sigVersion := libkb.SigVersion(e.arg.SigVersion)
+	sigVersion := e.arg.SigVersion
 	sig, sigID, linkID, err := libkb.MakeSig(
 		m,
 		signingKey,
@@ -220,7 +218,7 @@ func (e *UntrackEngine) storeRemoteUntrack(m libkb.MetaContext, them *libkb.User
 	}
 
 	httpsArgs := libkb.HTTPArgs{
-		"sig_id_base":  libkb.S{Val: sigID.ToString(false)},
+		"sig_id_base":  libkb.S{Val: sigID.StripSuffix().String()},
 		"sig_id_short": libkb.S{Val: sigID.ToShortID()},
 		"sig":          libkb.S{Val: sig},
 		"uid":          libkb.UIDArg(them.GetUID()),

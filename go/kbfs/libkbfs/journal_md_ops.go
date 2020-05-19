@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/keybase/client/go/kbfs/data"
 	"github.com/keybase/client/go/kbfs/kbfsblock"
 	"github.com/keybase/client/go/kbfs/kbfscrypto"
 	"github.com/keybase/client/go/kbfs/kbfsmd"
@@ -249,6 +250,13 @@ func (j journalMDOps) GetIDForHandle(
 	if ok {
 		id = newID
 		handle.SetTlfID(id)
+	} else {
+		ci := handle.ConflictInfo()
+		if ci != nil && ci.Type == tlf.HandleExtensionLocalConflict {
+			return tlf.NullID, errors.Errorf(
+				"Couldn't find local conflict handle for %s",
+				handle.GetCanonicalPath())
+		}
 	}
 
 	// Create the journal if needed, while we have access to `handle`.
@@ -422,7 +430,8 @@ func (j journalMDOps) GetUnmergedRange(
 
 func (j journalMDOps) Put(ctx context.Context, rmd *RootMetadata,
 	verifyingKey kbfscrypto.VerifyingKey,
-	lc *keybase1.LockContext, priority keybase1.MDPriority) (
+	lc *keybase1.LockContext, priority keybase1.MDPriority,
+	bps data.BlockPutState) (
 	irmd ImmutableRootMetadata, err error) {
 	j.jManager.log.LazyTrace(ctx, "jMDOps: Put %s %d", rmd.TlfID(), rmd.Revision())
 	defer func() {
@@ -443,7 +452,7 @@ func (j journalMDOps) Put(ctx context.Context, rmd *RootMetadata,
 					"priority on MD write.")
 		}
 		// Just route to the journal.
-		irmd, err := tlfJournal.putMD(ctx, rmd, verifyingKey)
+		irmd, err := tlfJournal.putMD(ctx, rmd, verifyingKey, bps)
 		switch errors.Cause(err).(type) {
 		case nil:
 			return irmd, nil
@@ -454,11 +463,12 @@ func (j journalMDOps) Put(ctx context.Context, rmd *RootMetadata,
 		}
 	}
 
-	return j.MDOps.Put(ctx, rmd, verifyingKey, lc, priority)
+	return j.MDOps.Put(ctx, rmd, verifyingKey, lc, priority, bps)
 }
 
-func (j journalMDOps) PutUnmerged(ctx context.Context, rmd *RootMetadata,
-	verifyingKey kbfscrypto.VerifyingKey) (
+func (j journalMDOps) PutUnmerged(
+	ctx context.Context, rmd *RootMetadata,
+	verifyingKey kbfscrypto.VerifyingKey, bps data.BlockPutState) (
 	irmd ImmutableRootMetadata, err error) {
 	j.jManager.log.LazyTrace(ctx, "jMDOps: PutUnmerged %s %d", rmd.TlfID(), rmd.Revision())
 	defer func() {
@@ -468,7 +478,7 @@ func (j journalMDOps) PutUnmerged(ctx context.Context, rmd *RootMetadata,
 	if tlfJournal, ok := j.jManager.getTLFJournal(
 		rmd.TlfID(), rmd.GetTlfHandle()); ok {
 		rmd.SetUnmerged()
-		irmd, err := tlfJournal.putMD(ctx, rmd, verifyingKey)
+		irmd, err := tlfJournal.putMD(ctx, rmd, verifyingKey, bps)
 		switch errors.Cause(err).(type) {
 		case nil:
 			return irmd, nil
@@ -479,7 +489,7 @@ func (j journalMDOps) PutUnmerged(ctx context.Context, rmd *RootMetadata,
 		}
 	}
 
-	return j.MDOps.PutUnmerged(ctx, rmd, verifyingKey)
+	return j.MDOps.PutUnmerged(ctx, rmd, verifyingKey, bps)
 }
 
 func (j journalMDOps) PruneBranch(
@@ -508,7 +518,7 @@ func (j journalMDOps) PruneBranch(
 func (j journalMDOps) ResolveBranch(
 	ctx context.Context, id tlf.ID, bid kbfsmd.BranchID,
 	blocksToDelete []kbfsblock.ID, rmd *RootMetadata,
-	verifyingKey kbfscrypto.VerifyingKey) (
+	verifyingKey kbfscrypto.VerifyingKey, bps data.BlockPutState) (
 	irmd ImmutableRootMetadata, err error) {
 	j.jManager.log.LazyTrace(ctx, "jMDOps: ResolveBranch %s %s", id, bid)
 	defer func() {
@@ -517,7 +527,7 @@ func (j journalMDOps) ResolveBranch(
 
 	if tlfJournal, ok := j.jManager.getTLFJournal(id, rmd.GetTlfHandle()); ok {
 		irmd, err := tlfJournal.resolveBranch(
-			ctx, bid, blocksToDelete, rmd, verifyingKey)
+			ctx, bid, blocksToDelete, rmd, verifyingKey, bps)
 		switch errors.Cause(err).(type) {
 		case nil:
 			return irmd, nil
@@ -529,5 +539,5 @@ func (j journalMDOps) ResolveBranch(
 	}
 
 	return j.MDOps.ResolveBranch(
-		ctx, id, bid, blocksToDelete, rmd, verifyingKey)
+		ctx, id, bid, blocksToDelete, rmd, verifyingKey, bps)
 }

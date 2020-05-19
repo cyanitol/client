@@ -7,24 +7,32 @@ import (
 	"fmt"
 	"sort"
 	"sync"
-
-	"github.com/keybase/client/go/protocol/keybase1"
-
-	"github.com/keybase/client/go/encrypteddb"
-	"golang.org/x/sync/errgroup"
+	"time"
 
 	"github.com/keybase/client/go/chat/globals"
 	"github.com/keybase/client/go/chat/storage"
+	"github.com/keybase/client/go/chat/types"
 	"github.com/keybase/client/go/chat/utils"
+	"github.com/keybase/client/go/encrypteddb"
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/chat1"
 	"github.com/keybase/client/go/protocol/gregor1"
+	"github.com/keybase/client/go/protocol/keybase1"
+	"golang.org/x/sync/errgroup"
 )
 
+const storageVersion = 1
+
+type uiResult struct {
+	err      error
+	settings chat1.UIBotCommandsUpdateSettings
+}
+
 type commandUpdaterJob struct {
-	convID     chat1.ConversationID
-	info       *chat1.BotInfo
-	completeCh chan error
+	convID      chat1.ConversationID
+	info        *chat1.BotInfo
+	completeChs []chan error
+	uiCh        chan uiResult
 }
 
 type userCommandAdvertisement struct {
@@ -33,17 +41,21 @@ type userCommandAdvertisement struct {
 }
 
 type storageCommandAdvertisement struct {
-	Advertisement userCommandAdvertisement
-	Username      string
+	Advertisement     userCommandAdvertisement
+	UntrustedTeamRole keybase1.TeamRole
+	UID               gregor1.UID
+	Username          string
+	Typ               chat1.BotCommandsAdvertisementTyp
 }
 
 type commandsStorage struct {
 	Advertisements []storageCommandAdvertisement `codec:"A"`
+	Version        int                           `codec:"V"`
 }
 
-const commandsStorageVersion = 1
-
 var commandsPublicTopicName = "___keybase_botcommands_public"
+
+type nameInfoSourceFn func(ctx context.Context, g *globals.Context, membersType chat1.ConversationMembersType) types.NameInfoSource
 
 type CachingBotCommandManager struct {
 	globals.Contextified
@@ -56,28 +68,34 @@ type CachingBotCommandManager struct {
 	stopCh  chan struct{}
 
 	ri              func() chat1.RemoteInterface
+	nameInfoSource  nameInfoSourceFn
 	edb             *encrypteddb.EncryptedDB
-	commandUpdateCh chan commandUpdaterJob
+	commandUpdateCh chan *commandUpdaterJob
+	queuedUpdatedMu sync.Mutex
+	queuedUpdates   map[chat1.ConvIDStr]*commandUpdaterJob
 }
 
-func NewCachingBotCommandManager(g *globals.Context, ri func() chat1.RemoteInterface) *CachingBotCommandManager {
+func NewCachingBotCommandManager(g *globals.Context, ri func() chat1.RemoteInterface,
+	nameInfoSource nameInfoSourceFn) *CachingBotCommandManager {
 	keyFn := func(ctx context.Context) ([32]byte, error) {
-		return storage.GetSecretBoxKey(ctx, g.ExternalG(), storage.DefaultSecretUI)
+		return storage.GetSecretBoxKey(ctx, g.ExternalG())
 	}
 	dbFn := func(g *libkb.GlobalContext) *libkb.JSONLocalDb {
 		return g.LocalChatDb
 	}
 	return &CachingBotCommandManager{
 		Contextified:    globals.NewContextified(g),
-		DebugLabeler:    utils.NewDebugLabeler(g.GetLog(), "CachingBotCommandManager", false),
+		DebugLabeler:    utils.NewDebugLabeler(g.ExternalG(), "CachingBotCommandManager", false),
 		ri:              ri,
 		edb:             encrypteddb.New(g.ExternalG(), dbFn, keyFn),
-		commandUpdateCh: make(chan commandUpdaterJob, 100),
+		commandUpdateCh: make(chan *commandUpdaterJob, 100),
+		queuedUpdates:   make(map[chat1.ConvIDStr]*commandUpdaterJob),
+		nameInfoSource:  nameInfoSource,
 	}
 }
 
 func (b *CachingBotCommandManager) Start(ctx context.Context, uid gregor1.UID) {
-	defer b.Trace(ctx, func() error { return nil }, "Start")()
+	defer b.Trace(ctx, nil, "Start")()
 	b.Lock()
 	defer b.Unlock()
 	if b.started {
@@ -90,7 +108,7 @@ func (b *CachingBotCommandManager) Start(ctx context.Context, uid gregor1.UID) {
 }
 
 func (b *CachingBotCommandManager) Stop(ctx context.Context) chan struct{} {
-	defer b.Trace(ctx, func() error { return nil }, "Stop")()
+	defer b.Trace(ctx, nil, "Stop")()
 	b.Lock()
 	defer b.Unlock()
 	ch := make(chan struct{})
@@ -98,7 +116,10 @@ func (b *CachingBotCommandManager) Stop(ctx context.Context) chan struct{} {
 		close(b.stopCh)
 		b.started = false
 		go func() {
-			b.eg.Wait()
+			err := b.eg.Wait()
+			if err != nil {
+				b.Debug(ctx, "CachingBotCommandManager: error waiting: %+v", err)
+			}
 			close(ch)
 		}()
 	} else {
@@ -115,34 +136,78 @@ func (b *CachingBotCommandManager) getMyUsername(ctx context.Context) (string, e
 	return nn.String(), nil
 }
 
-func (b *CachingBotCommandManager) createConv(ctx context.Context, param chat1.AdvertiseCommandsParam) (res chat1.ConversationLocal, err error) {
+func (b *CachingBotCommandManager) createConv(ctx context.Context, typ chat1.BotCommandsAdvertisementTyp,
+	teamName *string, convID *chat1.ConversationID) (res chat1.ConversationLocal, err error) {
 	username, err := b.getMyUsername(ctx)
 	if err != nil {
 		return res, err
 	}
-	switch param.Typ {
+	switch typ {
 	case chat1.BotCommandsAdvertisementTyp_PUBLIC:
-		return b.G().ChatHelper.NewConversation(ctx, b.uid, username, &commandsPublicTopicName,
-			chat1.TopicType_DEV, chat1.ConversationMembersType_IMPTEAMNATIVE, keybase1.TLFVisibility_PUBLIC)
-	case chat1.BotCommandsAdvertisementTyp_TLFID_MEMBERS, chat1.BotCommandsAdvertisementTyp_TLFID_CONVS:
-		if param.TeamName == nil {
-			return res, errors.New("missing team name")
+		if teamName != nil {
+			return res, errors.New("team name cannot be specified for public advertisements")
+		} else if convID != nil {
+			return res, errors.New("convID cannot be specified for public advertisements")
 		}
-		topicName := fmt.Sprintf("___keybase_botcommands_team_%s_%v", username, param.Typ)
-		return b.G().ChatHelper.NewConversation(ctx, b.uid, *param.TeamName, &topicName,
+
+		res, _, err = b.G().ChatHelper.NewConversation(ctx, b.uid, username, &commandsPublicTopicName,
+			chat1.TopicType_DEV, chat1.ConversationMembersType_IMPTEAMNATIVE, keybase1.TLFVisibility_PUBLIC)
+		return res, err
+	case chat1.BotCommandsAdvertisementTyp_TLFID_MEMBERS, chat1.BotCommandsAdvertisementTyp_TLFID_CONVS:
+		if teamName == nil {
+			return res, errors.New("missing team name")
+		} else if convID != nil {
+			return res, errors.New("convID cannot be specified for team advertisments use type 'conv'")
+		}
+
+		topicName := fmt.Sprintf("___keybase_botcommands_team_%s_%v", username, typ)
+		res, _, err = b.G().ChatHelper.NewConversationSkipFindExisting(ctx, b.uid, *teamName, &topicName,
 			chat1.TopicType_DEV, chat1.ConversationMembersType_TEAM, keybase1.TLFVisibility_PRIVATE)
+		return res, err
+	case chat1.BotCommandsAdvertisementTyp_CONV:
+		if teamName != nil {
+			return res, errors.New("unexpected team name")
+		} else if convID == nil {
+			return res, errors.New("missing convID")
+		}
+
+		topicName := fmt.Sprintf("___keybase_botcommands_conv_%s_%v", username, typ)
+		convs, err := b.G().ChatHelper.FindConversationsByID(ctx, []chat1.ConversationID{*convID})
+		if err != nil {
+			return res, err
+		} else if len(convs) != 1 {
+			return res, errors.New("Unable able to find conversation for advertisement")
+		}
+		conv := convs[0]
+		res, _, err = b.G().ChatHelper.NewConversationSkipFindExisting(ctx, b.uid, conv.Info.TlfName, &topicName,
+			chat1.TopicType_DEV, conv.Info.MembersType, keybase1.TLFVisibility_PRIVATE)
+		return res, err
 	default:
-		return res, errors.New("unknown bot advertisement typ")
+		return res, fmt.Errorf("unknown bot advertisement typ %q", typ)
 	}
+}
+
+func (b *CachingBotCommandManager) PublicCommandsConv(ctx context.Context, username string) (*chat1.ConversationID, error) {
+	convs, err := b.G().ChatHelper.FindConversations(ctx, username, &commandsPublicTopicName,
+		chat1.TopicType_DEV, chat1.ConversationMembersType_IMPTEAMNATIVE, keybase1.TLFVisibility_PUBLIC)
+	if err != nil {
+		return nil, err
+	}
+	if len(convs) != 1 {
+		b.Debug(ctx, "PublicCommandsConv: no command conv found")
+		return nil, nil
+	}
+	convID := convs[0].GetConvID()
+	return &convID, nil
 }
 
 func (b *CachingBotCommandManager) Advertise(ctx context.Context, alias *string,
 	ads []chat1.AdvertiseCommandsParam) (err error) {
-	defer b.Trace(ctx, func() error { return err }, "Advertise")()
-	var remotes []chat1.RemoteBotCommandsAdvertisement
+	defer b.Trace(ctx, &err, "Advertise")()
+	remotes := make([]chat1.RemoteBotCommandsAdvertisement, 0, len(ads))
 	for _, ad := range ads {
 		// create conversations with the commands
-		conv, err := b.createConv(ctx, ad)
+		conv, err := b.createConv(ctx, ad.Typ, ad.TeamName, ad.ConvID)
 		if err != nil {
 			return err
 		}
@@ -155,19 +220,28 @@ func (b *CachingBotCommandManager) Advertise(ctx context.Context, alias *string,
 		if err != nil {
 			return err
 		}
-		// write out commands to conv
-		vis := keybase1.TLFVisibility_PUBLIC
-		if ad.Typ != chat1.BotCommandsAdvertisementTyp_PUBLIC {
+		var vis keybase1.TLFVisibility
+		var tlfID *chat1.TLFID
+		var adConvID *chat1.ConversationID
+		switch ad.Typ {
+		case chat1.BotCommandsAdvertisementTyp_PUBLIC:
+			vis = keybase1.TLFVisibility_PUBLIC
+		case chat1.BotCommandsAdvertisementTyp_CONV:
+			vis = keybase1.TLFVisibility_PRIVATE
+			adConvID = ad.ConvID
+		default:
+			tlfID = &conv.Info.Triple.Tlfid
 			vis = keybase1.TLFVisibility_PRIVATE
 		}
+		remote, err := ad.ToRemote(conv.GetConvID(), tlfID, adConvID)
+		if err != nil {
+			return err
+		}
+		// write out commands to conv
 		if err := b.G().ChatHelper.SendMsgByID(ctx, conv.GetConvID(), conv.Info.TlfName,
 			chat1.NewMessageBodyWithText(chat1.MessageText{
 				Body: string(dat),
 			}), chat1.MessageType_TEXT, vis); err != nil {
-			return err
-		}
-		remote, err := ad.ToRemote(conv.GetConvID(), &conv.Info.Triple.Tlfid)
-		if err != nil {
 			return err
 		}
 		remotes = append(remotes, remote)
@@ -178,9 +252,32 @@ func (b *CachingBotCommandManager) Advertise(ctx context.Context, alias *string,
 	return nil
 }
 
-func (b *CachingBotCommandManager) Clear(ctx context.Context) (err error) {
-	defer b.Trace(ctx, func() error { return err }, "Clear")()
-	if _, err := b.ri().ClearBotCommands(ctx); err != nil {
+func (b *CachingBotCommandManager) Clear(ctx context.Context, filter *chat1.ClearBotCommandsFilter) (err error) {
+	defer b.Trace(ctx, &err, "Clear")()
+	var remote *chat1.RemoteClearBotCommandsFilter
+	if filter != nil {
+		remote = new(chat1.RemoteClearBotCommandsFilter)
+
+		var tlfID *chat1.TLFID
+		var convID *chat1.ConversationID
+		switch filter.Typ {
+		case chat1.BotCommandsAdvertisementTyp_PUBLIC:
+		case chat1.BotCommandsAdvertisementTyp_TLFID_CONVS, chat1.BotCommandsAdvertisementTyp_TLFID_MEMBERS:
+			conv, err := b.createConv(ctx, filter.Typ, filter.TeamName, filter.ConvID)
+			if err != nil {
+				return err
+			}
+			tlfID = &conv.Info.Triple.Tlfid
+		case chat1.BotCommandsAdvertisementTyp_CONV:
+			convID = filter.ConvID
+		}
+
+		*remote, err = filter.ToRemote(tlfID, convID)
+		if err != nil {
+			return err
+		}
+	}
+	if _, err := b.ri().ClearBotCommands(ctx, remote); err != nil {
 		return err
 	}
 	return nil
@@ -200,21 +297,50 @@ func (b *CachingBotCommandManager) dbCommandsKey(convID chat1.ConversationID) li
 	}
 }
 
-func (b *CachingBotCommandManager) ListCommands(ctx context.Context, convID chat1.ConversationID) (res []chat1.UserBotCommandOutput, err error) {
-	defer b.Trace(ctx, func() error { return err }, "ListCommands")()
+func (b *CachingBotCommandManager) ListCommands(ctx context.Context, convID chat1.ConversationID) (res []chat1.UserBotCommandOutput, alias map[string]string, err error) {
+	defer b.Trace(ctx, &err, "ListCommands")()
+	alias = make(map[string]string)
+	dbKey := b.dbCommandsKey(convID)
 	var s commandsStorage
-	found, err := b.edb.Get(ctx, b.dbCommandsKey(convID), &s)
+	found, err := b.edb.Get(ctx, dbKey, &s)
 	if err != nil {
-		return res, err
+		b.Debug(ctx, "ListCommands: failed to read cache: %s", err)
+		if err := b.edb.Delete(ctx, dbKey); err != nil {
+			b.Debug(ctx, "edb.Delete: %v", err)
+		}
+		found = false
 	}
 	if !found {
-		return nil, nil
+		return res, alias, nil
 	}
+	if s.Version != storageVersion {
+		b.Debug(ctx, "ListCommands: deleting old version %d vs %d", s.Version, storageVersion)
+		if err := b.edb.Delete(ctx, dbKey); err != nil {
+			b.Debug(ctx, "edb.Delete: %v", err)
+		}
+		return res, alias, nil
+	}
+
+	cmdOutputs := make(map[string]chat1.UserBotCommandOutput)
+	cmdDedup := make(map[string]chat1.BotCommandsAdvertisementTyp)
 	for _, ad := range s.Advertisements {
+		ad.Username = libkb.NewNormalizedUsername(ad.Username).String()
+		if ad.Advertisement.Alias != nil {
+			alias[ad.Username] = *ad.Advertisement.Alias
+		}
 		for _, cmd := range ad.Advertisement.Commands {
-			res = append(res, cmd.ToOutput(ad.Username))
+			key := cmd.Name + ad.Username
+			if typ, ok := cmdDedup[key]; !ok || ad.Typ > typ {
+				cmdOutputs[key] = cmd.ToOutput(ad.Username)
+				cmdDedup[key] = ad.Typ
+			}
 		}
 	}
+	res = make([]chat1.UserBotCommandOutput, 0, len(cmdOutputs))
+	for _, cmd := range cmdOutputs {
+		res = append(res, cmd)
+	}
+
 	sort.Slice(res, func(i, j int) bool {
 		l := res[i]
 		r := res[j]
@@ -226,37 +352,88 @@ func (b *CachingBotCommandManager) ListCommands(ctx context.Context, convID chat
 			return l.Name < r.Name
 		}
 	})
-	return res, nil
+	return res, alias, nil
 }
 
 func (b *CachingBotCommandManager) UpdateCommands(ctx context.Context, convID chat1.ConversationID,
 	info *chat1.BotInfo) (completeCh chan error, err error) {
-	defer b.Trace(ctx, func() error { return err }, "UpdateCommands")()
+	defer b.Trace(ctx, &err, "UpdateCommands")()
 	completeCh = make(chan error, 1)
-	return completeCh, b.queueCommandUpdate(ctx, commandUpdaterJob{
-		convID:     convID,
-		info:       info,
-		completeCh: completeCh,
+	uiCh := make(chan uiResult, 1)
+	return completeCh, b.queueCommandUpdate(ctx, &commandUpdaterJob{
+		convID:      convID,
+		info:        info,
+		completeChs: []chan error{completeCh},
+		uiCh:        uiCh,
 	})
 }
 
-func (b *CachingBotCommandManager) queueCommandUpdate(ctx context.Context, job commandUpdaterJob) error {
+func (b *CachingBotCommandManager) getChatUI(ctx context.Context) libkb.ChatUI {
+	ui, err := b.G().UIRouter.GetChatUI()
+	if err != nil || ui == nil {
+		b.Debug(ctx, "getChatUI: no chat UI found: err: %s", err)
+		return utils.NullChatUI{}
+	}
+	return ui
+}
+
+func (b *CachingBotCommandManager) runCommandUpdateUI(ctx context.Context, job *commandUpdaterJob) {
+	err := b.getChatUI(ctx).ChatBotCommandsUpdateStatus(ctx, job.convID,
+		chat1.NewUIBotCommandsUpdateStatusWithBlank())
+	if err != nil {
+		b.Debug(ctx, "getChatUI: error getting update status: %+v", err)
+	}
+	for {
+		select {
+		case res := <-job.uiCh:
+			var updateStatus chat1.UIBotCommandsUpdateStatus
+			if res.err != nil {
+				updateStatus = chat1.NewUIBotCommandsUpdateStatusWithFailed()
+			} else {
+				updateStatus = chat1.NewUIBotCommandsUpdateStatusWithUptodate(res.settings)
+			}
+			if err = b.getChatUI(ctx).ChatBotCommandsUpdateStatus(ctx, job.convID, updateStatus); err != nil {
+				b.Debug(ctx, "getChatUI: error getting update status: %+v", err)
+			}
+			return
+		case <-time.After(800 * time.Millisecond):
+			err := b.getChatUI(ctx).ChatBotCommandsUpdateStatus(ctx, job.convID,
+				chat1.NewUIBotCommandsUpdateStatusWithUpdating())
+			if err != nil {
+				b.Debug(ctx, "getChatUI: error getting update status: %+v", err)
+			}
+		}
+	}
+}
+
+func (b *CachingBotCommandManager) queueCommandUpdate(ctx context.Context, job *commandUpdaterJob) error {
+	b.queuedUpdatedMu.Lock()
+	defer b.queuedUpdatedMu.Unlock()
+	if curJob, ok := b.queuedUpdates[job.convID.ConvIDStr()]; ok {
+		b.Debug(ctx, "queueCommandUpdate: skipping already queued: %s", job.convID)
+		curJob.completeChs = append(curJob.completeChs, job.completeChs...)
+		return nil
+	}
 	select {
 	case b.commandUpdateCh <- job:
+		go b.runCommandUpdateUI(globals.BackgroundChatCtx(ctx, b.G()), job)
+		b.queuedUpdates[job.convID.ConvIDStr()] = job
 	default:
 		return errors.New("queue full")
 	}
 	return nil
 }
 
-func (b *CachingBotCommandManager) getBotInfo(ctx context.Context, job commandUpdaterJob) (botInfo chat1.BotInfo, doUpdate bool, err error) {
+func (b *CachingBotCommandManager) getBotInfo(ctx context.Context, job *commandUpdaterJob) (botInfo chat1.BotInfo, doUpdate bool, err error) {
+	defer b.Trace(ctx, &err, fmt.Sprintf("getBotInfo: %v", job.convID))()
 	if job.info != nil {
 		return *job.info, true, nil
 	}
 	convID := job.convID
 	found, err := b.edb.Get(ctx, b.dbInfoKey(convID), &botInfo)
 	if err != nil {
-		return botInfo, false, err
+		b.Debug(ctx, "getBotInfo: failed to read cache: %s", err)
+		found = false
 	}
 	var infoHash chat1.BotInfoHash
 	if found {
@@ -265,24 +442,34 @@ func (b *CachingBotCommandManager) getBotInfo(ctx context.Context, job commandUp
 	res, err := b.ri().GetBotInfo(ctx, chat1.GetBotInfoArg{
 		ConvID:   convID,
 		InfoHash: infoHash,
+		// Send up the latest client version we known about. The server
+		// will apply the client version when hashing so we can cache even if
+		// new clients are using a different hash function.
+		ClientHashVers: chat1.ClientBotInfoHashVers,
 	})
 	if err != nil {
 		return botInfo, false, err
 	}
 	rtyp, err := res.Response.Typ()
+	if err != nil {
+		return botInfo, false, err
+	}
 	switch rtyp {
 	case chat1.BotInfoResponseTyp_UPTODATE:
 		return botInfo, false, nil
 	case chat1.BotInfoResponseTyp_INFO:
+		if err := b.edb.Put(ctx, b.dbInfoKey(convID), res.Response.Info()); err != nil {
+			return botInfo, false, err
+		}
 		return res.Response.Info(), true, nil
 	}
 	return botInfo, false, errors.New("unknown response type")
 }
 
 func (b *CachingBotCommandManager) getConvAdvertisement(ctx context.Context, convID chat1.ConversationID,
-	botUID gregor1.UID) (res *storageCommandAdvertisement) {
+	botUID gregor1.UID, untrustedTeamRole keybase1.TeamRole, typ chat1.BotCommandsAdvertisementTyp) (res *storageCommandAdvertisement) {
 	b.Debug(ctx, "getConvAdvertisement: reading commands from: %s for uid: %s", convID, botUID)
-	tv, err := b.G().ConvSource.Pull(ctx, convID, b.uid, chat1.GetThreadReason_BOTCOMMANDS,
+	tv, err := b.G().ConvSource.Pull(ctx, convID, b.uid, chat1.GetThreadReason_BOTCOMMANDS, nil,
 		&chat1.GetThreadQuery{
 			MessageTypes: []chat1.MessageType{chat1.MessageType_TEXT},
 		}, &chat1.Pagination{Num: 1})
@@ -315,40 +502,77 @@ func (b *CachingBotCommandManager) getConvAdvertisement(ctx context.Context, con
 		return nil
 	}
 	res.Username = msg.Valid().SenderUsername
+	res.UID = botUID
+	res.UntrustedTeamRole = untrustedTeamRole
+	res.Typ = typ
+
 	return res
 }
 
-func (b *CachingBotCommandManager) commandUpdate(ctx context.Context, job commandUpdaterJob) (err error) {
+func (b *CachingBotCommandManager) commandUpdate(ctx context.Context, job *commandUpdaterJob) (err error) {
+	var botSettings chat1.UIBotCommandsUpdateSettings
 	ctx = globals.ChatCtx(ctx, b.G(), keybase1.TLFIdentifyBehavior_CHAT_GUI, nil, nil)
-	defer b.Trace(ctx, func() error { return err }, "commandUpdate")()
+	defer b.Trace(ctx, &err, "commandUpdate")()
 	defer func() {
-		job.completeCh <- err
-	}()
-	botInfo, doUpdate, err := b.getBotInfo(ctx, job)
-	if err != nil {
-		return err
-	}
-	if !doUpdate {
-		b.Debug(ctx, "commandUpdate: bot info uptodate, not updating")
-		return nil
-	}
-	var s commandsStorage
-	for _, cconv := range botInfo.CommandConvs {
-		ad := b.getConvAdvertisement(ctx, cconv.ConvID, cconv.Uid)
-		if ad != nil {
-			s.Advertisements = append(s.Advertisements, *ad)
+		b.queuedUpdatedMu.Lock()
+		delete(b.queuedUpdates, job.convID.ConvIDStr())
+		b.queuedUpdatedMu.Unlock()
+		job.uiCh <- uiResult{
+			err:      err,
+			settings: botSettings,
 		}
-	}
-	if err := b.edb.Put(ctx, b.dbCommandsKey(job.convID), s); err != nil {
-		return err
-	}
-	// alert that the conv is now updated
-	b.G().Syncer.SendChatStaleNotifications(ctx, b.uid, []chat1.ConversationStaleUpdate{
-		chat1.ConversationStaleUpdate{
-			ConvID:     job.convID,
-			UpdateType: chat1.StaleUpdateType_CONVUPDATE,
-		}}, true)
-	return nil
+		for _, completeCh := range job.completeChs {
+			completeCh <- err
+		}
+	}()
+	var eg errgroup.Group
+	eg.Go(func() error {
+		botInfo, doUpdate, err := b.getBotInfo(ctx, job)
+		if err != nil {
+			return err
+		}
+		if !doUpdate {
+			b.Debug(ctx, "commandUpdate: bot info uptodate, not updating")
+			return nil
+		}
+		s := commandsStorage{
+			Version: storageVersion,
+		}
+		for _, cconv := range botInfo.CommandConvs {
+			ad := b.getConvAdvertisement(ctx, cconv.ConvID, cconv.Uid, cconv.UntrustedTeamRole, cconv.Typ)
+			if ad != nil {
+				s.Advertisements = append(s.Advertisements, *ad)
+			}
+		}
+		if err := b.edb.Put(ctx, b.dbCommandsKey(job.convID), s); err != nil {
+			return err
+		}
+		// alert that the conv is now updated
+		b.G().InboxSource.NotifyUpdate(ctx, b.uid, job.convID)
+		return nil
+	})
+	eg.Go(func() error {
+		conv, err := utils.GetVerifiedConv(ctx, b.G(), b.uid, job.convID, types.InboxSourceDataSourceAll)
+		if err != nil {
+			return err
+		}
+		ni := b.nameInfoSource(ctx, b.G(), conv.GetMembersType())
+		rawSettings, err := ni.TeamBotSettings(ctx, conv.Info.TlfName, conv.Info.Triple.Tlfid,
+			conv.GetMembersType(), conv.IsPublic())
+		if err != nil {
+			return err
+		}
+		botSettings.Settings = make(map[string]keybase1.TeamBotSettings)
+		for uv, settings := range rawSettings {
+			username, err := b.G().GetUPAKLoader().LookupUsername(ctx, uv.Uid)
+			if err != nil {
+				return err
+			}
+			botSettings.Settings[username.String()] = settings
+		}
+		return nil
+	})
+	return eg.Wait()
 }
 
 func (b *CachingBotCommandManager) commandUpdateLoop(stopCh chan struct{}) error {

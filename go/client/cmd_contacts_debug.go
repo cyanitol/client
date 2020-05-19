@@ -21,7 +21,7 @@ import (
 
 // Devel commands for testing contact syncing.
 
-func NwCmdContacts(cl *libcmdline.CommandLine, g *libkb.GlobalContext) cli.Command {
+func NewCmdContacts(cl *libcmdline.CommandLine, g *libkb.GlobalContext) cli.Command {
 	return cli.Command{
 		Name:         "contacts",
 		Usage:        "commands for testing contact sync on desktop",
@@ -140,7 +140,7 @@ func (c *CmdSaveContacts) Run() error {
 	if err != nil {
 		return err
 	}
-	err = cli.SaveContactList(context.Background(), keybase1.SaveContactListArg{
+	_, err = cli.SaveContactList(context.Background(), keybase1.SaveContactListArg{
 		Contacts: contacts,
 	})
 	if err != nil {

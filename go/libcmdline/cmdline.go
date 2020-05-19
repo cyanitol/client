@@ -78,6 +78,9 @@ func (p CommandLine) GetServerURI() (string, error) {
 func (p CommandLine) GetConfigFilename() string {
 	return p.GetGString("config-file")
 }
+func (p CommandLine) GetGUIConfigFilename() string {
+	return p.GetGString("gui-config-file")
+}
 func (p CommandLine) GetUpdaterConfigFilename() string {
 	return p.GetGString("updater-config-file")
 }
@@ -114,14 +117,14 @@ func (p CommandLine) GetDebug() (bool, bool) {
 	}
 	return p.GetBool("debug", true)
 }
+func (p CommandLine) GetDebugJourneycard() (bool, bool) {
+	return p.GetBool("debug-journeycard", true)
+}
 func (p CommandLine) GetDisplayRawUntrustedOutput() (bool, bool) {
 	return p.GetBool("display-raw-untrusted-output", true)
 }
 func (p CommandLine) GetVDebugSetting() string {
 	return p.GetGString("vdebug")
-}
-func (p CommandLine) GetUpgradePerUserKey() (bool, bool) {
-	return p.GetBool("upgrade-per-user-key", true)
 }
 func (p CommandLine) GetPGPFingerprint() *libkb.PGPFingerprint {
 	return libkb.PGPFingerprintFromHexNoError(p.GetGString("fingerprint"))
@@ -134,6 +137,12 @@ func (p CommandLine) GetLogFile() string {
 }
 func (p CommandLine) GetEKLogFile() string {
 	return p.GetGString("ek-log-file")
+}
+func (p CommandLine) GetPerfLogFile() string {
+	return p.GetGString("perf-log-file")
+}
+func (p CommandLine) GetGUILogFile() string {
+	return p.GetGString("gui-log-file")
 }
 func (p CommandLine) GetUseDefaultLogFile() (bool, bool) {
 	return p.GetBool("use-default-log-file", true)
@@ -306,6 +315,14 @@ func (p CommandLine) GetLevelDBNumFiles() (int, bool) {
 	return 0, false
 }
 
+func (p CommandLine) GetLevelDBWriteBufferMB() (int, bool) {
+	ret := p.GetGInt("leveldb-write-buffer-mb")
+	if ret != 0 {
+		return ret, true
+	}
+	return 0, false
+}
+
 func (p CommandLine) GetChatInboxSourceLocalizeThreads() (int, bool) {
 	ret := p.GetGInt("chat-inboxsource-localizethreads")
 	if ret != 0 {
@@ -398,7 +415,7 @@ func (p CommandLine) GetMountDirDefault() string {
 	return p.GetGString("mountdirdefault")
 }
 
-func (p CommandLine) GetRememberPassphrase() (bool, bool) {
+func (p CommandLine) GetRememberPassphrase(libkb.NormalizedUsername) (bool, bool) {
 	return p.GetBool("remember-passphrase", true)
 }
 
@@ -412,6 +429,10 @@ func (p CommandLine) GetDisableTeamAuditor() (bool, bool) {
 
 func (p CommandLine) GetDisableTeamBoxAuditor() (bool, bool) {
 	return p.GetBool("disable-team-box-auditor", true)
+}
+
+func (p CommandLine) GetDisableEKBackgroundKeygen() (bool, bool) {
+	return p.GetBool("disable-ek-backgorund-keygen", true)
 }
 
 func (p CommandLine) GetDisableMerkleAuditor() (bool, bool) {
@@ -452,10 +473,6 @@ func (p CommandLine) GetAttachmentHTTPStartPort() (int, bool) {
 		return ret, true
 	}
 	return 0, false
-}
-
-func (p CommandLine) GetChatOutboxStorageEngine() string {
-	return p.GetGString("chat-outboxstorageengine")
 }
 
 func (p CommandLine) GetBool(s string, glbl bool) (bool, bool) {
@@ -722,9 +739,9 @@ func (p *CommandLine) PopulateApp(addHelp bool, extraFlags []cli.Flag) {
 			Name:  "updater-config-file",
 			Usage: "Specify a path to the updater config file",
 		},
-		cli.BoolFlag{
-			Name:  "upgrade-per-user-key",
-			Usage: "Create new per-user-keys. Experimental, will break sigchain!",
+		cli.StringFlag{
+			Name:  "gui-config-file",
+			Usage: "Specify a path to the GUI config file",
 		},
 		cli.BoolFlag{
 			Name:  "use-default-log-file",
@@ -737,6 +754,10 @@ func (p *CommandLine) PopulateApp(addHelp bool, extraFlags []cli.Flag) {
 		cli.StringFlag{
 			Name:  "vdebug",
 			Usage: "Verbose debugging; takes a comma-joined list of levels and tags",
+		},
+		cli.BoolFlag{
+			Name:  "debug-journeycard",
+			Usage: "Enable experimental journey cards",
 		},
 		cli.BoolFlag{
 			Name:  "disable-team-auditor",

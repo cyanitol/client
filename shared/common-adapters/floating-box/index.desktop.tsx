@@ -2,7 +2,7 @@ import * as React from 'react'
 import {findDOMNode} from 'react-dom'
 import {Box} from '..'
 import {ModalPositionRelative} from '../relative-popup-hoc.desktop'
-import {Props} from './index.types'
+import {Props} from '.'
 import logger from '../../logger'
 
 const StyleOnlyBox = (props: any) => <Box children={props.children} />
@@ -24,10 +24,13 @@ class FloatingBox extends React.Component<Props, State> {
     let targetRect: ClientRect | null = null
     if (this.props.attachTo) {
       const attachTo = this.props.attachTo()
+      if (attachTo instanceof HTMLElement) {
+        return attachTo.getBoundingClientRect()
+      }
       if (attachTo) {
+        console.warn('Non html element passed to floating box, deprecate this soon')
         let node
         try {
-          // @ts-ignore this is fine
           node = findDOMNode(attachTo)
         } catch (e) {
           logger.error(`FloatingBox: unable to find rect to attach to. Error: ${e.message}`)
@@ -45,7 +48,7 @@ class FloatingBox extends React.Component<Props, State> {
     this.props.onHidden && this.props.onHidden()
   }
 
-  componentDidUpdate(prevProps: Props) {
+  componentDidUpdate() {
     const targetRect = this._getTargetRect()
     this.setState(p => {
       if (p.targetRect === targetRect) {
@@ -74,6 +77,7 @@ class FloatingBox extends React.Component<Props, State> {
         targetRect={this.state.targetRect}
         matchDimension={!!this.props.matchDimension}
         onClosePopup={this._onHidden}
+        remeasureHint={this.props.remeasureHint}
         propagateOutsideClicks={this.props.propagateOutsideClicks}
         style={this.props.containerStyle}
       >

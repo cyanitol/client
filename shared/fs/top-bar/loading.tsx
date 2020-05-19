@@ -1,10 +1,10 @@
 import * as React from 'react'
 import {namedConnect} from '../../util/container'
-import * as I from 'immutable'
 import * as Types from '../../constants/types/fs'
 import * as Constants from '../../constants/fs'
 import * as Kb from '../../common-adapters'
 import * as Flow from '../../util/flow'
+import * as Styles from '../../styles'
 
 // The behavior is to only show spinner when user first time lands on a screen
 // and when don't have the data that drives it yet. Since RPCs happen
@@ -16,13 +16,11 @@ type OwnProps = {
 }
 
 const mapStateToProps = (state, {path}: OwnProps) => ({
-  _pathItem: state.fs.pathItems.get(path, Constants.unknownPathItem),
+  _pathItem: Constants.getPathItem(state.fs.pathItems, path),
   _tlfsLoaded: !!state.fs.tlfs.private.size,
 })
 
-const emptySet = I.Set()
-
-const mergeProps = (stateProps, dispatchProps, {path}: OwnProps) => {
+const mergeProps = (stateProps, _, {path}: OwnProps) => {
   const parsedPath = Constants.parsePath(path)
   switch (parsedPath.kind) {
     case Types.PathKind.Root:
@@ -52,6 +50,16 @@ const mergeProps = (stateProps, dispatchProps, {path}: OwnProps) => {
   }
 }
 
-const Loading = props => props.show && <Kb.ProgressIndicator type="Small" />
+const Loading = props => props.show && <Kb.ProgressIndicator style={styles.progressIndicator} />
+
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      progressIndicator: {
+        height: 18,
+        width: 18,
+      },
+    } as const)
+)
 
 export default namedConnect(mapStateToProps, () => ({}), mergeProps, 'TopBarLoading')(Loading)

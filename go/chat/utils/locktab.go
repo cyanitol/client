@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/keybase/client/go/chat/globals"
+	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/chat1"
 	"github.com/keybase/client/go/protocol/gregor1"
 	context "golang.org/x/net/context"
@@ -34,7 +35,7 @@ type ConversationLockTab struct {
 func NewConversationLockTab(g *globals.Context) *ConversationLockTab {
 	return &ConversationLockTab{
 		Contextified:      globals.NewContextified(g),
-		DebugLabeler:      NewDebugLabeler(g.GetLog(), "ConversationLockTab", false),
+		DebugLabeler:      NewDebugLabeler(g.ExternalG(), "ConversationLockTab", false),
 		convLocks:         make(map[string]*conversationLock),
 		waits:             make(map[string]string),
 		maxAcquireRetries: 25,
@@ -99,6 +100,7 @@ func (c *ConversationLockTab) doAcquire(ctx context.Context, uid gregor1.UID, co
 			return
 		}
 		c.Debug(ctx, "Acquire: blocked by trace: %s on convID: %s", lock.trace, convID)
+		blocker := lock.trace
 		if c.blockCb != nil {
 			*c.blockCb <- struct{}{} // For testing
 		}
@@ -114,6 +116,7 @@ func (c *ConversationLockTab) doAcquire(ctx context.Context, uid gregor1.UID, co
 		c.Unlock() // Give up map lock while we are waiting for conv lock
 		lock.lock.Lock()
 		c.Lock()
+		c.Debug(ctx, "Acquire: unblocked from trace: %s on convID: %s", blocker, convID)
 		delete(c.waits, trace)
 		lock.trace = trace
 		lock.shares = 1
@@ -144,7 +147,7 @@ func (c *ConversationLockTab) Acquire(ctx context.Context, uid gregor1.UID, conv
 				return true, err
 			}
 			c.Debug(ctx, "Acquire: deadlock condition detected, sleeping and trying again: attempt: %d", i)
-			time.Sleep(sleep)
+			time.Sleep(libkb.RandomJitter(sleep))
 			continue
 		}
 		return blocked, nil

@@ -1,27 +1,31 @@
 import * as React from 'react'
-import {Box2, ProgressIndicator, QRLines} from '../../../common-adapters'
-import {globalColors, styleSheetCreate} from '../../../styles'
+import * as Kb from '../../../common-adapters'
+import * as Styles from '../../../styles'
+import QRLines from '../../../common-adapters/qr-lines'
 import {Props} from '.'
 // Basically only used for storybook
 
 const QRScan = (props: Props) => (
-  <Box2 direction="vertical" style={styles.container}>
+  <Kb.Box2 direction="vertical" style={styles.container}>
     <QRLines canScan={true} />
-    {props.waiting && <ProgressIndicator style={styles.waiting} type="Large" white={true} />}
-  </Box2>
+    {props.waiting && <Kb.ProgressIndicator style={styles.waiting} type="Large" white={true} />}
+  </Kb.Box2>
 )
 
-const styles = styleSheetCreate({
-  container: {
-    alignSelf: 'stretch',
-    backgroundColor: globalColors.black,
-    height: 200,
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  waiting: {
-    alignSelf: 'center',
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: {
+        alignSelf: 'stretch',
+        backgroundColor: Styles.globalColors.black,
+        height: 200,
+        justifyContent: 'center',
+        position: 'relative',
+      },
+      waiting: {
+        alignSelf: 'center',
+      },
+    } as const)
+)
 
 export default QRScan

@@ -9,7 +9,7 @@ export type Props = {
   suggestions: Array<FollowSuggestion>
 }
 
-export default (props: Props) => (
+const FollowSuggestions = (props: Props) => (
   <Box style={styles.container}>
     <Text type="BodySmallSemibold" style={styles.text}>
       Consider following...
@@ -33,8 +33,9 @@ export default (props: Props) => (
     </ScrollView>
   </Box>
 )
+export default FollowSuggestions
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   container: {
     ...Styles.globalStyles.flexBoxColumn,
     paddingTop: Styles.globalMargins.tiny,
@@ -64,15 +65,8 @@ const styles = Styles.styleSheetCreate({
     height: 112,
     width: 112,
   },
-  text: Styles.platformStyles({
-    common: {
-      marginBottom: Styles.globalMargins.tiny,
-    },
-    isElectron: {
-      marginLeft: Styles.globalMargins.small,
-    },
-    isMobile: {
-      marginLeft: Styles.globalMargins.tiny,
-    },
-  }),
-})
+  text: {
+    marginBottom: Styles.globalMargins.tiny,
+    marginLeft: Styles.globalMargins.small,
+  },
+}))

@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/net/context"
 
+	humanize "github.com/dustin/go-humanize"
 	"github.com/keybase/cli"
 	"github.com/keybase/client/go/libcmdline"
 	"github.com/keybase/client/go/libkb"
@@ -39,13 +40,15 @@ func (c *CmdShowNotifications) Run() error {
 		keybase1.NotifyFSProtocol(display),
 		keybase1.NotifyTrackingProtocol(display),
 		keybase1.NotifyAuditProtocol(display),
+		keybase1.NotifyRuntimeStatsProtocol(display),
 	}
 	channels := keybase1.NotificationChannels{
-		Session:  true,
-		Users:    true,
-		Kbfs:     true,
-		Tracking: true,
-		Audit:    true,
+		Session:      true,
+		Users:        true,
+		Kbfs:         true,
+		Tracking:     true,
+		Audit:        true,
+		Runtimestats: true,
 	}
 
 	if err := RegisterProtocolsWithContext(protocols, c.G()); err != nil {
@@ -123,8 +126,8 @@ func (d *notificationDisplay) UserChanged(_ context.Context, uid keybase1.UID) e
 	return d.printf("User %s changed\n", uid)
 }
 
-func (d *notificationDisplay) PasswordChanged(_ context.Context) error {
-	return d.printf("Password changed\n")
+func (d *notificationDisplay) PasswordChanged(_ context.Context, state keybase1.PassphraseState) error {
+	return d.printf("Password changed:%+v\n", state)
 }
 
 func (d *notificationDisplay) FSOnlineStatusChanged(_ context.Context, online bool) error {
@@ -167,9 +170,16 @@ func (d *notificationDisplay) TrackingChanged(_ context.Context, arg keybase1.Tr
 	return d.printf("Tracking changed for %s (%s)\n", arg.Username, arg.Uid)
 }
 
+func (d *notificationDisplay) WebOfTrustChanged(_ context.Context, username string) error {
+	return d.printf("Web of Trust changed for %s\n", username)
+}
+
 func (d *notificationDisplay) TrackingInfo(_ context.Context, arg keybase1.TrackingInfoArg) error {
 	return d.printf("Tracking info for %s followers: %v followees: %v\n", arg.Uid, arg.Followers,
 		arg.Followees)
+}
+func (d *notificationDisplay) NotifyUserBlocked(_ context.Context, arg keybase1.UserBlockedSummary) error {
+	return d.printf("User blocked: %+v\n", arg)
 }
 
 func (d *notificationDisplay) RootAuditError(_ context.Context, msg string) (err error) {
@@ -178,4 +188,68 @@ func (d *notificationDisplay) RootAuditError(_ context.Context, msg string) (err
 
 func (d *notificationDisplay) BoxAuditError(_ context.Context, msg string) (err error) {
 	return d.printf("Box audit error (report with `keybase log send`): %s\n", msg)
+}
+
+func (d *notificationDisplay) RuntimeStatsUpdate(
+	_ context.Context, stats *keybase1.RuntimeStats) (err error) {
+	if stats == nil {
+		return nil
+	}
+
+	err = d.printf("Runtime stats:")
+	if err != nil {
+		return err
+	}
+
+	comma := ""
+	for _, s := range stats.ProcessStats {
+		err = d.printf(
+			"%s [%s: Goheap=%s, Goheapsys=%s, Goreleased=%s]",
+			comma, s.Type, s.Goheap, s.Goheapsys, s.Goreleased)
+		if err != nil {
+			return err
+		}
+		comma = ","
+	}
+
+	for _, s := range stats.DbStats {
+		if !s.MemCompActive && !s.TableCompActive {
+			continue
+		}
+
+		var name string
+		switch s.Type {
+		case keybase1.DbType_MAIN:
+			name = "dbMain"
+		case keybase1.DbType_CHAT:
+			name = "dbChat"
+		case keybase1.DbType_FS_BLOCK_CACHE:
+			name = "dbFSBlockCache"
+		case keybase1.DbType_FS_BLOCK_CACHE_META:
+			name = "dbFSMetaBlockCache"
+		case keybase1.DbType_FS_SYNC_BLOCK_CACHE:
+			name = "dbFSSyncBlockCache"
+		case keybase1.DbType_FS_SYNC_BLOCK_CACHE_META:
+			name = "dbFSMetaSyncBlockCache"
+		}
+		err = d.printf(
+			", %s=[M:%t T:%t] ", name, s.MemCompActive, s.TableCompActive)
+		if err != nil {
+			return err
+		}
+	}
+	for _, event := range stats.PerfEvents {
+		d.printf("PerfEvent: %s %s\n", event.Message, humanize.Time(event.Ctime.Time()))
+	}
+	return d.printf("\n")
+}
+
+func (d *notificationDisplay) FSSubscriptionNotify(_ context.Context, arg keybase1.FSSubscriptionNotifyArg) error {
+	return d.printf("FS subscription notify: %v %s\n", arg.SubscriptionIDs, arg.Topic.String())
+}
+func (d *notificationDisplay) FSSubscriptionNotifyPath(_ context.Context, arg keybase1.FSSubscriptionNotifyPathArg) error {
+	return d.printf("FS subscription notify path: %v %q %v\n", arg.SubscriptionIDs, arg.Path, arg.Topics)
+}
+func (d *notificationDisplay) IdentifyUpdate(_ context.Context, arg keybase1.IdentifyUpdateArg) error {
+	return d.printf("identify update: ok:%v broken:%v\n", arg.OkUsernames, arg.BrokenUsernames)
 }

@@ -146,6 +146,7 @@ type AssertionURL interface {
 	IsSocial() bool
 	IsRemote() bool
 	IsFingerprint() bool
+	IsEmail() bool
 	MatchProof(p Proof) bool
 	ToUID() keybase1.UID
 	ToTeamID() keybase1.TeamID
@@ -210,6 +211,7 @@ func (b AssertionURLBase) IsSocial() bool                      { return false }
 func (b AssertionURLBase) IsRemote() bool                      { return false }
 func (b AssertionURLBase) IsFingerprint() bool                 { return false }
 func (b AssertionURLBase) IsUID() bool                         { return false }
+func (b AssertionURLBase) IsEmail() bool                       { return b.Key == "email" }
 func (b AssertionURLBase) ToUID() (ret keybase1.UID)           { return ret }
 func (b AssertionURLBase) IsTeamID() bool                      { return false }
 func (b AssertionURLBase) IsTeamName() bool                    { return false }
@@ -477,10 +479,8 @@ func parseToKVPair(s string) (key string, value string, err error) {
 		service := s[:colIndex]
 		name := s[colIndex+1:]
 
-		if strings.HasPrefix(name, "//") {
-			// "dns://keybase.io" syntax.
-			name = name[2:]
-		}
+		// "dns://keybase.io" syntax.
+		name = strings.TrimPrefix(name, "//")
 
 		if matchNameAndService(name, service) {
 			return key, value, err
@@ -772,7 +772,7 @@ func parseImplicitTeamPart(ctx AssertionContext, s string) (typ string, name str
 	if err != nil {
 		return "", "", fmt.Errorf("Could not parse part as SBS assertion")
 	}
-	return string(assertion.GetKey()), assertion.GetValue(), nil
+	return assertion.GetKey(), assertion.GetValue(), nil
 }
 
 func FormatImplicitTeamDisplayNameSuffix(conflict keybase1.ImplicitTeamConflictInfo) string {

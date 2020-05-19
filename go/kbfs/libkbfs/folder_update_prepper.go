@@ -48,13 +48,17 @@ func (fup *folderUpdatePrepper) nowUnixNano() int64 {
 	return fup.config.Clock().Now().UnixNano()
 }
 
+func (fup *folderUpdatePrepper) cacheHashBehavior() data.BlockCacheHashBehavior {
+	return fup.blocks.cacheHashBehavior()
+}
+
 func (fup *folderUpdatePrepper) readyBlockMultiple(ctx context.Context,
 	kmd libkey.KeyMetadata, currBlock data.Block, chargedTo keybase1.UserOrTeamID,
 	bps blockPutState, bType keybase1.BlockType) (
 	info data.BlockInfo, plainSize int, err error) {
 	info, plainSize, readyBlockData, err :=
 		data.ReadyBlock(ctx, fup.config.BlockCache(), fup.config.BlockOps(),
-			kmd, currBlock, chargedTo, bType)
+			kmd, currBlock, chargedTo, bType, fup.cacheHashBehavior())
 	if err != nil {
 		return data.BlockInfo{}, 0, err
 	}
@@ -146,8 +150,9 @@ func (fup *folderUpdatePrepper) unembedBlockChanges(
 	}
 
 	// Ready all the child blocks.
-	infos, err := fd.Ready(ctx, fup.id(), fup.config.BlockCache(),
-		dirtyBcache, fup.config.BlockOps(), bps, block, df)
+	infos, err := fd.Ready(
+		ctx, fup.id(), fup.config.BlockCache(), dirtyBcache,
+		fup.config.BlockOps(), bps, block, df, fup.cacheHashBehavior())
 	if err != nil {
 		return err
 	}
@@ -249,7 +254,8 @@ func (fup *folderUpdatePrepper) prepUpdateForPath(
 			newInfos, err := currDD.Ready(
 				ctx, fup.id(), fup.config.BlockCache(),
 				isDirtyWithDBM{dbm, fup.config.DirtyBlockCache()},
-				fup.config.BlockOps(), bps, currBlock.(*data.DirBlock))
+				fup.config.BlockOps(), bps, currBlock.(*data.DirBlock),
+				fup.cacheHashBehavior())
 			if err != nil {
 				return data.Path{}, data.DirEntry{}, err
 			}
@@ -474,7 +480,7 @@ func (fup *folderUpdatePrepper) prepTree(
 
 			var err error
 			fblock, err = newFileBlocks.GetTopBlock(
-				ctx, node.parent.ptr, node.mergedPath.TailName().Plaintext())
+				ctx, node.parent.ptr, node.mergedPath.TailName())
 			if err != nil {
 				return err
 			}
@@ -580,8 +586,8 @@ func (fup *folderUpdatePrepper) updateResolutionUsageLockedCache(
 	md.SetMDDiskUsage(mostRecentMergedMD.MDDiskUsage())
 
 	localBlocks := make(map[data.BlockPointer]data.Block)
-	for _, ptr := range bps.ptrs() {
-		if block, err := bps.getBlock(ctx, ptr); err == nil && block != nil {
+	for _, ptr := range bps.Ptrs() {
+		if block, err := bps.GetBlock(ctx, ptr); err == nil && block != nil {
 			localBlocks[ptr] = block
 		}
 	}
@@ -955,13 +961,14 @@ func (fup *folderUpdatePrepper) updateResolutionUsageAndPointersLockedCache(
 func (fup *folderUpdatePrepper) setChildrenNodes(
 	ctx context.Context, lState *kbfssync.LockState, kmd libkey.KeyMetadata,
 	p data.Path, indexInPath int, dbm dirBlockMap, nextNode *pathTreeNode,
-	currPath data.Path, names []string) {
+	currPath data.Path, names []data.PathPartString) {
 	dd, cleanupFn := fup.blocks.newDirDataWithDBM(
 		lState, currPath, keybase1.UserOrTeamID(""), kmd, dbm)
 	defer cleanupFn()
 
 	pnode := p.Path[indexInPath]
-	for _, namePlain := range names {
+	for _, name := range names {
+		namePlain := name.Plaintext()
 		if _, ok := nextNode.children[namePlain]; ok {
 			continue
 		}
@@ -983,8 +990,9 @@ func (fup *folderUpdatePrepper) setChildrenNodes(
 			ctx, libkb.VLog1, "Creating child node for name %s for parent %v",
 			name, pnode.BlockPointer)
 		childPath := data.Path{
-			FolderBranch: p.FolderBranch,
-			Path:         make([]data.PathNode, indexInPath+2),
+			FolderBranch:    p.FolderBranch,
+			Path:            make([]data.PathNode, indexInPath+2),
+			ChildObfuscator: p.Path[indexInPath].Name.Obfuscator(),
 		}
 		copy(childPath.Path[0:indexInPath+1], p.Path[0:indexInPath+1])
 		childPath.Path[indexInPath+1] = data.PathNode{Name: name}
@@ -1427,7 +1435,7 @@ func (fup *folderUpdatePrepper) prepUpdateForPaths(ctx context.Context,
 
 	if len(unmergedChains.resOps) > 0 {
 		newBlocks := make(map[data.BlockPointer]bool)
-		for _, ptr := range bps.ptrs() {
+		for _, ptr := range bps.Ptrs() {
 			newBlocks[ptr] = true
 		}
 

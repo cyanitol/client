@@ -76,9 +76,15 @@ func (fu *FakeUser) Login(g *libkb.GlobalContext) error {
 		SecretUI:    fu.NewSecretUI(),
 		LoginUI:     &libkb.TestLoginUI{Username: fu.Username},
 	}
-	li := engine.NewLogin(g, libkb.DeviceTypeDesktop, fu.Username, keybase1.ClientType_CLI)
+	li := engine.NewLogin(g, keybase1.DeviceTypeV2_DESKTOP, fu.Username, keybase1.ClientType_CLI)
 	m := libkb.NewMetaContextTODO(g).WithUIs(uis)
 	return engine.RunEngine2(m, li)
+}
+
+func LogoutAndLoginAs(tc libkb.TestContext, fu *FakeUser) {
+	Logout(tc)
+	err := fu.Login(tc.G)
+	require.NoError(tc.T, err)
 }
 
 func CreateAndSignupFakeUser(prefix string, g *libkb.GlobalContext) (*FakeUser, error) {
@@ -136,6 +142,21 @@ func createAndSignupFakeUser(prefix string, g *libkb.GlobalContext, skipPaper bo
 	return fu, nil
 }
 
+func GetContactSettings(tc libkb.TestContext, u *FakeUser) (ret keybase1.ContactSettings) {
+	m := libkb.NewMetaContextForTest(tc)
+	ret, err := libkb.GetContactSettings(m)
+	require.NoError(tc.T, err)
+	tc.T.Logf("Got contact settings for user %s", u.Username)
+	return ret
+}
+
+func SetContactSettings(tc libkb.TestContext, u *FakeUser, arg keybase1.ContactSettings) {
+	m := libkb.NewMetaContextForTest(tc)
+	err := libkb.SetContactSettings(m, arg)
+	require.NoError(tc.T, err)
+	tc.T.Logf("Set contact settings for user %s", u.Username)
+}
+
 // copied from engine/common_test.go
 func ResetAccount(tc libkb.TestContext, u *FakeUser) {
 	m := libkb.NewMetaContextForTest(tc)
@@ -155,7 +176,8 @@ func DeleteAccount(tc libkb.TestContext, u *FakeUser) {
 
 // copied from engine/common_test.go
 func Logout(tc libkb.TestContext) {
-	if err := tc.G.Logout(context.TODO()); err != nil {
+	mctx := libkb.NewMetaContextForTest(tc)
+	if err := mctx.LogoutKillSecrets(); err != nil {
 		tc.T.Fatalf("logout error: %s", err)
 	}
 }
@@ -176,16 +198,16 @@ func RotatePaper(tc libkb.TestContext, u *FakeUser) {
 	user, err := libkb.LoadUser(arg)
 	require.NoError(tc.T, err)
 
-	activeDevices := []*libkb.Device{}
+	activeDevices := make([]*libkb.Device, 0)
 	for _, device := range user.GetComputedKeyFamily().GetAllDevices() {
 		if device.Status != nil && *device.Status == libkb.DeviceStatusActive {
-			activeDevices = append(activeDevices, device)
+			activeDevices = append(activeDevices, device.Device)
 		}
 	}
 
 	var revokeDevice *libkb.Device
 	for _, device := range activeDevices {
-		if device.Type == libkb.DeviceTypePaper {
+		if device.Type == keybase1.DeviceTypeV2_PAPER {
 			revokeDevice = device
 		}
 	}
@@ -218,8 +240,8 @@ func FakeSalt() []byte {
 // the test will not fail until later.
 // `tcX` is a TestContext where device X (the provisioner) is already provisioned and logged in.
 // this function will provision a new device Y inside `tcY`
-// `newDeviceType` is libkb.DeviceTypeMobile or libkb.DeviceTypeDesktop.
-func ProvisionNewDeviceKex(tcX *libkb.TestContext, tcY *libkb.TestContext, userX *FakeUser, newDeviceType string) {
+// `newDeviceType` is keybase1.DeviceTypeV2_MOBILE or keybase1.DeviceTypeV2_DESKTOP.
+func ProvisionNewDeviceKex(tcX *libkb.TestContext, tcY *libkb.TestContext, userX *FakeUser, newDeviceType keybase1.DeviceTypeV2) {
 	// tcX is the device X (provisioner) context:
 	// tcX should already have been logged in.
 	t := tcX.T
@@ -286,7 +308,8 @@ func ProvisionNewDeviceKex(tcX *libkb.TestContext, tcY *libkb.TestContext, userX
 }
 
 type TestProvisionUI struct {
-	SecretCh chan kex2.Secret
+	SecretCh   chan kex2.Secret
+	DeviceType keybase1.DeviceTypeV2
 }
 
 func (u *TestProvisionUI) ChooseProvisioningMethod(_ context.Context, _ keybase1.ChooseProvisioningMethodArg) (keybase1.ProvisionMethod, error) {
@@ -302,6 +325,11 @@ func (u *TestProvisionUI) SwitchToGPGSignOK(ctx context.Context, arg keybase1.Sw
 }
 
 func (u *TestProvisionUI) ChooseDevice(_ context.Context, arg keybase1.ChooseDeviceArg) (keybase1.DeviceID, error) {
+	for _, d := range arg.Devices {
+		if d.Type == u.DeviceType {
+			return d.DeviceID, nil
+		}
+	}
 	return "", nil
 }
 
@@ -341,7 +369,7 @@ type TeamNotifyListener struct {
 
 var _ libkb.NotifyListener = (*TeamNotifyListener)(nil)
 
-func (n *TeamNotifyListener) TeamChangedByID(teamID keybase1.TeamID, latestSeqno keybase1.Seqno, implicitTeam bool, changes keybase1.TeamChangeSet, latestHiddenSeqno keybase1.Seqno) {
+func (n *TeamNotifyListener) TeamChangedByID(teamID keybase1.TeamID, latestSeqno keybase1.Seqno, implicitTeam bool, changes keybase1.TeamChangeSet, latestHiddenSeqno keybase1.Seqno, source keybase1.TeamChangedSource) {
 	n.changeByIDCh <- keybase1.TeamChangedByIDArg{
 		TeamID:            teamID,
 		LatestSeqno:       latestSeqno,
@@ -350,7 +378,7 @@ func (n *TeamNotifyListener) TeamChangedByID(teamID keybase1.TeamID, latestSeqno
 		LatestHiddenSeqno: latestHiddenSeqno,
 	}
 }
-func (n *TeamNotifyListener) TeamChangedByName(teamName string, latestSeqno keybase1.Seqno, implicitTeam bool, changes keybase1.TeamChangeSet, latestHiddenSeqno keybase1.Seqno) {
+func (n *TeamNotifyListener) TeamChangedByName(teamName string, latestSeqno keybase1.Seqno, implicitTeam bool, changes keybase1.TeamChangeSet, latestHiddenSeqno keybase1.Seqno, source keybase1.TeamChangedSource) {
 	n.changeByNameCh <- keybase1.TeamChangedByNameArg{
 		TeamName:          teamName,
 		LatestSeqno:       latestSeqno,
@@ -430,11 +458,24 @@ func RunTrackWithOptions(tc libkb.TestContext, fu *FakeUser, username string, op
 // considered `possible`, but not `valid` by libphonenumber.
 func GenerateTestPhoneNumber() string {
 	ret := make([]byte, 7)
-	rand.Read(ret)
+	_, err := rand.Read(ret)
+	if err != nil {
+		panic(err)
+	}
 	for i := range ret {
 		ret[i] = "0123456789"[int(ret[i])%10]
 	}
 	return fmt.Sprintf("1555%s", string(ret))
+}
+
+func GenerateRandomEmailAddress() keybase1.EmailAddress {
+	buf := make([]byte, 5)
+	_, err := rand.Read(buf)
+	if err != nil {
+		panic(err)
+	}
+	email := fmt.Sprintf("%s@example.org", hex.EncodeToString(buf))
+	return keybase1.EmailAddress(email)
 }
 
 type getCodeResponse struct {
@@ -468,6 +509,11 @@ func VerifyEmailAuto(mctx libkb.MetaContext, email keybase1.EmailAddress) error 
 	}
 	_, err := mctx.G().API.Post(mctx, arg)
 	return err
+}
+
+func EditProfile(mctx libkb.MetaContext, arg keybase1.ProfileEditArg) error {
+	eng := engine.NewProfileEdit(mctx.G(), arg)
+	return engine.RunEngine2(mctx, eng)
 }
 
 func RunningInCI() bool {

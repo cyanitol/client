@@ -9,28 +9,32 @@ type Props = {
   color: Types.AssertionColor
   isSuggestion: boolean
   isYours: boolean
-  metas: ReadonlyArray<Types._AssertionMeta>
+  metas: ReadonlyArray<Types.AssertionMeta>
   notAUser: boolean
   onCopyAddress: () => void
+  onHideStellar: (hidden: boolean) => void
   onRequestLumens: () => void
-  onRecheck: (() => void) | null
-  onRevoke: (() => void) | null
+  onRecheck?: () => void
+  onRevoke?: () => void
   onSendLumens: () => void
   onShowProof?: () => void
-  onShowSite: (() => void) | null
-  onCreateProof: (() => void) | null
+  onShowSite?: () => void
+  onCreateProof?: () => void
   onWhatIsStellar: () => void
   proofURL: string
-  siteIcon: Types.SiteIconSet | null
-  siteIconFull: Types.SiteIconSet | null
+  siteIcon?: Types.SiteIconSet
+  siteIconDarkmode?: Types.SiteIconSet
+  siteIconFull?: Types.SiteIconSet
+  siteIconFullDarkmode?: Types.SiteIconSet
   siteURL: string
   state: Types.AssertionState
+  stellarHidden: boolean
   timestamp: number
   type: string
   value: string
 }
 
-const proofTypeToDesc = proofType => {
+const proofTypeToDesc = (proofType: string) => {
   switch (proofType) {
     case 'btc':
     case 'zcash':
@@ -40,7 +44,7 @@ const proofTypeToDesc = proofType => {
   }
 }
 
-const stateToIcon = state => {
+const stateToIcon = (state: Types.AssertionState) => {
   switch (state) {
     case 'checking':
       return 'iconfont-proof-pending'
@@ -53,12 +57,12 @@ const stateToIcon = state => {
     case 'suggestion':
       return 'iconfont-proof-placeholder'
     default:
-      throw new Error('Impossible')
+      return 'iconfont-proof-pending'
   }
 }
 
 // alternate versions of the ones from `stateToIcon` for the popup menu header
-const stateToDecorationIcon = state => {
+const stateToDecorationIcon = (state: Types.AssertionState) => {
   switch (state) {
     case 'checking':
       return 'icon-proof-pending'
@@ -71,11 +75,11 @@ const stateToDecorationIcon = state => {
     case 'suggestion':
       return 'icon-proof-unfinished'
     default:
-      throw new Error('impossible')
+      return 'icon-proof-pending'
   }
 }
 
-const stateToValueTextStyle = state => {
+const stateToValueTextStyle = (state: Types.AssertionState) => {
   switch (state) {
     case 'revoked':
       return styles.strikeThrough
@@ -84,9 +88,27 @@ const stateToValueTextStyle = state => {
     case 'error':
     case 'warning':
     case 'suggestion':
-      return null
     default:
-      throw new Error('Impossible')
+      return null
+  }
+}
+
+const assertionColorToTextColor = (c: Types.AssertionColor) => {
+  switch (c) {
+    case 'blue':
+      return Styles.globalColors.blueDark
+    case 'red':
+      return Styles.globalColors.redDark
+    case 'black':
+      return Styles.globalColors.black
+    case 'green':
+      return Styles.globalColors.greenDark
+    case 'gray':
+      return Styles.globalColors.black_50
+    case 'yellow': // fallthrough
+    case 'orange':
+    default:
+      return Styles.globalColors.redDark
   }
 }
 
@@ -111,9 +133,7 @@ const assertionColorToColor = (c: Types.AssertionColor) => {
 
 class _StellarValue extends React.PureComponent<
   Props & Kb.OverlayParentProps,
-  {
-    storedAttachmentRef: Kb.Box | null
-  }
+  {storedAttachmentRef: Kb.Box | null}
 > {
   state = {storedAttachmentRef: null}
   // only set this once ever
@@ -132,17 +152,22 @@ class _StellarValue extends React.PureComponent<
     return Styles.isMobile ? (
       <Kb.Text
         type="BodyPrimaryLink"
-        style={Styles.collapseStyles([styles.username, {color: assertionColorToColor(this.props.color)}])}
+        style={Styles.collapseStyles([styles.username, {color: assertionColorToTextColor(this.props.color)}])}
       >
         {this.props.value}
       </Kb.Text>
     ) : (
       <Kb.Box ref={r => this._storeAttachmentRef(r)} style={styles.tooltip}>
-        <Kb.WithTooltip text={Styles.isMobile || this.props.showingMenu ? '' : 'Stellar Federation Address'}>
+        <Kb.WithTooltip
+          tooltip={Styles.isMobile || this.props.showingMenu ? '' : 'Stellar Federation Address'}
+        >
           <Kb.Text
             type="BodyPrimaryLink"
             onClick={this.props.toggleShowingMenu}
-            style={Styles.collapseStyles([styles.username, {color: assertionColorToColor(this.props.color)}])}
+            style={Styles.collapseStyles([
+              styles.username,
+              {color: assertionColorToTextColor(this.props.color)},
+            ])}
           >
             {this.props.value}
           </Kb.Text>
@@ -168,7 +193,7 @@ const Value = (p: Props) => {
     content = <StellarValue {...p} />
   } else {
     let str = p.value
-    let style = styles.username
+    let style: Styles.StylesCrossPlatform = styles.username
 
     if (!p.isSuggestion) {
       switch (p.type) {
@@ -191,7 +216,7 @@ const Value = (p: Props) => {
         style={Styles.collapseStyles([
           style,
           stateToValueTextStyle(p.state),
-          {color: assertionColorToColor(p.color)},
+          {color: assertionColorToTextColor(p.color)},
         ])}
       >
         {str}
@@ -202,12 +227,12 @@ const Value = (p: Props) => {
   return content
 }
 
-const HoverOpacity = Styles.styled(Kb.Box)({
+const HoverOpacity = Styles.styled(Kb.Box)(() => ({
   '&:hover': {
     opacity: 1,
   },
   opacity: 0.5,
-})
+}))
 
 type State = {
   showingMenu: boolean
@@ -221,26 +246,29 @@ class Assertion extends React.PureComponent<Props, State> {
   _getRef = () => this._ref.current
   _getMenu = () => {
     const p = this.props
-    if (!p.isYours || p.isSuggestion || p.type === 'stellar') {
+    if (!p.isYours || p.isSuggestion) {
       return {}
     }
-
-    const onRevoke = {
-      danger: true,
-      onClick: p.onRevoke,
-      title: p.type === 'pgp' ? 'Drop' : 'Revoke',
-    }
+    const onRevoke =
+      p.type === 'stellar'
+        ? {
+            danger: true,
+            onClick: () => p.onHideStellar(!this.props.stellarHidden),
+            title: `${this.props.stellarHidden ? 'Show' : 'Hide'} Stellar address on profile`,
+          }
+        : {
+            danger: true,
+            onClick: p.onRevoke,
+            title: p.type === 'pgp' ? 'Drop' : 'Revoke',
+          }
 
     if (p.metas.find(m => m.label === 'unreachable')) {
       return {
-        header: {
-          title: 'header',
-          view: (
-            <Kb.PopupHeaderText color={Styles.globalColors.white} backgroundColor={Styles.globalColors.red}>
-              Your proof could not be found, and Keybase has stopped checking. How would you like to proceed?
-            </Kb.PopupHeaderText>
-          ),
-        },
+        header: (
+          <Kb.PopupHeaderText color={Styles.globalColors.white} backgroundColor={Styles.globalColors.red}>
+            Your proof could not be found, and Keybase has stopped checking. How would you like to proceed?
+          </Kb.PopupHeaderText>
+        ),
         items: [
           {onClick: p.onShowProof, title: 'View proof'},
           {onClick: p.onRecheck, title: 'I fixed it - recheck'},
@@ -250,7 +278,7 @@ class Assertion extends React.PureComponent<Props, State> {
     }
 
     if (p.metas.find(m => m.label === 'pending')) {
-      let pendingMessage
+      let pendingMessage: undefined | string
       switch (p.type) {
         case 'hackernews':
           pendingMessage =
@@ -261,50 +289,49 @@ class Assertion extends React.PureComponent<Props, State> {
           break
       }
       return {
-        header: {
-          title: 'header',
-          view: pendingMessage ? (
-            <Kb.PopupHeaderText color={Styles.globalColors.white} backgroundColor={Styles.globalColors.blue}>
-              {pendingMessage}
-            </Kb.PopupHeaderText>
-          ) : null,
-        },
+        header: pendingMessage ? (
+          <Kb.PopupHeaderText color={Styles.globalColors.white} backgroundColor={Styles.globalColors.blue}>
+            {pendingMessage}
+          </Kb.PopupHeaderText>
+        ) : null,
         items: [onRevoke],
       }
     }
 
     return {
-      header: {
-        title: 'header',
-        view: (
-          <Kb.Box2
-            direction="vertical"
-            gap="tiny"
-            centerChildren={true}
-            style={styles.menuHeader}
-            fullWidth={true}
-          >
-            <Kb.Box2 direction="vertical" style={styles.positionRelative}>
-              {this._siteIcon(true)}
-              <Kb.Icon type={stateToDecorationIcon(p.state)} style={styles.siteIconFullDecoration} />
-            </Kb.Box2>
-            {!!this.props.timestamp && (
-              <>
-                <Kb.Text type="BodySmall">Posted on</Kb.Text>
-                <Kb.Text center={true} type="BodySmall">
-                  {formatTimeForAssertionPopup(this.props.timestamp)}
-                </Kb.Text>
-              </>
-            )}
+      header: (
+        <Kb.Box2
+          direction="vertical"
+          gap="tiny"
+          centerChildren={true}
+          style={styles.menuHeader}
+          fullWidth={true}
+        >
+          <Kb.Box2 direction="vertical" style={styles.positionRelative}>
+            {this._siteIcon(true)}
+            <Kb.Icon type={stateToDecorationIcon(p.state)} style={styles.siteIconFullDecoration} />
           </Kb.Box2>
-        ),
-      },
+          {!!this.props.timestamp && (
+            <>
+              <Kb.Text type="BodySmall">Posted on</Kb.Text>
+              <Kb.Text center={true} type="BodySmall">
+                {formatTimeForAssertionPopup(this.props.timestamp)}
+              </Kb.Text>
+            </>
+          )}
+        </Kb.Box2>
+      ),
       items: [{onClick: p.onShowProof, title: `View ${proofTypeToDesc(p.type)}`}, onRevoke],
     }
   }
   _siteIcon = (full: boolean) => {
-    if (this.props.notAUser) return null
-    const set = full ? this.props.siteIconFull : this.props.siteIcon
+    const set = full
+      ? Styles.isDarkMode()
+        ? this.props.siteIconFullDarkmode
+        : this.props.siteIconFull
+      : Styles.isDarkMode()
+      ? this.props.siteIconDarkmode
+      : this.props.siteIcon
     if (!set) return null
     let child = <SiteIcon full={full} set={set} />
     if (full) {
@@ -352,31 +379,33 @@ class Assertion extends React.PureComponent<Props, State> {
             )}
           </Kb.Text>
           <Kb.ClickableBox onClick={items ? this._toggleMenu : p.onShowProof} style={styles.statusContainer}>
-            <Kb.Box2 direction="horizontal" alignItems="center" gap="tiny">
-              <Kb.Icon
-                type={stateToIcon(p.state)}
-                fontSize={20}
-                hoverColor={assertionColorToColor(p.color)}
-                color={p.isSuggestion ? Styles.globalColors.black_20 : assertionColorToColor(p.color)}
-              />
-              {items ? (
-                <>
-                  <Kb.Icon className="hover-visible" type="iconfont-caret-down" sizeType="Tiny" />
-                  <Kb.FloatingMenu
-                    closeOnSelect={true}
-                    visible={this.state.showingMenu}
-                    onHidden={this._hideMenu}
-                    attachTo={this._getRef}
-                    position="bottom right"
-                    containerStyle={styles.floatingMenu}
-                    header={header}
-                    items={items}
-                  />
-                </>
-              ) : (
-                <Kb.Box2 direction="vertical" />
-              )}
-            </Kb.Box2>
+            <Kb.WithTooltip tooltip={(p.state === 'valid' || p.state === 'revoked') && 'View proof'}>
+              <Kb.Box2 direction="horizontal" alignItems="center" gap="tiny">
+                <Kb.Icon
+                  type={stateToIcon(p.state)}
+                  fontSize={20}
+                  hoverColor={assertionColorToColor(p.color)}
+                  color={p.isSuggestion ? Styles.globalColors.black_20 : assertionColorToColor(p.color)}
+                />
+                {items ? (
+                  <>
+                    <Kb.Icon className="hover-visible" type="iconfont-caret-down" sizeType="Tiny" />
+                    <Kb.FloatingMenu
+                      closeOnSelect={true}
+                      visible={this.state.showingMenu}
+                      onHidden={this._hideMenu}
+                      attachTo={this._getRef}
+                      position="bottom right"
+                      containerStyle={styles.floatingMenu}
+                      header={header}
+                      items={items}
+                    />
+                  </>
+                ) : (
+                  <Kb.Box2 direction="vertical" />
+                )}
+              </Kb.Box2>
+            </Kb.WithTooltip>
           </Kb.ClickableBox>
         </Kb.Box2>
         {!!p.metas.length && (
@@ -391,38 +420,41 @@ class Assertion extends React.PureComponent<Props, State> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  container: {flexShrink: 0, paddingBottom: 4, paddingTop: 4},
-  crypto: Styles.platformStyles({
-    isElectron: {display: 'inline-block', fontSize: 11, wordBreak: 'break-all'},
-  }),
-  floatingMenu: {
-    maxWidth: 240,
-    minWidth: 196,
-  },
-  halfOpacity: Styles.platformStyles({
-    isMobile: {opacity: 0.5}, // desktop is handled by emotion
-  }),
-  menuHeader: {
-    borderBottomColor: Styles.globalColors.black_10,
-    borderBottomWidth: 1,
-    borderStyle: 'solid',
-    padding: Styles.globalMargins.small,
-  },
-  metaContainer: {flexShrink: 0, paddingLeft: 20 + Styles.globalMargins.tiny * 2 - 4}, // icon spacing plus meta has 2 padding for some reason
-  positionRelative: {position: 'relative'},
-  site: {color: Styles.globalColors.black_20},
-  siteIconFullDecoration: {bottom: -8, position: 'absolute', right: -10},
-  statusContainer: Styles.platformStyles({
-    isMobile: {position: 'relative', top: -2},
-  }),
-  strikeThrough: {textDecorationLine: 'line-through'},
-  textContainer: {flexGrow: 1, flexShrink: 1, marginTop: -1},
-  tooltip: Styles.platformStyles({isElectron: {display: 'inline-flex'}}),
-  username: Styles.platformStyles({
-    common: {letterSpacing: 0.2},
-    isElectron: {wordBreak: 'break-all'},
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: {flexShrink: 0, paddingBottom: 4, paddingTop: 4},
+      crypto: Styles.platformStyles({
+        isElectron: {display: 'inline-block', fontSize: 11, wordBreak: 'break-all'},
+      }),
+      floatingMenu: {
+        maxWidth: 240,
+        minWidth: 196,
+      },
+      halfOpacity: Styles.platformStyles({
+        isMobile: {opacity: 0.5}, // desktop is handled by emotion
+      }),
+      menuHeader: {
+        borderBottomColor: Styles.globalColors.black_10,
+        borderBottomWidth: 1,
+        borderStyle: 'solid',
+        padding: Styles.globalMargins.small,
+      },
+      metaContainer: {flexShrink: 0, paddingLeft: 20 + Styles.globalMargins.tiny * 2 - 4}, // icon spacing plus meta has 2 padding for some reason
+      positionRelative: {position: 'relative'},
+      site: {color: Styles.globalColors.black_20},
+      siteIconFullDecoration: {bottom: -8, position: 'absolute', right: -10},
+      statusContainer: Styles.platformStyles({
+        isMobile: {position: 'relative', top: -2},
+      }),
+      strikeThrough: {textDecorationLine: 'line-through'},
+      textContainer: {flexGrow: 1, flexShrink: 1, marginTop: -1},
+      tooltip: Styles.platformStyles({isElectron: {display: 'inline-flex'}}),
+      username: Styles.platformStyles({
+        common: {letterSpacing: 0.2},
+        isElectron: {wordBreak: 'break-all'},
+      }),
+    } as const)
+)
 
 export default Assertion

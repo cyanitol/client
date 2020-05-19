@@ -21,7 +21,7 @@ type RegexpSearcher struct {
 var _ types.RegexpSearcher = (*RegexpSearcher)(nil)
 
 func NewRegexpSearcher(g *globals.Context) *RegexpSearcher {
-	labeler := utils.NewDebugLabeler(g.GetLog(), "RegexpSearcher", false)
+	labeler := utils.NewDebugLabeler(g.ExternalG(), "RegexpSearcher", false)
 	return &RegexpSearcher{
 		Contextified: globals.NewContextified(g),
 		DebugLabeler: labeler,
@@ -35,7 +35,7 @@ func (s *RegexpSearcher) SetPageSize(pageSize int) {
 
 func (s *RegexpSearcher) Search(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	queryRe *regexp.Regexp, uiCh chan chat1.ChatSearchHit, opts chat1.SearchOpts) (hits []chat1.ChatSearchHit, msgHits []chat1.MessageUnboxed, err error) {
-	defer s.Trace(ctx, func() error { return err }, "Search")()
+	defer s.Trace(ctx, &err, "Search")()
 	defer func() {
 		if uiCh != nil {
 			close(uiCh)
@@ -73,7 +73,7 @@ func (s *RegexpSearcher) Search(ctx context.Context, uid gregor1.UID, convID cha
 
 	getNextPage := func() (*chat1.ThreadView, error) {
 		thread, err := s.G().ConvSource.Pull(ctx, convID, uid,
-			chat1.GetThreadReason_SEARCHER,
+			chat1.GetThreadReason_SEARCHER, nil,
 			&chat1.GetThreadQuery{
 				MarkAsRead: false,
 			}, pagination)

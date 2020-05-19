@@ -35,7 +35,7 @@ const mapDispatchToProps = dispatch => ({
   },
 })
 
-const mergeProps = (stateProps, dispatchProps) => ({
+const mergeProps = (stateProps, dispatchProps, _: OwnProps) => ({
   bottomLabel: stateProps.bottomLabel,
   currencyLoading: stateProps.currencyLoading,
   displayUnit: stateProps.displayUnit,
@@ -46,6 +46,9 @@ const mergeProps = (stateProps, dispatchProps) => ({
   value: stateProps.value,
 })
 
-export default namedConnect(mapStateToProps, mapDispatchToProps, mergeProps, 'AssetInputBasic')(
-  AssetInputBasic
-)
+export default namedConnect(
+  mapStateToProps,
+  mapDispatchToProps,
+  mergeProps,
+  'AssetInputBasic'
+)(AssetInputBasic)

@@ -8,21 +8,19 @@ import * as RouteTreeGen from '../../actions/route-tree-gen'
 import * as WalletsGen from '../../actions/wallets-gen'
 import Header from './header'
 
-type Props = Container.RouteProps<
-  {
-    // ignored if username is set or isSender===true
-    accountID: string
-    // ignored if isSender===true; if empty, we assume this is for a non-keybaseUser account and just say "this account"
-    username: string
-    isSender: boolean
-  }
->
+type Props = Container.RouteProps<{
+  // ignored if username is set or isSender===true
+  accountID: string
+  // ignored if isSender===true; if empty, we assume this is for a non-keybaseUser account and just say "this account"
+  username: string
+  isSender: boolean
+}>
 
 const AssetList = ({accountID, isSender, username}) => {
   const acceptedAssets = Container.useSelector(state =>
     username
-      ? state.wallets.trustline.acceptedAssetsByUsername.get(username, Constants.emptyAccountAcceptedAssets)
-      : state.wallets.trustline.acceptedAssets.get(accountID, Constants.emptyAccountAcceptedAssets)
+      ? state.wallets.trustline.acceptedAssetsByUsername.get(username) ?? Constants.emptyAccountAcceptedAssets
+      : state.wallets.trustline.acceptedAssets.get(accountID) ?? Constants.emptyAccountAcceptedAssets
   )
   const selectedAsset = Container.useSelector(state =>
     isSender ? state.wallets.buildingAdvanced.senderAsset : state.wallets.buildingAdvanced.recipientAsset
@@ -42,28 +40,26 @@ const AssetList = ({accountID, isSender, username}) => {
     [dispatch, isSender]
   )
   React.useEffect(() => {
-    username
-      ? dispatch(WalletsGen.createRefreshTrustlineAcceptedAssetsByUsername({username}))
+    username || Constants.isFederatedAddress(accountID)
+      ? dispatch(WalletsGen.createRefreshTrustlineAcceptedAssetsByUsername({username: username || accountID}))
       : dispatch(WalletsGen.createRefreshTrustlineAcceptedAssets({accountID}))
   }, [dispatch, username, accountID])
   return (
     <Kb.BoxGrow>
       <Kb.List2
         items={[
-          ...acceptedAssets
-            .keySeq()
-            .toArray()
-            .map(assetID => ({
-              assetID,
-              key: assetID,
-              selected: assetID === selectedAssetID,
-            })),
+          ...[...acceptedAssets.keys()].map(assetID => ({
+            assetID,
+            key: assetID,
+            selected: assetID === selectedAssetID,
+          })),
           {assetID: 'XLM', key: ' XLM', selected: selectedAsset === 'native'},
         ]}
         bounces={true}
         itemHeight={{sizeType: 'Small', type: 'fixedListItem2Auto'}}
-        renderItem={(index, {assetID, selected}) => {
-          const asset = assetID === 'XLM' ? 'native' : assetMap.get(assetID, Constants.emptyAssetDescription)
+        renderItem={(_, {assetID, selected}) => {
+          const asset =
+            assetID === 'XLM' ? 'native' : assetMap.get(assetID) ?? Constants.emptyAssetDescription
           return (
             <Kb.ListItem2
               onClick={() => onSelect(asset)}
@@ -104,9 +100,9 @@ const AssetList = ({accountID, isSender, username}) => {
 }
 
 const PickAsset = (props: Props) => {
-  const accountID = props.navigation.getParam('accountID') || Types.noAccountID
-  const isSender = props.navigation.getParam('isSender')
-  const username = props.navigation.getParam('username')
+  const accountID = Container.getRouteProps(props, 'accountID', Types.noAccountID)
+  const isSender = Container.getRouteProps(props, 'isSender', false)
+  const username = Container.getRouteProps(props, 'username', '')
 
   const dispatch = Container.useDispatch()
   const onBack = React.useCallback(() => dispatch(RouteTreeGen.createNavigateUp()), [dispatch])
@@ -125,8 +121,8 @@ const PickAsset = (props: Props) => {
           ) : username ? (
             <Kb.Box2 direction="horizontal" gap="xtiny">
               <Kb.ConnectedUsernames
-                type="BodyTinySemibold"
-                usernames={[username]}
+                type="BodyTinyBold"
+                usernames={username}
                 colorBroken={true}
                 colorFollowing={true}
                 underline={false}
@@ -145,7 +141,7 @@ const PickAsset = (props: Props) => {
 
 export default PickAsset
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   backClickable: {
     bottom: Styles.globalMargins.tiny,
     left: Styles.globalMargins.tiny,
@@ -170,4 +166,4 @@ const styles = Styles.styleSheetCreate({
   textSelected: {
     color: Styles.globalColors.blueDark,
   },
-})
+}))

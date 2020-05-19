@@ -1,5 +1,5 @@
 import {jsonDebugFileName, serverConfigFileName} from './constants/platform.desktop'
-import {noop} from 'lodash-es'
+import noop from 'lodash/noop'
 
 // Set this to true if you want to turn off most console logging so you can profile easier
 let PERF = false
@@ -15,14 +15,13 @@ let config = {
   immediateStateLogging: false, // Don't wait for idle to log state
   isDevApplePushToken: false,
   isTesting: __STORYBOOK__, // Is running a unit test
+  partyMode: false,
   printOutstandingRPCs: false, // Periodically print rpcs we're waiting for
   printOutstandingTimerListeners: false, // Periodically print listeners to the second clock
   printRPC: false, // Print rpc traffic
   printRPCBytes: false, // Print raw bytes going over the wire
   printRPCStats: false, // Print more detailed stats about rpcs
   printRPCWaitingSession: false, // session / waiting info
-  reduxSagaLogger: false, // Print saga debug info
-  reduxSagaLoggerMasked: true, // Print saga debug info masked out
   showDevTools: false, // Show devtools on start
   skipAppFocusActions: false, // dont emit actions when going foreground/background, helpful while working on other actions stuff
   skipSecondaryDevtools: true, // Don't show devtools for menubar/trackers etc
@@ -41,8 +40,6 @@ if (__DEV__) {
   config.printRPC = true
   config.printRPCWaitingSession = false
   config.printRPCStats = true
-  config.reduxSagaLogger = false
-  config.reduxSagaLoggerMasked = false
   config.userTimings = true
 }
 
@@ -104,8 +101,6 @@ if (PERF) {
   config.printOutstandingRPCs = false
   config.printOutstandingTimerListeners = false
   config.printRPC = false
-  config.reduxSagaLogger = false
-  config.reduxSagaLoggerMasked = false
   config.userTimings = false
   config.virtualListMarks = false
 }
@@ -121,14 +116,13 @@ export const {
   isDevApplePushToken,
   immediateStateLogging,
   isTesting,
+  partyMode,
   printOutstandingRPCs,
   printOutstandingTimerListeners,
   printRPC,
   printRPCBytes,
   printRPCWaitingSession,
   printRPCStats,
-  reduxSagaLogger,
-  reduxSagaLoggerMasked,
   showDevTools,
   skipAppFocusActions,
   skipSecondaryDevtools,

@@ -1,9 +1,8 @@
 import logger from '../logger'
-import * as EngineGen from '../actions/engine-gen-gen'
-import * as PinentryGen from '../actions/pinentry-gen'
+import * as EngineGen from './engine-gen-gen'
+import * as PinentryGen from './pinentry-gen'
 import * as Constants from '../constants/login'
 import * as Saga from '../util/saga'
-import * as I from 'immutable'
 import * as RPCTypes from '../constants/types/rpc-gen'
 import {getEngine} from '../engine/require'
 
@@ -12,31 +11,32 @@ import {getEngine} from '../engine/require'
 // its not worth implementing now
 let _response: EngineGen.Keybase1SecretUiGetPassphrasePayload['payload']['response'] | null = null
 
-const onConnect = () => {
-  RPCTypes.delegateUiCtlRegisterSecretUIRpcPromise()
-    .then(response => {
-      logger.info('Registered secret ui')
-    })
-    .catch(error => {
-      logger.warn('error in registering secret ui: ', error)
-    })
+const onConnect = async () => {
+  try {
+    await RPCTypes.delegateUiCtlRegisterSecretUIRpcPromise()
+    logger.info('Registered secret ui')
+  } catch (error) {
+    logger.warn('error in registering secret ui: ', error)
+  }
 }
 
-const onGetPassword = (state, action: EngineGen.Keybase1SecretUiGetPassphrasePayload) => {
+const onGetPassword = (action: EngineGen.Keybase1SecretUiGetPassphrasePayload) => {
   logger.info('Asked for password')
-  const {pinentry} = action.payload.params
+  const {response, params} = action.payload
+  const {pinentry} = params
   const {prompt, submitLabel, cancelLabel, windowTitle, features, type} = pinentry
-  const retryLabel =
-    pinentry.retryLabel === Constants.invalidPasswordErrorString ? 'Incorrect password.' : pinentry.retryLabel
+  let {retryLabel} = pinentry
+  if (retryLabel === Constants.invalidPasswordErrorString) {
+    retryLabel = 'Incorrect password.'
+  }
 
   // Stash response
-  _response = action.payload.response
+  _response = response
 
   return PinentryGen.createNewPinentry({
     cancelLabel,
     prompt,
     retryLabel,
-    sessionID: 0,
     showTyping: features.showTyping,
     submitLabel,
     type,
@@ -44,47 +44,30 @@ const onGetPassword = (state, action: EngineGen.Keybase1SecretUiGetPassphrasePay
   })
 }
 
-const onNewPinentry = (_, action: PinentryGen.NewPinentryPayload) =>
-  PinentryGen.createReplaceEntity({
-    entities: I.Map([[action.payload.sessionID, action.payload]]),
-    keyPath: ['sessionIDToPinentry'],
-  })
-
-const onSubmit = (_, action: PinentryGen.OnSubmitPayload) => {
+const onSubmit = (action: PinentryGen.OnSubmitPayload) => {
   const {password} = action.payload
   if (_response) {
-    // @ts-ignore this seems wrong
-    _response.result({passphrase: password})
+    _response.result({passphrase: password, storeSecret: false})
     _response = null
   }
 
-  return PinentryGen.createDeleteEntity({
-    ids: [action.payload.sessionID],
-    keyPath: ['sessionIDToPinentry'],
-  })
+  return PinentryGen.createClose()
 }
 
-const onCancel = (_, action: PinentryGen.OnCancelPayload) => {
+const onCancel = () => {
   if (_response) {
     _response.error({code: RPCTypes.StatusCode.scinputcanceled, desc: 'Input canceled'})
     _response = null
   }
-  return PinentryGen.createDeleteEntity({
-    ids: [action.payload.sessionID],
-    keyPath: ['sessionIDToPinentry'],
-  })
+  return PinentryGen.createClose()
 }
 
-function* pinentrySaga(): Saga.SagaGenerator<any, any> {
-  yield* Saga.chainAction<PinentryGen.OnSubmitPayload>(PinentryGen.onSubmit, onSubmit)
-  yield* Saga.chainAction<PinentryGen.OnCancelPayload>(PinentryGen.onCancel, onCancel)
-  yield* Saga.chainAction<PinentryGen.NewPinentryPayload>(PinentryGen.newPinentry, onNewPinentry)
+function* pinentrySaga() {
+  yield* Saga.chainAction(PinentryGen.onSubmit, onSubmit)
+  yield* Saga.chainAction2(PinentryGen.onCancel, onCancel)
   getEngine().registerCustomResponse('keybase.1.secretUi.getPassphrase')
-  yield* Saga.chainAction<EngineGen.Keybase1SecretUiGetPassphrasePayload>(
-    EngineGen.keybase1SecretUiGetPassphrase,
-    onGetPassword
-  )
-  yield* Saga.chainAction<EngineGen.ConnectedPayload>(EngineGen.connected, onConnect)
+  yield* Saga.chainAction(EngineGen.keybase1SecretUiGetPassphrase, onGetPassword)
+  yield* Saga.chainAction2(EngineGen.connected, onConnect)
 }
 
 export default pinentrySaga

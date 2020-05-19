@@ -88,13 +88,13 @@ func (e *PGPKeyGen) Run(m libkb.MetaContext) error {
 	}
 
 	// ask if we should push private key to api server if user has a password
-	hasRandomPw, err := libkb.LoadHasRandomPw(m, keybase1.LoadHasRandomPwArg{})
+	passphraseState, err := libkb.LoadPassphraseState(m)
 	if err != nil {
 		return err
 	}
 	pushPrivate, err := m.UIs().PgpUI.ShouldPushPrivate(m.Ctx(), keybase1.ShouldPushPrivateArg{
 		SessionID: m.UIs().SessionID,
-		Prompt:    !hasRandomPw,
+		Prompt:    passphraseState == keybase1.PassphraseState_KNOWN,
 	})
 	if err != nil {
 		return err
@@ -110,7 +110,7 @@ func (e *PGPKeyGen) Run(m libkb.MetaContext) error {
 }
 
 func (e *PGPKeyGen) push(m libkb.MetaContext, bundle *libkb.PGPKeyBundle, pushPrivate bool) (err error) {
-	defer m.Trace("PGPKeyGen.push", func() error { return err })()
+	defer m.Trace("PGPKeyGen.push", &err)()
 
 	me, err := libkb.LoadMe(libkb.NewLoadUserArgWithMetaContext(m).WithPublicKeyOptional())
 	if err != nil {

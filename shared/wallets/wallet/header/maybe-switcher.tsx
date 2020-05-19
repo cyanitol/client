@@ -1,6 +1,6 @@
 import * as React from 'react'
 import * as Kb from '../../../common-adapters'
-import {isMobile} from '../../../util/container'
+import {isPhone} from '../../../util/container'
 import WalletSwitcher from './wallet-switcher/container'
 
 type Props = React.PropsWithChildren<{}>
@@ -8,7 +8,7 @@ type Props = React.PropsWithChildren<{}>
 // @ts-ignore to fix wrap in fragment
 const NoSwitcher: React.FunctionComponent<Props> = props => props.children
 
-const _Switcher: React.FunctionComponent<Props & Kb.OverlayParentProps> = props => (
+const _Switcher: React.FunctionComponent<Kb.PropsWithOverlay<Props>> = props => (
   <Kb.ClickableBox onClick={props.toggleShowingMenu} ref={props.setAttachmentRef}>
     {props.children}
     <WalletSwitcher
@@ -22,6 +22,6 @@ const _Switcher: React.FunctionComponent<Props & Kb.OverlayParentProps> = props 
 const Switcher = Kb.OverlayParentHOC(_Switcher)
 
 // TODO these types don't make sense
-const MaybeSwitcher = isMobile ? Switcher : NoSwitcher
+const MaybeSwitcher = isPhone ? Switcher : NoSwitcher
 
 export default MaybeSwitcher as any

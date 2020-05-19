@@ -8,6 +8,7 @@ import (
 	"time"
 
 	chat1 "github.com/keybase/client/go/protocol/chat1"
+	gregor1 "github.com/keybase/client/go/protocol/gregor1"
 	clockwork "github.com/keybase/clockwork"
 	"github.com/stretchr/testify/require"
 )
@@ -42,7 +43,7 @@ func (t *testDealersHelper) Me() UserDevice {
 	return t.me
 }
 
-func (t *testDealersHelper) SendChat(ctx context.Context, conversationID chat1.ConversationID,
+func (t *testDealersHelper) SendChat(ctx context.Context, initiatorUID gregor1.UID, conversationID chat1.ConversationID,
 	gameID chat1.FlipGameID, msg GameMessageEncoded) error {
 	t.ch <- GameMessageWrappedEncoded{Body: msg, GameID: gameID, Sender: t.me}
 	return nil
@@ -54,13 +55,11 @@ func (t *testDealersHelper) ShouldCommit(ctx context.Context) bool {
 
 func randBytes(i int) []byte {
 	ret := make([]byte, i)
-	rand.Read(ret[:])
+	_, err := rand.Read(ret)
+	if err != nil {
+		panic(err)
+	}
 	return ret
-}
-
-type testUser struct {
-	ud     UserDevice
-	secret Secret
 }
 
 func newTestUser() UserDevice {
@@ -68,12 +67,6 @@ func newTestUser() UserDevice {
 		U: randBytes(6),
 		D: randBytes(6),
 	}
-}
-
-func newGameMessageEncoded(t *testing.T, md GameMetadata, b GameMessageBody) GameMessageEncoded {
-	ret, err := b.Encode(md)
-	require.NoError(t, err)
-	return ret
 }
 
 type testBundle struct {
@@ -87,7 +80,7 @@ type testBundle struct {
 }
 
 func (b *testBundle) run(ctx context.Context) {
-	go b.dealer.Run(ctx)
+	go func() { _ = b.dealer.Run(ctx) }()
 }
 
 func setupTestBundleWithParams(ctx context.Context, t *testing.T, params FlipParameters) *testBundle {
@@ -142,14 +135,14 @@ func (b *testBundle) sendReveal(ctx context.Context, t *testing.T, p *playerCont
 	reveal.Secret = p.secret
 	msg, err := NewGameMessageBodyWithReveal(reveal).Encode(p.md)
 	require.NoError(t, err)
-	b.dealer.InjectIncomingChat(ctx, p.me, p.md.ConversationID, p.md.GameID, msg, false)
+	_ = b.dealer.InjectIncomingChat(ctx, p.me, p.md.ConversationID, p.md.GameID, msg, false)
 	b.receiveRevealFrom(t, p)
 }
 
 func (b *testBundle) sendCommitment(ctx context.Context, t *testing.T, p *playerControl) {
 	msg, err := NewGameMessageBodyWithCommitment(p.commitment).Encode(p.md)
 	require.NoError(t, err)
-	b.dealer.InjectIncomingChat(ctx, p.me, p.md.ConversationID, p.md.GameID, msg, false)
+	_ = b.dealer.InjectIncomingChat(ctx, p.me, p.md.ConversationID, p.md.GameID, msg, false)
 	b.receiveCommitmentFrom(t, p)
 }
 

@@ -34,7 +34,7 @@ type PostProofArg struct {
 
 func PostProof(m MetaContext, arg PostProofArg) (*PostProofRes, error) {
 	hargs := HTTPArgs{
-		"sig_id_base":     S{arg.SigID.ToString(false)},
+		"sig_id_base":     S{arg.SigID.StripSuffix().String()},
 		"sig_id_short":    S{arg.SigID.ToShortID()},
 		"sig":             S{arg.Sig},
 		"is_remote_proof": B{true},
@@ -147,7 +147,7 @@ func DeletePrimary(m MetaContext) (err error) {
 }
 
 func CheckPosted(mctx MetaContext, sigID keybase1.SigID) (found bool, status keybase1.ProofStatus, state keybase1.ProofState, err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("CheckPosted(%v)", sigID), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("CheckPosted(%v)", sigID), &err)()
 	found, status, state, err = checkPostedAPICall(mctx, sigID)
 	if err != nil {
 		return found, status, state, err
@@ -165,7 +165,7 @@ func checkPostedAPICall(mctx MetaContext, sigID keybase1.SigID) (found bool, sta
 		Endpoint:    "sig/posted",
 		SessionType: APISessionTypeREQUIRED,
 		Args: HTTPArgs{
-			"sig_id": S{sigID.ToString(true)},
+			"sig_id": S{sigID.String()},
 		},
 	})
 	if e2 != nil {
@@ -207,7 +207,7 @@ func checkPostedMaybeBustProofCache(mctx MetaContext, sigID keybase1.SigID, foun
 	return nil
 }
 
-func PostDeviceLKS(m MetaContext, deviceID keybase1.DeviceID, deviceType string, serverHalf LKSecServerHalf,
+func PostDeviceLKS(m MetaContext, deviceID keybase1.DeviceID, deviceType keybase1.DeviceTypeV2, serverHalf LKSecServerHalf,
 	ppGen PassphraseGeneration,
 	clientHalfRecovery string, clientHalfRecoveryKID keybase1.KID) error {
 	m.Debug("| PostDeviceLKS: %s", deviceID)
@@ -223,7 +223,7 @@ func PostDeviceLKS(m MetaContext, deviceID keybase1.DeviceID, deviceType string,
 		SessionType: APISessionTypeREQUIRED,
 		Args: HTTPArgs{
 			"device_id":       S{Val: deviceID.String()},
-			"type":            S{Val: deviceType},
+			"type":            S{Val: deviceType.String()},
 			"lks_server_half": S{Val: serverHalf.EncodeToHex()},
 			"ppgen":           I{Val: int(ppGen)},
 			"lks_client_half": S{Val: clientHalfRecovery},

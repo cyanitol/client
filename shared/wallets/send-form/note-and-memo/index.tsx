@@ -1,8 +1,9 @@
 import * as React from 'react'
 import * as Kb from '../../../common-adapters'
 import * as Styles from '../../../styles'
-import {backgroundImageFn} from '../../../common-adapters/emoji'
-import {Picker} from 'emoji-mart'
+import * as ChatConstants from '../../../constants/chat2'
+import {EmojiPickerDesktop} from '../../../chat/conversation/messages/react-button/emoji-picker/container'
+import {RenderableEmoji} from '../../../util/emoji'
 
 type SecretNoteProps = {
   secretNote: string // Initial value only
@@ -15,6 +16,7 @@ type SecretNoteProps = {
 type PublicMemoProps = {
   publicMemo: string // Initial value only
   publicMemoError?: string
+  publicMemoOverride?: string
   onChangePublicMemo: (memo: string) => void
   maxLength: number
 }
@@ -44,16 +46,20 @@ class SecretNote extends React.Component<SecretNoteProps, SecretNoteState> {
     this.setState(s => (s.secretNote === secretNote ? null : {secretNote}))
   }
 
-  _insertEmoji = (emoji: string) => {
+  _insertEmoji = (emojiStr: string, renderableEmoji: RenderableEmoji) => {
     if (this._note.current) {
+      const emoji = renderableEmoji.unicodeStock ?? emojiStr
       const noteInput = this._note.current
       const selection = noteInput.getSelection()
       if (!selection) {
         return
       }
+      // this.state is likely unsafe but afraid to change this now
       const secretNote =
+        // eslint-disable-next-line
         this.state.secretNote.slice(0, selection.start || 0) +
         emoji +
+        // eslint-disable-next-line
         this.state.secretNote.slice(selection.end || 0)
       if (Buffer.byteLength(secretNote) > this.props.maxLength) {
         return
@@ -81,11 +87,6 @@ class SecretNote extends React.Component<SecretNoteProps, SecretNoteState> {
     })
   }
 
-  _emojiPickerOnClick = emoji => {
-    this._insertEmoji(emoji.native)
-    this._emojiPickerToggle()
-  }
-
   render() {
     return (
       <>
@@ -96,7 +97,6 @@ class SecretNote extends React.Component<SecretNoteProps, SecretNoteState> {
               placeholder={`${
                 this.props.toSelf ? 'Add a note to yourself' : 'Add an encrypted note'
               } (in Keybase)`}
-              placeholderColor={placeholderColor}
               rowsMin={Styles.isMobile ? 2 : 3}
               rowsMax={8}
               style={styles.input}
@@ -111,12 +111,11 @@ class SecretNote extends React.Component<SecretNoteProps, SecretNoteState> {
                 position="bottom right"
                 onHidden={() => this.setState({emojiPickerOpen: false})}
               >
-                <Picker
-                  autoFocus={true}
-                  emoji="star-struck"
-                  title="reacjibase"
-                  onClick={this._emojiPickerOnClick}
-                  backgroundImageFn={backgroundImageFn}
+                <EmojiPickerDesktop
+                  disableCustomEmoji={true}
+                  conversationIDKey={ChatConstants.noConversationIDKey}
+                  onPickAction={this._insertEmoji}
+                  onDidPick={this._emojiPickerToggle}
                 />
               </Kb.Overlay>
             )}
@@ -133,7 +132,7 @@ class SecretNote extends React.Component<SecretNoteProps, SecretNoteState> {
               <Kb.Icon
                 boxStyle={styles.emojiIcon}
                 onClick={this._emojiPickerToggle}
-                style={Kb.iconCastPlatformStyles(styles.emojiIcon)}
+                style={styles.emojiIcon}
                 type="iconfont-emoji"
                 ref={this._emojiIcon}
               />
@@ -165,19 +164,23 @@ class PublicMemo extends React.Component<PublicMemoProps, PublicMemoState> {
         <Kb.Box2 direction="vertical" fullWidth={true} style={styles.container}>
           <Kb.PlainInput
             multiline={true}
+            padding={0}
             placeholder="Add a public memo (on Stellar)"
-            placeholderColor={placeholderColor}
-            style={styles.input}
+            style={this.props.publicMemoOverride ? styles.inputDisabled : styles.input}
             rowsMin={Styles.isMobile ? 1 : 2}
             rowsMax={6}
             onChangeText={this._onChangePublicMemo}
-            value={this.state.publicMemo}
+            disabled={!!this.props.publicMemoOverride}
+            value={this.props.publicMemoOverride || this.state.publicMemo}
             maxBytes={this.props.maxLength}
           />
           {!!this.state.publicMemo && (
             <Kb.Text type="BodyTiny">
               {this.props.maxLength - Buffer.byteLength(this.state.publicMemo)} characters left
             </Kb.Text>
+          )}
+          {!!this.props.publicMemoOverride && (
+            <Kb.Text type="BodyTiny">This memo was provided by the recipient and cannot be changed.</Kb.Text>
           )}
           {!!this.props.publicMemoError && (
             <Kb.Text type="BodySmallError">{this.props.publicMemoError}</Kb.Text>
@@ -193,34 +196,47 @@ const Divider = ({error}: {error: boolean}) => (
   <Kb.Divider style={error ? Styles.collapseStyles([styles.divider, styles.dividerError]) : styles.divider} />
 )
 
-const placeholderColor = Styles.globalColors.black_20
-
-const styles = Styles.styleSheetCreate({
-  alignItemsCenter: {
-    alignItems: 'center',
-  },
-  container: {
-    marginTop: Styles.globalMargins.tiny,
-    paddingLeft: Styles.globalMargins.small,
-    paddingRight: Styles.globalMargins.small,
-  },
-  divider: {
-    marginTop: Styles.globalMargins.tiny,
-  },
-  dividerError: {
-    backgroundColor: Styles.globalColors.red,
-  },
-  emojiIcon: {
-    alignSelf: 'flex-end',
-    marginTop: 1, // otherwise top is cut off w/ long note
-  },
-  flexOne: {
-    flex: 1,
-  },
-  input: {
-    color: Styles.globalColors.black_on_white,
-    padding: 0,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      alignItemsCenter: {
+        alignItems: 'center',
+      },
+      container: {
+        marginTop: Styles.globalMargins.tiny,
+        paddingLeft: Styles.globalMargins.small,
+        paddingRight: Styles.globalMargins.small,
+      },
+      divider: {
+        marginTop: Styles.globalMargins.tiny,
+      },
+      dividerError: {
+        backgroundColor: Styles.globalColors.red,
+      },
+      emojiIcon: {
+        alignSelf: 'flex-end',
+        marginTop: 1, // otherwise top is cut off w/ long note
+      },
+      flexOne: {
+        flex: 1,
+      },
+      input: Styles.platformStyles({
+        common: {
+          backgroundColor: Styles.globalColors.white,
+          color: Styles.globalColors.black_on_white,
+        },
+        isElectron: {
+          // Line height change is so that emojis (unicode characters inside
+          // textarea) are not clipped at the top. This change is accompanied by
+          // a change in padding to offset the increased line height
+          lineHeight: '22px',
+        },
+      }),
+      inputDisabled: {
+        backgroundColor: Styles.globalColors.white,
+        color: Styles.globalColors.greyDarker,
+      },
+    } as const)
+)
 
 export {SecretNote, PublicMemo}

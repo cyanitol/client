@@ -22,6 +22,7 @@ import (
 	"github.com/keybase/client/go/kbfs/kbfscrypto"
 	"github.com/keybase/client/go/kbfs/kbfsmd"
 	"github.com/keybase/client/go/kbfs/kbfssync"
+	"github.com/keybase/client/go/kbfs/ldbutils"
 	"github.com/keybase/client/go/kbfs/libcontext"
 	"github.com/keybase/client/go/protocol/keybase1"
 	"github.com/keybase/go-codec/codec"
@@ -214,7 +215,7 @@ func (cr *ConflictResolver) processInput(baseCtx context.Context,
 		if cr.currCancel != nil {
 			cr.currCancel()
 		}
-		libcontext.CleanupCancellationDelayer(baseCtx)
+		_ = libcontext.CleanupCancellationDelayer(baseCtx)
 	}()
 	for ci := range inputChan {
 		ctx := CtxWithRandomIDReplayable(baseCtx, CtxCRIDKey, CtxCROpID, cr.log)
@@ -250,6 +251,10 @@ func (cr *ConflictResolver) processInput(baseCtx context.Context,
 			case <-waitChan:
 			case <-ctx.Done():
 				cr.log.CDebugf(ctx, "Resolution canceled before starting")
+				// The next attempt will still need to wait on the old
+				// one, in case it hasn't finished yet.  So wait for
+				// it here, before we close our own `done` channel.
+				<-waitChan
 				return
 			}
 			cr.doResolve(ctx, ci)
@@ -704,7 +709,8 @@ func (cr *ConflictResolver) checkPathForMerge(ctx context.Context,
 		if _, notFound := errors.Cause(err).(NoChainFoundError); notFound {
 			unmergedChains.toUnrefPointers[unmergedOriginal] = true
 			continue
-		} else if err != nil {
+		}
+		if err != nil {
 			return nil, err
 		} else if unmergedOriginal == mergedOriginal {
 			cr.log.CDebugf(ctx,
@@ -857,8 +863,9 @@ func (cr *ConflictResolver) resolveMergedPathTail(ctx context.Context,
 	currOriginal := unmergedOriginal
 	currPath := unmergedPath
 	mergedPath := data.Path{
-		FolderBranch: unmergedPath.FolderBranch,
-		Path:         nil, // fill in backwards, and reverse at the end
+		FolderBranch:    unmergedPath.FolderBranch,
+		Path:            nil, // fill in backwards, and reverse at the end
+		ChildObfuscator: cr.fbo.makeObfuscator(),
 	}
 
 	// First find the earliest merged parent.
@@ -1130,6 +1137,7 @@ func (cr *ConflictResolver) resolveMergedPaths(ctx context.Context,
 			Path: []data.PathNode{
 				{BlockPointer: unmergedChain.mostRecent},
 			},
+			ChildObfuscator: cr.fbo.makeObfuscator(),
 		}
 		chainsToSearchFor[mergedChain.mostRecent] =
 			append(chainsToSearchFor[mergedChain.mostRecent],
@@ -1232,6 +1240,7 @@ func (cr *ConflictResolver) resolveMergedPaths(ctx context.Context,
 			newPath := make([]data.PathNode, len(p.Path)+len(mergedPath.Path))
 			copy(newPath[:len(p.Path)], p.Path)
 			copy(newPath[len(p.Path):], mergedPath.Path)
+			mergedPath.FolderBranch = cr.fbo.folderBranch
 			mergedPath.Path = newPath
 			mergedPaths[unmergedMostRecent] = mergedPath
 
@@ -1431,8 +1440,7 @@ func (cr *ConflictResolver) convertCreateIntoSymlinkOrCopy(ctx context.Context,
 	found := false
 outer:
 	for _, op := range chain.ops {
-		switch cop := op.(type) {
-		case *createOp:
+		if cop, ok := op.(*createOp); ok {
 			if !cop.renamed || cop.NewName != info.newName {
 				continue
 			}
@@ -1494,10 +1502,16 @@ outer:
 				if err != nil {
 					return err
 				}
-				prependOpsToChain(mergedOldMostRecent, mergedChains,
-					invertRm)
-				prependOpsToChain(mergedNewMostRecent, mergedChains,
-					invertCreate)
+				err = prependOpsToChain(
+					mergedOldMostRecent, mergedChains, invertRm)
+				if err != nil {
+					return err
+				}
+				err = prependOpsToChain(
+					mergedNewMostRecent, mergedChains, invertCreate)
+				if err != nil {
+					return err
+				}
 			}
 			cr.log.CDebugf(ctx, "Putting new merged rename info "+
 				"%v -> %v (symPath: %v)", ptr, newInfo,
@@ -1781,8 +1795,9 @@ func (cr *ConflictResolver) fixRenameConflicts(ctx context.Context,
 				mergedLen := len(mergedPath.Path)
 				pLen := mergedLen + unmergedWalkBack
 				p := data.Path{
-					FolderBranch: mergedPath.FolderBranch,
-					Path:         make([]data.PathNode, pLen),
+					FolderBranch:    mergedPath.FolderBranch,
+					Path:            make([]data.PathNode, pLen),
+					ChildObfuscator: cr.fbo.makeObfuscator(),
 				}
 				unmergedStart := len(unmergedPath.Path) -
 					unmergedWalkBack
@@ -2347,7 +2362,8 @@ func (cr *ConflictResolver) makeFileBlockDeepCopy(ctx context.Context,
 		}
 	}
 
-	err = blocks.putTopBlock(ctx, mergedMostRecent, name.Plaintext(), fblock)
+	cr.log.CDebugf(ctx, "putTopBlock: %s", name)
+	err = blocks.putTopBlock(ctx, mergedMostRecent, name, fblock)
 	if err != nil {
 		return data.BlockPointer{}, err
 	}
@@ -2499,6 +2515,7 @@ func (cr *ConflictResolver) doOneAction(
 						FolderBranch: mergedPath.FolderBranch,
 						Path: []data.PathNode{{
 							BlockPointer: newPtr, Name: mergedPath.TailName()}},
+						ChildObfuscator: cr.fbo.makeObfuscator(),
 					}
 					uDir = cr.fbo.blocks.newDirDataWithDBMLocked(
 						lState, newPath, chargedTo,
@@ -2794,6 +2811,7 @@ func (cr *ConflictResolver) createResolvedMD(ctx context.Context,
 							FolderBranch: cr.fbo.folderBranch,
 							Path: []data.PathNode{{
 								BlockPointer: chain.mostRecent}},
+							ChildObfuscator: cr.fbo.makeObfuscator(),
 						})
 						added = true
 					}
@@ -2921,8 +2939,9 @@ func (cr *ConflictResolver) resolveOnePath(ctx context.Context,
 		// Reset the resolved path
 		newPathLen := len(parentPath.Path) + len(resolvedPath.Path) - i
 		newResolvedPath := data.Path{
-			FolderBranch: resolvedPath.FolderBranch,
-			Path:         make([]data.PathNode, newPathLen),
+			FolderBranch:    resolvedPath.FolderBranch,
+			Path:            make([]data.PathNode, newPathLen),
+			ChildObfuscator: cr.fbo.makeObfuscator(),
 		}
 		copy(newResolvedPath.Path[:len(parentPath.Path)], parentPath.Path)
 		copy(newResolvedPath.Path[len(parentPath.Path):], resolvedPath.Path[i:])
@@ -3272,7 +3291,7 @@ type conflictRecord struct {
 	codec.UnknownFieldSetHandler `json:"-"`
 }
 
-func getAndDeserializeConflicts(config Config, db *LevelDb,
+func getAndDeserializeConflicts(config Config, db *ldbutils.LevelDb,
 	key []byte) ([]conflictRecord, error) {
 	if db == nil {
 		return nil, errors.New("No conflict DB given")
@@ -3293,7 +3312,7 @@ func getAndDeserializeConflicts(config Config, db *LevelDb,
 	return conflictsSoFar, nil
 }
 
-func serializeAndPutConflicts(config Config, db *LevelDb,
+func serializeAndPutConflicts(config Config, db *ldbutils.LevelDb,
 	key []byte, conflicts []conflictRecord) error {
 	if db == nil {
 		return errors.New("No conflict DB given")
@@ -3316,8 +3335,8 @@ func isCRStuckFromRecords(conflictsSoFar []conflictRecord) bool {
 }
 
 func (cr *ConflictResolver) isStuckWithDbAndConflicts() (
-	db *LevelDb, key []byte, conflictsSoFar []conflictRecord, isStuck bool,
-	err error) {
+	db *ldbutils.LevelDb, key []byte, conflictsSoFar []conflictRecord,
+	isStuck bool, err error) {
 	db = cr.config.GetConflictResolutionDB()
 	if db == nil {
 		return nil, nil, nil, false, errNoCRDB
@@ -3378,7 +3397,10 @@ func (cr *ConflictResolver) recordFinishResolve(
 		}
 
 		if wasStuck {
+			cr.config.SubscriptionManagerPublisher().PublishChange(keybase1.SubscriptionTopic_FAVORITES)
 			cr.config.Reporter().NotifyFavoritesChanged(ctx)
+			cr.config.SubscriptionManagerPublisher().PublishChange(
+				keybase1.SubscriptionTopic_FILES_TAB_BADGE)
 		}
 		return
 	}
@@ -3422,7 +3444,13 @@ func (cr *ConflictResolver) recordFinishResolve(
 	}
 
 	if !wasStuck && isCRStuckFromRecords(conflictsSoFar) {
+		cr.config.SubscriptionManagerPublisher().PublishChange(keybase1.SubscriptionTopic_FAVORITES)
 		cr.config.Reporter().NotifyFavoritesChanged(ctx)
+		cr.config.SubscriptionManagerPublisher().PublishChange(
+			keybase1.SubscriptionTopic_FILES_TAB_BADGE)
+		cr.config.GetPerfLog().CDebugf(
+			ctx, "Conflict resolution failed too many times for %s",
+			cr.fbo.id())
 	}
 }
 
@@ -3437,7 +3465,9 @@ func (cr *ConflictResolver) makeDiskBlockCache(ctx context.Context) (
 		if err != nil {
 			return nil, nil, err
 		}
-		cleanupFn = dbc.Shutdown
+		cleanupFn = func(ctx context.Context) {
+			<-dbc.Shutdown(ctx)
+		}
 	} else {
 		tempDir, err := ioutil.TempDir(
 			cr.config.StorageRoot(), ConflictStorageRootPrefix)
@@ -3507,6 +3537,8 @@ func (cr *ConflictResolver) doResolve(ctx context.Context, ci conflictInput) {
 	case ErrTooManyCRAttempts:
 		cr.log.CWarningf(ctx,
 			"Too many failed CR attempts for folder: %v", cr.fbo.id())
+		cr.config.GetPerfLog().CDebugf(
+			ctx, "Conflict resolution failed too many times for %v", err)
 		return
 	case nil:
 		defer func() {
@@ -3627,7 +3659,7 @@ func (cr *ConflictResolver) doResolve(ctx context.Context, ci conflictInput) {
 			mostRecentMergedMD = mergedMDs[len(mergedMDs)-1]
 		} else {
 			branchPoint := unmergedMDs[0].Revision() - 1
-			mostRecentMergedMD, err = getSingleMD(ctx, cr.config, cr.fbo.id(),
+			mostRecentMergedMD, err = GetSingleMD(ctx, cr.config, cr.fbo.id(),
 				kbfsmd.NullBranchID, branchPoint, kbfsmd.Merged, nil)
 			if err != nil {
 				return
@@ -3782,14 +3814,17 @@ func (cr *ConflictResolver) clearConflictRecords(ctx context.Context) error {
 	}
 
 	if wasStuck {
+		cr.config.SubscriptionManagerPublisher().PublishChange(keybase1.SubscriptionTopic_FAVORITES)
 		cr.config.Reporter().NotifyFavoritesChanged(ctx)
+		cr.config.SubscriptionManagerPublisher().PublishChange(
+			keybase1.SubscriptionTopic_FILES_TAB_BADGE)
 	}
 	return nil
 }
 
-func openCRDBInternal(config Config) (*LevelDb, error) {
+func openCRDBInternal(config Config) (*ldbutils.LevelDb, error) {
 	if config.IsTestMode() {
-		return openLevelDB(storage.NewMemStorage(), config.Mode())
+		return ldbutils.OpenLevelDb(storage.NewMemStorage(), config.Mode())
 	}
 	err := os.MkdirAll(sysPath.Join(config.StorageRoot(),
 		conflictResolverRecordsDir, conflictResolverRecordsVersionString),
@@ -3806,10 +3841,10 @@ func openCRDBInternal(config Config) (*LevelDb, error) {
 		return nil, err
 	}
 
-	return openLevelDB(stor, config.Mode())
+	return ldbutils.OpenLevelDb(stor, config.Mode())
 }
 
-func openCRDB(config Config) (db *LevelDb) {
+func openCRDB(config Config) (db *ldbutils.LevelDb) {
 	db, err := openCRDBInternal(config)
 	if err != nil {
 		config.MakeLogger("").CWarningf(context.Background(),

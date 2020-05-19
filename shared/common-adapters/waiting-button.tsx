@@ -3,20 +3,24 @@ import Button from './button'
 import {namedConnect} from '../util/container'
 import * as WaitingConstants from '../constants/waiting'
 
+const Kb = {
+  Button,
+}
+
 type ButtonProps = React.ComponentProps<typeof Button>
 
 export type OwnProps = {
   onlyDisable?: boolean // Must supply waiting key if this is true,
-  waitingKey: string | null
+  waitingKey: Array<string> | string | null
 } & ButtonProps
 
 export type Props = {
   onlyDisable?: boolean
   storeWaiting: boolean
-  waitingKey: string | null
+  waitingKey: Array<string> | string | null
 } & ButtonProps
 
-/* Waiting button is a <Button /> with handling of waiting states.
+/* Waiting button is a <Kb.Button /> with handling of waiting states.
  *
  * There are two forms:
  *  waitingKey is null: The spinner activates as soon as the button is clicked,
@@ -35,21 +39,21 @@ class WaitingButton extends React.Component<Props, {localWaiting: boolean}> {
   }
   state = {localWaiting: false}
 
-  _onClick = (event: React.SyntheticEvent) => {
+  _onClick = (event: React.BaseSyntheticEvent) => {
     if (!this.props.waitingKey) {
       this.setState({localWaiting: true})
     }
     this.props.onClick && this.props.onClick(event)
   }
 
-  render = () => {
+  render() {
     if (this.props.onlyDisable && !this.props.waitingKey) {
       throw new Error('WaitingButton onlyDisable should only be used with a waiting key')
     }
     const waiting = this.props.storeWaiting || this.state.localWaiting
     const {onlyDisable, storeWaiting, waitingKey, ...buttonProps} = this.props
     return (
-      <Button
+      <Kb.Button
         {...buttonProps}
         onClick={this._onClick}
         disabled={this.props.onlyDisable ? waiting || this.props.disabled : this.props.disabled}
@@ -63,7 +67,10 @@ const ConnectedWaitingButton = namedConnect(
   (state, ownProps: OwnProps) => {
     const waitingKey = ownProps.waitingKey || ''
     return {
-      storeWaiting: WaitingConstants.anyWaiting(state, waitingKey),
+      storeWaiting:
+        typeof waitingKey === 'string'
+          ? WaitingConstants.anyWaiting(state, waitingKey)
+          : WaitingConstants.anyWaiting(state, ...waitingKey),
     }
   },
   () => ({}),

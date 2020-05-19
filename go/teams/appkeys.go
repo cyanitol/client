@@ -10,7 +10,7 @@ import (
 
 func AllApplicationKeys(mctx libkb.MetaContext, team Teamer,
 	application keybase1.TeamApplication, latestGen keybase1.PerTeamKeyGeneration) (res []keybase1.TeamApplicationKey, err error) {
-	defer mctx.TraceTimed("teams.AllApplicationKeys", func() error { return err })()
+	defer mctx.Trace("teams.AllApplicationKeys", &err)()
 	for gen := keybase1.PerTeamKeyGeneration(1); gen <= latestGen; gen++ {
 		appKey, err := ApplicationKeyAtGeneration(mctx, team, application, gen)
 		if err != nil {
@@ -28,7 +28,10 @@ func AllApplicationKeysWithKBFS(mctx libkb.MetaContext, team Teamer,
 	if err != nil {
 		return res, err
 	}
-	kbfsKeys := team.MainChain().TlfCryptKeys[application]
+	var kbfsKeys []keybase1.CryptKey
+	if team.MainChain() != nil {
+		kbfsKeys = team.MainChain().TlfCryptKeys[application]
+	}
 	if len(kbfsKeys) > 0 {
 		latestKBFSGen := kbfsKeys[len(kbfsKeys)-1].Generation()
 		for _, k := range kbfsKeys {
@@ -82,7 +85,10 @@ func ApplicationKeyAtGeneration(mctx libkb.MetaContext, team Teamer,
 func ApplicationKeyAtGenerationWithKBFS(mctx libkb.MetaContext, team Teamer,
 	application keybase1.TeamApplication, generation keybase1.PerTeamKeyGeneration) (res keybase1.TeamApplicationKey, err error) {
 
-	kbfsKeys := team.MainChain().TlfCryptKeys[application]
+	var kbfsKeys []keybase1.CryptKey
+	if team.MainChain() != nil {
+		kbfsKeys = team.MainChain().TlfCryptKeys[application]
+	}
 	if len(kbfsKeys) > 0 {
 		latestKBFSGen := keybase1.PerTeamKeyGeneration(kbfsKeys[len(kbfsKeys)-1].Generation())
 		for _, k := range kbfsKeys {
@@ -131,6 +137,8 @@ func applicationKeyForMask(mask keybase1.ReaderKeyMask, secret keybase1.PerTeamK
 		derivationString = libkb.TeamSeitanTokenDerivationString
 	case keybase1.TeamApplication_STELLAR_RELAY:
 		derivationString = libkb.TeamStellarRelayDerivationString
+	case keybase1.TeamApplication_KVSTORE:
+		derivationString = libkb.TeamKVStoreDerivationString
 	default:
 		return keybase1.TeamApplicationKey{}, fmt.Errorf("unrecognized application id: %v", mask.Application)
 	}
@@ -156,6 +164,10 @@ func applicationKeyForMask(mask keybase1.ReaderKeyMask, secret keybase1.PerTeamK
 
 func readerKeyMask(teamData *keybase1.TeamData,
 	application keybase1.TeamApplication, generation keybase1.PerTeamKeyGeneration) (res keybase1.ReaderKeyMask, err error) {
+
+	if teamData == nil {
+		return res, NewKeyMaskNotFoundErrorForApplication(application)
+	}
 
 	m2, ok := teamData.ReaderKeyMasks[application]
 	if !ok {

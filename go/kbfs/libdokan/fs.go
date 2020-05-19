@@ -14,6 +14,7 @@ import (
 
 	"github.com/keybase/client/go/kbfs/dokan"
 	"github.com/keybase/client/go/kbfs/dokan/winacl"
+	"github.com/keybase/client/go/kbfs/idutil"
 	"github.com/keybase/client/go/kbfs/libcontext"
 	"github.com/keybase/client/go/kbfs/libfs"
 	"github.com/keybase/client/go/kbfs/libkbfs"
@@ -22,6 +23,7 @@ import (
 	kbname "github.com/keybase/client/go/kbun"
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/logger"
+	"github.com/keybase/client/go/protocol/keybase1"
 	"golang.org/x/net/context"
 )
 
@@ -39,8 +41,6 @@ type FS struct {
 
 	// remoteStatus is the current status of remote connections.
 	remoteStatus libfs.RemoteStatus
-
-	quotaUsage *libkbfs.EventuallyConsistentQuotaUsage
 }
 
 // DefaultMountFlags are the default mount flags for libdokan.
@@ -56,14 +56,11 @@ func NewFS(ctx context.Context, config libkbfs.Config, log logger.Logger) (*FS, 
 	if currentUserSIDErr != nil {
 		return nil, currentUserSIDErr
 	}
-	quLog := config.MakeLogger(libkbfs.QuotaUsageLogModule("FS"))
 	f := &FS{
 		config:        config,
 		log:           log,
 		vlog:          config.MakeVLogger(log),
 		notifications: libfs.NewFSNotifications(log),
-		quotaUsage: libkbfs.NewEventuallyConsistentQuotaUsage(
-			config, quLog, config.MakeVLogger(quLog)),
 	}
 
 	f.root = &Root{
@@ -176,7 +173,22 @@ func (f *FS) GetDiskFreeSpace(ctx context.Context) (freeSpace dokan.FreeSpace, e
 			f.log.CDebugf(ctx, err.Error())
 		}
 	}()
-	_, usageBytes, _, limitBytes, err := f.quotaUsage.Get(
+
+	session, err := idutil.GetCurrentSessionIfPossible(
+		ctx, f.config.KBPKI(), true)
+	if err != nil {
+		return dokan.FreeSpace{}, err
+	} else if session == (idutil.SessionInfo{}) {
+		// If user is not logged in, don't bother getting quota info. Otherwise
+		// reading a public TLF while logged out can fail on macOS.
+		return dokan.FreeSpace{
+			TotalNumberOfBytes:     dummyFreeSpace,
+			TotalNumberOfFreeBytes: dummyFreeSpace,
+			FreeBytesAvailable:     dummyFreeSpace,
+		}, nil
+	}
+	_, usageBytes, _, limitBytes, err := f.config.GetQuotaUsage(
+		session.UID.AsUserOrTeam()).Get(
 		ctx, quotaUsageStaleTolerance/2, quotaUsageStaleTolerance)
 	if err != nil {
 		return dokan.FreeSpace{}, errToDokan(err)
@@ -223,11 +235,7 @@ func (oc *openContext) isCreation() bool {
 	return false
 }
 func (oc *openContext) isExistingError() bool {
-	switch oc.CreateDisposition {
-	case dokan.FileCreate:
-		return true
-	}
-	return false
+	return oc.CreateDisposition == dokan.FileCreate
 }
 
 // isTruncate checks the flags whether a file truncation is wanted.
@@ -262,10 +270,6 @@ func (oc *openContext) returnFileNoCleanup(f dokan.File) (
 		return nil, 0, err
 	}
 	return f, dokan.ExistingFile, nil
-}
-
-func (oc *openContext) mayNotBeDirectory() bool {
-	return oc.CreateOptions&dokan.FileNonDirectoryFile != 0
 }
 
 func newSyntheticOpenContext() *openContext {
@@ -314,7 +318,7 @@ func (f *FS) open(ctx context.Context, oc *openContext, ps []string) (dokan.File
 
 		// This section is equivalent to
 		// handleCommonSpecialFile in libfuse.
-	case libkbfs.ErrorFile == ps[psl-1]:
+	case libfs.ErrorFileName == ps[psl-1]:
 		return oc.returnFileNoCleanup(NewErrorFile(f))
 	case libfs.MetricsFileName == ps[psl-1]:
 		return oc.returnFileNoCleanup(NewMetricsFile(f))
@@ -362,9 +366,13 @@ func (f *FS) open(ctx context.Context, oc *openContext, ps []string) (dokan.File
 		return oc.returnFileNoCleanup(NewUserEditHistoryFile(&Folder{fs: f}))
 
 	case ".kbfs_unmount" == ps[0]:
-		f.log.CDebugf(ctx, "Exiting due to .kbfs_unmount")
+		f.log.CInfof(ctx, "Exiting due to .kbfs_unmount")
 		logger.Shutdown()
 		os.Exit(0)
+	case ".kbfs_restart" == ps[0]:
+		f.log.CInfof(ctx, "Exiting due to .kbfs_restart, should get restarted by watchdog process")
+		logger.Shutdown()
+		os.Exit(int(keybase1.ExitCode_RESTART))
 	case ".kbfs_number_of_handles" == ps[0]:
 		x := stringReadFile(strconv.Itoa(int(oc.fi.NumberOfFileHandles())))
 		return oc.returnFileNoCleanup(x)
@@ -375,31 +383,16 @@ func (f *FS) open(ctx context.Context, oc *openContext, ps []string) (dokan.File
 		oc.isUppercasePath = true
 		fallthrough
 	case PublicName == ps[0]:
-		// Refuse private directories while we are in a a generic error state.
-		if f.remoteStatus.ExtraFileName() == libfs.HumanErrorFileName {
-			f.log.CWarningf(ctx, "Refusing access to public directory while errors are present!")
-			return nil, 0, dokan.ErrAccessDenied
-		}
 		return f.root.public.open(ctx, oc, ps[1:])
 	case strings.ToUpper(PrivateName) == ps[0]:
 		oc.isUppercasePath = true
 		fallthrough
 	case PrivateName == ps[0]:
-		// Refuse private directories while we are in a error state.
-		if f.remoteStatus.ExtraFileName() != "" {
-			f.log.CWarningf(ctx, "Refusing access to private directory while errors are present!")
-			return nil, 0, dokan.ErrAccessDenied
-		}
 		return f.root.private.open(ctx, oc, ps[1:])
 	case strings.ToUpper(TeamName) == ps[0]:
 		oc.isUppercasePath = true
 		fallthrough
 	case TeamName == ps[0]:
-		// Refuse team directories while we are in a error state.
-		if f.remoteStatus.ExtraFileName() != "" {
-			f.log.CWarningf(ctx, "Refusing access to team directory while errors are present!")
-			return nil, 0, dokan.ErrAccessDenied
-		}
 		return f.root.team.open(ctx, oc, ps[1:])
 	}
 	return nil, 0, dokan.ErrObjectNameNotFound
@@ -682,28 +675,22 @@ func (r *Root) FindFiles(ctx context.Context, fi *dokan.FileInfo, ignored string
 	var ns dokan.NamedStat
 	var err error
 	ns.FileAttributes = dokan.FileAttributeDirectory
-	ename, esize := r.private.fs.remoteStatus.ExtraFileNameAndSize()
-	switch ename {
-	case "":
-		ns.Name = PrivateName
-		err = callback(&ns)
-		if err != nil {
-			return err
-		}
-		ns.Name = TeamName
-		err = callback(&ns)
-		if err != nil {
-			return err
-		}
-		fallthrough
-	case libfs.HumanNoLoginFileName:
-		ns.Name = PublicName
-		err = callback(&ns)
-		if err != nil {
-			return err
-		}
+	ns.Name = PrivateName
+	err = callback(&ns)
+	if err != nil {
+		return err
 	}
-	if ename != "" {
+	ns.Name = TeamName
+	err = callback(&ns)
+	if err != nil {
+		return err
+	}
+	ns.Name = PublicName
+	err = callback(&ns)
+	if err != nil {
+		return err
+	}
+	if ename, esize := r.private.fs.remoteStatus.ExtraFileNameAndSize(); ename != "" {
 		ns.Name = ename
 		ns.FileAttributes = dokan.FileAttributeNormal
 		ns.FileSize = esize

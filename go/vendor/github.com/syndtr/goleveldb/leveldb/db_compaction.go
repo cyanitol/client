@@ -8,6 +8,7 @@ package leveldb
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/syndtr/goleveldb/leveldb/errors"
@@ -324,10 +325,12 @@ func (db *DB) memCompaction() {
 
 	db.logf("memdb@flush committed F·%d T·%v", len(rec.addedTables), stats.duration)
 
+	// Save compaction stats
 	for _, r := range rec.addedTables {
 		stats.write += r.size
 	}
 	db.compStats.addStat(flushLevel, stats)
+	atomic.AddUint32(&db.memComp, 1)
 
 	// Drop frozen memdb.
 	db.dropFrozenMem()
@@ -588,6 +591,14 @@ func (db *DB) tableCompaction(c *compaction, noTrivial bool) {
 	for i := range stats {
 		db.compStats.addStat(c.sourceLevel+1, &stats[i])
 	}
+	switch c.typ {
+	case level0Compaction:
+		atomic.AddUint32(&db.level0Comp, 1)
+	case nonLevel0Compaction:
+		atomic.AddUint32(&db.nonLevel0Comp, 1)
+	case seekCompaction:
+		atomic.AddUint32(&db.seekComp, 1)
+	}
 }
 
 func (db *DB) tableRangeCompaction(level int, umin, umax []byte) error {
@@ -759,10 +770,18 @@ func (db *DB) mCompaction() {
 	}()
 
 	for {
+		db.compActiveLk.Lock()
+		db.memCompActive = false
+		db.compActiveLk.Unlock()
+
 		select {
 		case x = <-db.mcompCmdC:
 			switch x.(type) {
 			case cAuto:
+				db.compActiveLk.Lock()
+				db.memCompActive = true
+				db.compActiveLk.Unlock()
+
 				db.memCompaction()
 				x.ack(nil)
 				x = nil
@@ -798,6 +817,10 @@ func (db *DB) tCompaction() {
 	}()
 
 	for {
+		db.compActiveLk.Lock()
+		db.tableCompActive = false
+		db.compActiveLk.Unlock()
+
 		if db.tableNeedCompaction() {
 			select {
 			case x = <-db.tcompCmdC:
@@ -831,6 +854,9 @@ func (db *DB) tCompaction() {
 				return
 			}
 		}
+		db.compActiveLk.Lock()
+		db.tableCompActive = true
+		db.compActiveLk.Unlock()
 		if x != nil {
 			switch cmd := x.(type) {
 			case cAuto:

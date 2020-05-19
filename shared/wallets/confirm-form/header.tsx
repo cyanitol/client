@@ -20,7 +20,7 @@ const Header = (props: HeaderProps) => (
             ? 'icon-fancy-stellar-sending-mobile-149-129'
             : 'icon-fancy-stellar-sending-desktop-98-86'
         }
-        style={Kb.iconCastPlatformStyles(styles.headerIcon)}
+        style={styles.headerIcon}
       />
       <Kb.Text selectable={true} type="BodyTiny" style={styles.headerText}>
         {(props.sendingIntentionXLM ? 'Sending' : 'Sending Lumens worth').toUpperCase()}
@@ -41,12 +41,14 @@ const Header = (props: HeaderProps) => (
   </Kb.Box2>
 )
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   header: Styles.platformStyles({
     common: {
       backgroundColor: Styles.globalColors.purpleDark,
     },
     isElectron: {
+      borderTopLeftRadius: Styles.borderRadius,
+      borderTopRightRadius: Styles.borderRadius,
       flex: 1,
       minHeight: 160,
     },
@@ -68,6 +70,6 @@ const styles = Styles.styleSheetCreate({
   headerText: {
     color: Styles.globalColors.white,
   },
-})
+}))
 
 export default Header

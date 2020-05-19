@@ -22,14 +22,17 @@ func NewMsg(g *globals.Context) *Msg {
 
 func (d *Msg) Execute(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	tlfName, text string, replyTo *chat1.MessageID) (err error) {
-	defer d.Trace(ctx, func() error { return err }, "Execute")()
+	defer d.Trace(ctx, &err, "Execute")()
 	if !d.Match(ctx, text) {
 		return ErrInvalidCommand
 	}
 	defer func() {
 		if err != nil {
-			d.getChatUI().ChatCommandStatus(ctx, convID, "Failed to send message",
+			err := d.getChatUI().ChatCommandStatus(ctx, convID, "Failed to send message",
 				chat1.UICommandStatusDisplayTyp_ERROR, nil)
+			if err != nil {
+				d.Debug(ctx, "Execute: error with command status: %+v", err)
+			}
 		}
 	}()
 	toks, err := d.tokenize(text, 3)

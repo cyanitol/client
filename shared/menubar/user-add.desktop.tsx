@@ -69,7 +69,7 @@ const UserInput = ({isPublic, onSubmit, onCancel, onUpdateText, username, text}:
         }}
       />
       <Icon
-        type={'iconfont-folder-open'}
+        type="iconfont-folder-open"
         onClick={onSubmit}
         style={platformStyles({
           isElectron: desktopStyles.clickable,
@@ -117,7 +117,7 @@ class UserAdd extends Component<Props, State> {
         {...this.props}
       />
     ) : (
-      <UserButton isPublic={this.props.isPublic} onClick={() => this._showInput(true)} {...this.props} />
+      <UserButton onClick={() => this._showInput(true)} {...this.props} />
     )
   }
 }

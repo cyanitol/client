@@ -1,23 +1,21 @@
 import {FeatureFlags} from '../util/feature-flags'
+
 if (!__STORYBOOK__) {
   throw new Error('Invalid load of mock')
 }
 
 const ff: FeatureFlags = {
   admin: false,
-  airdrop: true,
-  chatIndexProfilingEnabled: false,
-  conflictResolution: false,
-  dbCleanEnabled: false,
+  connectThrashCheck: true,
   foldersInProfileTab: true,
-  kbfsOfflineMode: true,
+  inviteFriends: true,
   moveOrCopy: true,
   newTeamBuildingForChatAllowMakeTeam: false,
-  outOfDateBanner: true,
-  plansEnabled: false,
-  proofProviders: true,
-  sbsContacts: true,
-  stellarExternalPartners: false,
+  tabletSupport: true,
+  teamInvites: false,
+  teamsRedesign: true,
+  webOfTrust: false,
+  whyDidYouRender: false,
 }
 
 console.warn('feature flag mock in effect')

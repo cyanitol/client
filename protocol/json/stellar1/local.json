@@ -123,6 +123,22 @@
         {
           "type": "string",
           "name": "infoUrlText"
+        },
+        {
+          "type": "boolean",
+          "name": "showDepositButton"
+        },
+        {
+          "type": "string",
+          "name": "depositButtonText"
+        },
+        {
+          "type": "boolean",
+          "name": "showWithdrawButton"
+        },
+        {
+          "type": "string",
+          "name": "withdrawButtonText"
         }
       ]
     },
@@ -525,6 +541,10 @@
         },
         {
           "type": "string",
+          "name": "publicMemoOverride"
+        },
+        {
+          "type": "string",
           "name": "worthDescription"
         },
         {
@@ -789,6 +809,10 @@
         {
           "type": "string",
           "name": "details"
+        },
+        {
+          "type": "string",
+          "name": "disclaimer"
         }
       ]
     },
@@ -886,6 +910,26 @@
     },
     {
       "type": "record",
+      "name": "AssetActionResultLocal",
+      "fields": [
+        {
+          "type": [
+            null,
+            "string"
+          ],
+          "name": "externalUrl"
+        },
+        {
+          "type": [
+            null,
+            "string"
+          ],
+          "name": "messageFromAnchor"
+        }
+      ]
+    },
+    {
+      "type": "record",
       "name": "SendResultCLILocal",
       "fields": [
         {
@@ -896,6 +940,17 @@
           "type": "TransactionID",
           "name": "txID"
         }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "PublicNoteType",
+      "symbols": [
+        "NONE_0",
+        "TEXT_1",
+        "ID_2",
+        "HASH_3",
+        "RETURN_4"
       ]
     },
     {
@@ -1357,6 +1412,10 @@
         {
           "type": "string",
           "name": "availableToSendFiat"
+        },
+        {
+          "type": "boolean",
+          "name": "signed"
         }
       ]
     },
@@ -1385,6 +1444,11 @@
           "type": "boolean",
           "name": "adminOnly",
           "jsonkey": "admin_only"
+        },
+        {
+          "type": "boolean",
+          "name": "canPurchase",
+          "jsonkey": "can_purchase"
         },
         {
           "type": "string",
@@ -1630,7 +1694,7 @@
           "type": "string"
         }
       ],
-      "response": null
+      "response": "WalletAccountLocal"
     },
     "setWalletAccountAsDefaultLocal": {
       "request": [
@@ -1643,7 +1707,10 @@
           "type": "AccountID"
         }
       ],
-      "response": null
+      "response": {
+        "type": "array",
+        "items": "WalletAccountLocal"
+      }
     },
     "deleteWalletAccountLocal": {
       "request": [
@@ -1707,7 +1774,7 @@
           "type": "OutsideCurrencyCode"
         }
       ],
-      "response": null
+      "response": "CurrencyLocal"
     },
     "getDisplayCurrencyLocal": {
       "request": [
@@ -2331,6 +2398,32 @@
       ],
       "response": "PaymentPathLocal"
     },
+    "assetDepositLocal": {
+      "request": [
+        {
+          "name": "accountID",
+          "type": "AccountID"
+        },
+        {
+          "name": "asset",
+          "type": "Asset"
+        }
+      ],
+      "response": "AssetActionResultLocal"
+    },
+    "assetWithdrawLocal": {
+      "request": [
+        {
+          "name": "accountID",
+          "type": "AccountID"
+        },
+        {
+          "name": "asset",
+          "type": "Asset"
+        }
+      ],
+      "response": "AssetActionResultLocal"
+    },
     "balancesLocal": {
       "request": [
         {
@@ -2378,6 +2471,10 @@
           "type": "string"
         },
         {
+          "name": "publicNoteType",
+          "type": "PublicNoteType"
+        },
+        {
           "name": "fromAccountID",
           "type": "AccountID"
         }
@@ -2405,9 +2502,33 @@
         {
           "name": "publicNote",
           "type": "string"
+        },
+        {
+          "name": "publicNoteType",
+          "type": "PublicNoteType"
         }
       ],
       "response": "SendResultCLILocal"
+    },
+    "accountMergeCLILocal": {
+      "request": [
+        {
+          "name": "fromAccountID",
+          "type": "AccountID"
+        },
+        {
+          "name": "fromSecretKey",
+          "type": [
+            null,
+            "SecretKey"
+          ]
+        },
+        {
+          "name": "to",
+          "type": "string"
+        }
+      ],
+      "response": "TransactionID"
     },
     "claimCLILocal": {
       "request": [

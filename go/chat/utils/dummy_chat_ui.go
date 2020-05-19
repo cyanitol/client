@@ -9,18 +9,7 @@ import (
 
 type DummyChatUI struct{}
 
-func (r DummyChatUI) ChatAttachmentDownloadStart(ctx context.Context, sessionID int) error {
-	return nil
-}
-
-func (r DummyChatUI) ChatAttachmentDownloadProgress(ctx context.Context,
-	arg chat1.ChatAttachmentDownloadProgressArg) error {
-	return nil
-}
-
-func (r DummyChatUI) ChatAttachmentDownloadDone(ctx context.Context, sessionID int) error {
-	return nil
-}
+var _ chat1.ChatUiInterface = (*DummyChatUI)(nil)
 
 func (r DummyChatUI) ChatInboxConversation(ctx context.Context, arg chat1.ChatInboxConversationArg) error {
 	return nil
@@ -34,11 +23,19 @@ func (r DummyChatUI) ChatInboxUnverified(ctx context.Context, arg chat1.ChatInbo
 	return nil
 }
 
+func (r DummyChatUI) ChatInboxLayout(ctx context.Context, arg chat1.ChatInboxLayoutArg) error {
+	return nil
+}
+
 func (r DummyChatUI) ChatThreadCached(ctx context.Context, arg chat1.ChatThreadCachedArg) error {
 	return nil
 }
 
 func (r DummyChatUI) ChatThreadFull(ctx context.Context, arg chat1.ChatThreadFullArg) error {
+	return nil
+}
+
+func (r DummyChatUI) ChatThreadStatus(ctx context.Context, arg chat1.ChatThreadStatusArg) error {
 	return nil
 }
 
@@ -71,6 +68,14 @@ func (r DummyChatUI) ChatSearchIndexStatus(ctx context.Context, arg chat1.ChatSe
 }
 
 func (r DummyChatUI) ChatSearchConvHits(ctx context.Context, arg chat1.ChatSearchConvHitsArg) error {
+	return nil
+}
+
+func (r DummyChatUI) ChatSearchTeamHits(ctx context.Context, arg chat1.ChatSearchTeamHitsArg) error {
+	return nil
+}
+
+func (r DummyChatUI) ChatSearchBotHits(ctx context.Context, arg chat1.ChatSearchBotHitsArg) error {
 	return nil
 }
 
@@ -131,7 +136,17 @@ func (r DummyChatUI) ChatCommandStatus(context.Context, chat1.ChatCommandStatusA
 	return nil
 }
 
+func (r DummyChatUI) ChatBotCommandsUpdateStatus(context.Context, chat1.ChatBotCommandsUpdateStatusArg) error {
+	return nil
+}
+
+func (r DummyChatUI) TriggerContactSync(context.Context, int) error {
+	return nil
+}
+
 type DummyChatNotifications struct{}
+
+var _ chat1.NotifyChatInterface = (*DummyChatNotifications)(nil)
 
 func (d DummyChatNotifications) NewChatActivity(ctx context.Context, arg chat1.NewChatActivityArg) error {
 	return nil
@@ -189,6 +204,12 @@ func (d DummyChatNotifications) ChatAttachmentUploadStart(context.Context, chat1
 func (d DummyChatNotifications) ChatAttachmentUploadProgress(context.Context, chat1.ChatAttachmentUploadProgressArg) error {
 	return nil
 }
+func (d DummyChatNotifications) ChatAttachmentDownloadProgress(context.Context, chat1.ChatAttachmentDownloadProgressArg) error {
+	return nil
+}
+func (d DummyChatNotifications) ChatAttachmentDownloadComplete(context.Context, chat1.ChatAttachmentDownloadCompleteArg) error {
+	return nil
+}
 func (d DummyChatNotifications) ChatPaymentInfo(context.Context, chat1.ChatPaymentInfoArg) error {
 	return nil
 }
@@ -196,5 +217,15 @@ func (d DummyChatNotifications) ChatRequestInfo(context.Context, chat1.ChatReque
 	return nil
 }
 func (d DummyChatNotifications) ChatPromptUnfurl(context.Context, chat1.ChatPromptUnfurlArg) error {
+	return nil
+}
+func (d DummyChatNotifications) ChatConvUpdate(context.Context, chat1.ChatConvUpdateArg) error {
+	return nil
+}
+func (d DummyChatNotifications) ChatWelcomeMessageLoaded(context.Context, chat1.ChatWelcomeMessageLoadedArg) error {
+	return nil
+}
+func (d DummyChatNotifications) ChatParticipantsInfo(context.Context,
+	map[chat1.ConvIDStr][]chat1.UIParticipant) error {
 	return nil
 }

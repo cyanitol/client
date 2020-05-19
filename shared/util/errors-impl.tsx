@@ -1,6 +1,6 @@
 import logger from '../logger'
 import * as RPCTypes from '../constants/types/rpc-gen'
-import {capitalize} from 'lodash-es'
+import capitalize from 'lodash/capitalize'
 import {errors as transportErrors} from 'framed-msgpack-rpc'
 
 export class RPCError {
@@ -139,7 +139,7 @@ export const niceError = (e: RPCError) => {
   }
 
   const caps = capitalize(e.desc || e.message || 'Unknown error')
-  return caps.endsWith('.') ? caps : `${caps}.`
+  return caps.endsWith('.') ? `${caps}.` : caps
 }
 
 function isRPCError(error: RPCError | Error): error is RPCError {

@@ -6,6 +6,7 @@ import devicePage from './device-page/index.stories'
 import deviceRevoke from './device-revoke/index.stories'
 import paperKey from './paper-key/index.stories'
 import addDevice from './add-device/index.stories'
+import * as dateFns from 'date-fns'
 
 const idToType = i => {
   switch (i) {
@@ -19,25 +20,70 @@ const idToType = i => {
   }
 }
 
+const now = new Date()
+const secondAgo = dateFns.sub(now, {seconds: 1})
+const fourHoursAgo = dateFns.sub(now, {hours: 4})
+
 const activeDevices = withNew => {
   const existingDevices = [
-    {id: stringToDeviceID('1'), isNew: false, key: '1', type: 'device'},
-    {id: stringToDeviceID('2'), isNew: false, key: '2', type: 'device'},
-    {id: stringToDeviceID('3'), isNew: false, key: '3', type: 'device'},
+    {
+      deviceNumberOfType: 0,
+      id: stringToDeviceID('1'),
+      isNew: false,
+      key: '1',
+      lastUsed: fourHoursAgo,
+      type: 'device',
+    },
+    {
+      deviceNumberOfType: 3,
+      id: stringToDeviceID('2'),
+      isNew: false,
+      key: '2',
+      lastUsed: fourHoursAgo,
+      type: 'device',
+    },
+    {
+      deviceNumberOfType: 7,
+      id: stringToDeviceID('3'),
+      isNew: false,
+      key: '3',
+      lastUsed: fourHoursAgo,
+      type: 'device',
+    },
   ]
   if (withNew) {
-    return [...existingDevices, {id: stringToDeviceID('6'), isNew: true, key: '6', type: 'device'}]
+    return [
+      ...existingDevices,
+      {id: stringToDeviceID('6'), isNew: true, key: '6', lastUsed: fourHoursAgo, type: 'device'},
+    ]
   }
   return existingDevices
 }
 
 const revokedDevices = withNew => {
   const existingDevices = [
-    {id: stringToDeviceID('4'), isNew: false, key: '4', type: 'device'},
-    {id: stringToDeviceID('5'), isNew: false, key: '5', type: 'device'},
+    {
+      deviceNumberOfType: 8,
+      id: stringToDeviceID('4'),
+      isNew: false,
+      key: '4',
+      revokedAt: fourHoursAgo,
+      type: 'device',
+    },
+    {
+      deviceNumberOfType: 9,
+      id: stringToDeviceID('5'),
+      isNew: false,
+      key: '5',
+      revokedAt: fourHoursAgo,
+      type: 'device',
+    },
   ]
   if (withNew) {
-    return [...existingDevices, {id: stringToDeviceID('7'), isNew: true, key: '7', type: 'device'}]
+    return [
+      ...existingDevices,
+      {id: stringToDeviceID('7'), isNew: true, key: '7', revokedAt: secondAgo, type: 'device'},
+    ]
   }
   return existingDevices
 }
@@ -47,7 +93,24 @@ const Devices = (p: any) => <DevicesReal {...p} />
 
 const provider = Sb.createPropProviderWithCommon({
   DeviceRow: ({deviceID}) => ({
+    device: {
+      currentDevice: deviceID === '1',
+      deviceNumberOfType: 8,
+      lastUsed: fourHoursAgo,
+      name: {
+        '1': 'laptop',
+        '2': 'phone',
+        '3': 'hello robot',
+        '4': 'dog party',
+        '5': 'desktop',
+        '6': 'new device',
+        '7': 'newly revoked',
+      }[deviceID],
+      revokedAt:
+        deviceID === '4' || deviceID === '5' ? fourHoursAgo : deviceID === '7' ? secondAgo : undefined,
+    },
     firstItem: deviceID === '1',
+    iconNumber: Number(deviceID),
     isCurrentDevice: deviceID === '1',
     isNew: ['6', '7'].includes(String(deviceID)),
     isRevoked: !['1', '2', '3', '6'].includes(String(deviceID)),

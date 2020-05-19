@@ -8,13 +8,11 @@ import Trustline from '.'
 
 const commonAssetProps = {
   infoUrlText: 'View details',
-
   onAccept: Sb.action('onAccept'),
   onOpenInfoUrl: Sb.action('onOpenInfoUrl'),
   onRemove: Sb.action('onRemove'),
-
-  waitingAdd: false,
-  waitingDelete: false,
+  waitingKeyAdd: false,
+  waitingKeyDelete: false,
   waitingRefresh: false,
 }
 

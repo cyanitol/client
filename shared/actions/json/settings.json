@@ -7,12 +7,12 @@
   "actions": {
     "addPhoneNumber": {
       "_description": "Add a phone number and kick off a text message with a verification code.",
-      "allowSearch": "boolean",
+      "searchable": "boolean",
       "phoneNumber": "string"
     },
     "addedPhoneNumber": {
       "_description": "We just attempted to add a phone number and either got an error or the number is pending verification.",
-      "allowSearch": "boolean",
+      "searchable": "boolean",
       "error?": "string",
       "phoneNumber": "string"
     },
@@ -37,21 +37,26 @@
       "_description": "Clear only error from phone number add flow."
     },
     "dbNuke": {},
-    "deleteAccountForever": {},
+    "deleteAccountForever": {
+      "passphrase?": "HiddenString"
+    },
     "editEmail": {
       "email": "string",
       "delete?": "boolean",
       "makePrimary?": "boolean",
-      "makeSearchable?": "boolean | null",
+      "makeSearchable?": "boolean",
       "verify?": "boolean"
     },
     "editPhone": {
       "phone": "string",
       "delete?": "boolean",
-      "toggleSearchable?": "boolean",
-      "verify?": "boolean"
+      "setSearchable?": "boolean"
     },
     "sentVerificationEmail": {
+      "email": "string"
+    },
+    "emailVerified": {
+      "_description": "An email was just marked as verified",
       "email": "string"
     },
     "loadContactImportEnabled": {
@@ -64,13 +69,23 @@
       "status": ["'granted'", "'never_ask_again'", "'undetermined'"]
     },
     "requestContactPermissions": {
-      "thenToggleImportOn?": "boolean"
+      "thenToggleImportOn?": "boolean",
+      "fromSettings?": "boolean"
     },
     "editContactImportEnabled": {
-      "enable": "boolean"
+      "enable": "boolean",
+      "fromSettings?": "boolean"
     },
+    "showContactsJoinedModal": {
+      "resolved": "Array<RPCTypes.ProcessedContact>"
+    },
+    "importContactsLater": {},
     "setContactImportedCount": {
-      "count": "number | null"
+      "count?": "number",
+      "error?": "string"
+    },
+    "loadedUserCountryCode": {
+      "code?": "string"
     },
     "addEmail": {
       "email": "string",
@@ -78,31 +93,27 @@
     },
     "addedEmail": {
       "email": "string",
-      "error?": "Error"
+      "error?": "string"
     },
     "clearAddingEmail": {"_description": "Reset state used for adding an email."},
     "clearAddedEmail": {"_description": "Reset state used for showing we just added an email."},
+    "clearAddedPhone": {
+      "_description": "Reset state used for showing we just added a phone number."
+    },
     "invitesClearError": {},
     "invitesReclaim": {
       "inviteId": "string"
     },
-    "invitesReclaimed": {
-      "canError": {
-        "errorText": "string"
-      }
-    },
     "invitesRefresh": {},
     "invitesRefreshed": {
-      "invites": "Types._InvitesState"
+      "invites": "Types.InvitesState"
     },
     "invitesSend": {
       "email": "string",
-      "message": "string | null"
+      "message?": "string"
     },
     "invitesSent": {
-      "canError": {
-        "error": "Error"
-      }
+      "error?": "Error"
     },
     "loadRememberPassword": {},
     "loadedRememberPassword": {
@@ -110,27 +121,24 @@
     },
     "loadSettings": {},
     "loadedSettings": {
-      "emails": "I.Map<string, Types.EmailRow> | null",
-      "phones": "I.Map<string, Types.PhoneRow> | null"
+      "emails?": "Map<string, Types.EmailRow>",
+      "phones?": "Map<string, Types.PhoneRow>"
     },
     "loadLockdownMode": {},
     "loadedLockdownMode": {
-      "status": "boolean | null"
+      "status?": "boolean"
     },
     "onChangeLockdownMode": {
       "enabled": "boolean"
     },
-    "onChangeUseNativeFrame": {
-      "enabled": "boolean"
-    },
     "notificationsRefresh": {},
     "notificationsRefreshed": {
-      "notifications": "I.Map<string, Types.NotificationsGroupState>"
+      "notifications": "Map<string, Types.NotificationsGroupState>"
     },
     "notificationsSaved": {},
     "notificationsToggle": {
       "group": "string",
-      "name?": "string | null"
+      "name?": "string"
     },
     "onChangeNewEmail": {
       "email": "string"
@@ -159,9 +167,6 @@
     "onUpdatedPGPSettings": {
       "hasKeys": "boolean"
     },
-    "setAllowDeleteAccount": {
-      "allow": "boolean"
-    },
     "stop": {
       "exitCode": "RPCTypes.ExitCode"
     },
@@ -171,13 +176,10 @@
     "processorProfile": {
       "durationSeconds": "number"
     },
-    "waitingForResponse": {
-      "waiting": "boolean"
-    },
     "unfurlSettingsSaved": {
       "_description": "Update unfurl settings from settings screen",
       "mode": "RPCChatTypes.UnfurlMode",
-      "whitelist": "I.List<string>"
+      "whitelist": "Array<string>"
     },
     "unfurlSettingsRefresh": {
       "_description": "Refresh unfurl settings"
@@ -185,21 +187,40 @@
     "unfurlSettingsRefreshed": {
       "_description": "Refreshed unfurl settings available",
       "mode": "RPCChatTypes.UnfurlMode",
-      "whitelist": "I.List<string>"
+      "whitelist": "Array<string>"
     },
     "unfurlSettingsError": {
       "_description": "An error occurred on the unfurl settings screen",
       "error": "string"
     },
+    "contactSettingsError": {
+      "_description": "An error occurred on the contact settings screen",
+      "error": "string"
+    },
+    "contactSettingsRefresh": {
+      "_description": "Refresh Chat contact settings"
+    },
+    "contactSettingsRefreshed": {
+      "_description": "Refreshed Chat contact settings available",
+      "settings": "RPCTypes.ContactSettings"
+    },
+    "contactSettingsSaved": {
+      "_description": "Refreshed Chat contact settings available",
+      "enabled": "boolean",
+      "indirectFollowees": "boolean",
+      "teamsEnabled": "boolean",
+      "teamsList": "Types.ContactSettingsTeamsList"
+    },
     "loadHasRandomPw": {},
     "loadedHasRandomPw": {
       "randomPW": "boolean"
     },
+    "resetCheckPasswordIsCorrect": {},
     "checkPassword": {
       "password": "HiddenString"
     },
     "loadedCheckPassword": {
-      "checkPasswordIsCorrect": "boolean | null"
+      "checkPasswordIsCorrect?": "boolean"
     },
     "sendFeedback": {
       "feedback": "string",
@@ -208,7 +229,7 @@
     },
     "feedbackSent": {
       "_description": "An error occurred while trying to send feedback to Keybase",
-      "error": "Error | null"
+      "error?": "Error"
     },
     "loadProxyData": {},
     "loadedProxyData": {
@@ -218,8 +239,12 @@
       "proxyData": "RPCTypes.ProxyData"
     },
     "certificatePinningToggled": {
-      "toggled": "boolean | null"
+      "toggled?": "boolean"
     },
-    "toggleRuntimeStats": {}
+    "loadDefaultPhoneNumberCountry": {},
+    "updateDefaultPhoneNumberCountry": {
+      "country": "string"
+    },
+    "loginBrowserViaWebAuthToken": {}
   }
 }

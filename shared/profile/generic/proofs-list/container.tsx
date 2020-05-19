@@ -3,32 +3,28 @@ import * as ProfileGen from '../../../actions/profile-gen'
 import * as RouteTreeGen from '../../../actions/route-tree-gen'
 import ProofsList from '.'
 import openURL from '../../../util/open-url'
+import * as Styles from '../../../styles'
 
 type OwnProps = RouteProps
 
-const mapStateToProps = state => ({
-  _proofSuggestions: state.tracker2.proofSuggestions,
-})
-
-const mapDispatchToProps = dispatch => ({
-  onCancel: () => dispatch(RouteTreeGen.createNavigateUp()),
-  providerClicked: (key: string) => dispatch(ProfileGen.createAddProof({platform: key})),
-})
-
-const mergeProps = (stateProps, dispatchProps, ownProps) => ({
-  onCancel: dispatchProps.onCancel,
-  onClickLearn: () => openURL('https://keybase.io/docs/proof_integration_guide'),
-  providerClicked: dispatchProps.providerClicked,
-  providers: stateProps._proofSuggestions
-    .map(s => ({
+export default namedConnect(
+  state => ({_proofSuggestions: state.tracker2.proofSuggestions}),
+  dispatch => ({
+    onCancel: () => dispatch(RouteTreeGen.createNavigateUp()),
+    providerClicked: (key: string) => dispatch(ProfileGen.createAddProof({platform: key, reason: 'profile'})),
+  }),
+  (stateProps, dispatchProps, _: OwnProps) => ({
+    onCancel: dispatchProps.onCancel,
+    onClickLearn: () => openURL('https://book.keybase.io/guides/proof-integration-guide'),
+    providerClicked: dispatchProps.providerClicked,
+    providers: stateProps._proofSuggestions.map(s => ({
       desc: s.pickerSubtext,
-      icon: s.pickerIcon,
+      icon: Styles.isDarkMode() ? s.siteIconFullDarkmode : s.siteIconFull,
       key: s.assertionKey,
       name: s.pickerText,
       new: s.metas.some(({label}) => label === 'new'),
-    }))
-    .toArray(),
-  title: 'Prove your...',
-})
-
-export default namedConnect(mapStateToProps, mapDispatchToProps, mergeProps, 'ProofsList')(ProofsList)
+    })),
+    title: 'Prove your...',
+  }),
+  'ProofsList'
+)(ProofsList)

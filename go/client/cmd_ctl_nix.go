@@ -13,86 +13,11 @@ import (
 	"syscall"
 
 	"github.com/keybase/cli"
-	"github.com/keybase/client/go/install"
 	"github.com/keybase/client/go/libcmdline"
 	"github.com/keybase/client/go/libkb"
 )
 
 const backtick = "`"
-
-type CmdCtlAutostart struct {
-	libkb.Contextified
-	ToggleOn bool
-}
-
-func NewCmdCtlAutostart(cl *libcmdline.CommandLine, g *libkb.GlobalContext) cli.Command {
-	cmd := &CmdCtlAutostart{
-		Contextified: libkb.NewContextified(g),
-	}
-	return cli.Command{
-		Name: "autostart",
-		Usage: `Configure autostart settings via the XDG autostart standard.
-
-	This creates a file at ~/.config/autostart/keybase.desktop.
-
-	If you change this file after initial install, it will not be changed unless
-	you run ` + backtick + `keybase ctl autostart` + backtick + ` or delete
-	the sentinel file at ~/.config/keybase/autostart_created.
-
-	If you are using a headless machine or a minimal window manager that doesn't
-	respect this standard, you will need to configure autostart in another way.
-
-	If you are running Keybase on a headless machine using systemd, you may be
-	interested in enabling the systemd user manager units keybase.service and
-	kbfs.service: ` + backtick + `systemctl --user enable keybase kbfs
-	keybase-redirector` + backtick + `.
-`,
-		Flags: []cli.Flag{
-			cli.BoolFlag{
-				Name:  "enable",
-				Usage: "Toggle on Keybase, KBFS, and GUI autostart on startup.",
-			},
-			cli.BoolFlag{
-				Name:  "disable",
-				Usage: "Toggle off Keybase, KBFS, and GUI autostart on startup.",
-			},
-		},
-		ArgumentHelp: "",
-		Action: func(c *cli.Context) {
-			cl.ChooseCommand(cmd, "autostart", c)
-			cl.SetForkCmd(libcmdline.NoFork)
-			cl.SetLogForward(libcmdline.LogForwardNone)
-		},
-	}
-}
-
-func (c *CmdCtlAutostart) ParseArgv(ctx *cli.Context) error {
-	toggleOn := ctx.Bool("enable")
-	toggleOff := ctx.Bool("disable")
-	if toggleOn && toggleOff {
-		return fmt.Errorf("Cannot specify both --enable and --disable.")
-	}
-	if !toggleOn && !toggleOff {
-		return fmt.Errorf("Must specify either --enable or --disable.")
-	}
-	c.ToggleOn = toggleOn
-	return nil
-}
-
-func (c *CmdCtlAutostart) Run() error {
-	err := install.ToggleAutostart(c.G(), c.ToggleOn, false)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (c *CmdCtlAutostart) GetUsage() libkb.Usage {
-	return libkb.Usage{
-		Config: true,
-		API:    true,
-	}
-}
 
 type CmdCtlRedirector struct {
 	libkb.Contextified
@@ -207,8 +132,8 @@ func redirectorPerm(toggleOn bool) uint32 {
 }
 
 func (c *CmdCtlRedirector) createMount() error {
-	rootMountPerm := os.FileMode(0755 | os.ModeDir)
-	mountedPerm := os.FileMode(0555 | os.ModeDir) // permissions different when mounted
+	rootMountPerm := 0755 | os.ModeDir
+	mountedPerm := 0555 | os.ModeDir // permissions different when mounted
 	fileInfo, err := os.Stat(c.RootRedirectorMount)
 	switch {
 	case os.IsNotExist(err):
@@ -271,8 +196,8 @@ func (c *CmdCtlRedirector) tryAtomicallySetConfigAndChmodRedirector(originallyEn
 	defer func() {
 		// Don't check if err != nil here, since we want this to run even if, e.g.,
 		// the syscall.Chmod call failed.
-		os.Chmod(c.RootConfigDirectory, 0755|os.ModeDir)
-		os.Chmod(c.RootConfigFilename, 0644)
+		_ = os.Chmod(c.RootConfigDirectory, 0755|os.ModeDir)
+		_ = os.Chmod(c.RootConfigFilename, 0644)
 	}()
 
 	err := configWriter.SetBoolAtPath(libkb.DisableRootRedirectorConfigKey, !c.ToggleOn)
@@ -435,7 +360,7 @@ func (c *CmdCtlInit) Envs() []EnvSetting {
 	return []EnvSetting{
 		// This is for the system tray icon in new versions of Ubuntu that do not use Unity.
 		// See https://github.com/electron/electron/issues/10887.
-		EnvSetting{Name: "XDG_CURRENT_DESKTOP", Value: strPtr("Unity")},
+		{Name: "XDG_CURRENT_DESKTOP", Value: strPtr("Unity")},
 
 		// * This section is for the Keybase GUI.
 		// Some older distros (e.g. Ubuntu 16.04) don't make X session variables
@@ -445,31 +370,31 @@ func (c *CmdCtlInit) Envs() []EnvSetting {
 		// passwords or keys. Hopefully this section won't be needed someday.
 		// (Arch Linux doesn't need it today.)
 		// See: graphical-session.target.
-		EnvSetting{Name: "DISPLAY", Value: nil},
-		EnvSetting{Name: "XAUTHORITY", Value: nil},
+		{Name: "DISPLAY", Value: nil},
+		{Name: "XAUTHORITY", Value: nil},
 
 		// * This section is for the Keybase GUI.
 		// The following enable CJK and other alternative input methods.
 		// See https://github.com/keybase/client/issues/9861.
-		EnvSetting{Name: "CLUTTER_IM_MODULE", Value: nil},
-		EnvSetting{Name: "GTK_IM_MODULE", Value: nil},
-		EnvSetting{Name: "QT_IM_MODULE", Value: nil},
-		EnvSetting{Name: "QT4_IM_MODULE", Value: nil},
-		EnvSetting{Name: "XMODIFIERS", Value: nil},
+		{Name: "CLUTTER_IM_MODULE", Value: nil},
+		{Name: "GTK_IM_MODULE", Value: nil},
+		{Name: "QT_IM_MODULE", Value: nil},
+		{Name: "QT4_IM_MODULE", Value: nil},
+		{Name: "XMODIFIERS", Value: nil},
 
 		// * This section is for the Keybase GUI.
 		// Arbitrary environment variables from bashrc and similar aren't
 		// automatically available in the systemd session, and users probably
 		// didn't use pam to define their XDG directories. Export them just in
 		// case.
-		EnvSetting{Name: "XDG_DOWNLOAD_DIR", Value: nil},
+		{Name: "XDG_DOWNLOAD_DIR", Value: nil},
 
 		// * This section is for the service, KBFS, and the Keybase GUI.
-		EnvSetting{Name: "XDG_CACHE_HOME", Value: nil},
-		EnvSetting{Name: "XDG_CONFIG_HOME", Value: nil},
-		EnvSetting{Name: "XDG_DATA_HOME", Value: nil},
-		EnvSetting{Name: "XDG_RUNTIME_DIR", Value: nil},
-		EnvSetting{Name: "DBUS_SESSION_BUS_ADDRESS", Value: nil},
+		{Name: "XDG_CACHE_HOME", Value: nil},
+		{Name: "XDG_CONFIG_HOME", Value: nil},
+		{Name: "XDG_DATA_HOME", Value: nil},
+		{Name: "XDG_RUNTIME_DIR", Value: nil},
+		{Name: "DBUS_SESSION_BUS_ADDRESS", Value: nil},
 	}
 }
 

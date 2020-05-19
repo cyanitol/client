@@ -8,12 +8,19 @@ const getOrderedReactions = (reactions: Types.Reactions | null) => {
   if (!reactions) {
     return []
   }
-  const mins = reactions
-    .map(value =>
-      value.reduce((minTimestamp, reaction) => Math.min(minTimestamp, reaction.timestamp), Infinity)
-    )
-    .sort()
-  return mins.keySeq().toArray()
+
+  const scoreMap = new Map(
+    [...reactions.entries()].map(([key, value]) => {
+      return [
+        key,
+        [...value.users].reduce(
+          (minTimestamp, reaction) => Math.min(minTimestamp, reaction.timestamp),
+          Infinity
+        ),
+      ]
+    })
+  )
+  return [...reactions.keys()].sort((a, b) => scoreMap.get(a)! - scoreMap.get(b)!)
 }
 
 export type OwnProps = {
@@ -26,7 +33,7 @@ export type OwnProps = {
 export default namedConnect(
   (state, ownProps: OwnProps) => {
     const message = Constants.getMessage(state, ownProps.conversationIDKey, ownProps.ordinal)
-    if (!message || message.type === 'placeholder' || message.type === 'deleted') {
+    if (!message || !Constants.isMessageWithReactions(message)) {
       // nothing to see here
       return {_reactions: null}
     }

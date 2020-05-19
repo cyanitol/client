@@ -1,16 +1,18 @@
 import * as React from 'react'
-import {toUpper, upperFirst} from 'lodash-es'
+import toUpper from 'lodash/toUpper'
+import upperFirst from 'lodash/upperFirst'
 import * as Styles from '../../../../../styles'
 
 import {Position} from '../../../../../common-adapters/relative-popup-hoc.types'
 import {Box2} from '../../../../../common-adapters/box'
 import Text, {AllowedColors} from '../../../../../common-adapters/text'
-import Icon, {castPlatformStyles as iconCastPlatformStyles} from '../../../../../common-adapters/icon'
+import Icon from '../../../../../common-adapters/icon'
 import Avatar from '../../../../../common-adapters/avatar'
-import ConnectedUsernames from '../../../../../common-adapters/usernames/container'
+import ConnectedUsernames from '../../../../../common-adapters/usernames'
 import ProgressIndicator from '../../../../../common-adapters/progress-indicator'
 import Divider from '../../../../../common-adapters/divider'
 import FloatingMenu from '../../../../../common-adapters/floating-menu'
+import {MenuItem, MenuItems} from '../../../../../common-adapters/floating-menu/menu-layout'
 
 // This is actually a dependency of common-adapters/markdown so we have to treat it like a common-adapter, no * import allowed
 // TODO could make this more dynamic to avoid this (aka register with markdown what custom stuff you want)
@@ -23,7 +25,6 @@ const Kb = {
   Icon,
   ProgressIndicator,
   Text,
-  iconCastPlatformStyles,
 }
 
 const sendIcon = Styles.isMobile
@@ -68,16 +69,13 @@ export type Props = {
 const headerIcon = (props: HeaderProps) =>
   props.status === 'pending' ? (
     <Kb.Icon
-      type="iconfont-time"
+      type="iconfont-clock"
       color={Styles.globalColors.black_50}
       fontSize={pendingIconSize}
-      style={Kb.iconCastPlatformStyles(styles.pendingHeaderIcon)}
+      style={styles.pendingHeaderIcon}
     />
   ) : (
-    <Kb.Icon
-      type={props.icon === 'sending' ? sendIcon : receiveIcon}
-      style={Kb.iconCastPlatformStyles(styles.headerIcon)}
-    />
+    <Kb.Icon type={props.icon === 'sending' ? sendIcon : receiveIcon} style={styles.headerIcon} />
   )
 
 const Header = (props: HeaderProps) =>
@@ -116,17 +114,19 @@ const Header = (props: HeaderProps) =>
       >
         <Kb.Box2 direction="horizontal" gap="xtiny" fullWidth={true} centerChildren={true}>
           <Kb.Text type="BodySmall">{upperFirst(props.txVerb)} by</Kb.Text>
-          <Kb.Avatar size={16} username={props.sender} clickToProfile="tracker" />
+          <Kb.Avatar size={16} username={props.sender} onClick="profile" />
           <Kb.ConnectedUsernames
             onUsernameClicked="profile"
             colorFollowing={true}
             colorYou={true}
             inline={true}
-            usernames={[props.sender]}
-            type="BodySmallSemibold"
+            usernames={props.sender}
+            type="BodySmallBold"
           />
         </Kb.Box2>
-        <Kb.Text type="BodySmall">using device {props.senderDeviceName}</Kb.Text>
+        <Kb.Text type="BodySmall" center={true}>
+          using device {props.senderDeviceName}
+        </Kb.Text>
         <Kb.Text type="BodySmall">{props.timestamp}</Kb.Text>
       </Kb.Box2>
       {!!props.status && (
@@ -150,12 +150,13 @@ const Header = (props: HeaderProps) =>
   )
 
 const PaymentPopup = (props: Props) => {
-  const items = !props.loading
+  const items: MenuItems = !props.loading
     ? [
         ...(props.onCancel
           ? [
               {
                 danger: true,
+                icon: 'iconfont-remove',
                 onClick: props.onCancel,
                 title: props.cancelButtonLabel,
               },
@@ -164,13 +165,19 @@ const PaymentPopup = (props: Props) => {
         ...(props.onSeeDetails
           ? [
               {
+                icon: 'iconfont-dollar-sign',
                 onClick: props.onSeeDetails,
                 title: 'See transaction details',
               },
             ]
           : []),
-        ...(props.onClaimLumens ? [{onClick: props.onClaimLumens, title: 'Claim lumens'}] : []),
-      ]
+        ...(props.onClaimLumens
+          ? [{icon: 'iconfont-stellar-request', onClick: props.onClaimLumens, title: 'Claim lumens'}]
+          : []),
+      ].reduce<MenuItems>((arr, i) => {
+        i && arr.push(i as MenuItem)
+        return arr
+      }, [])
     : []
 
   // separate out header props
@@ -186,15 +193,12 @@ const PaymentPopup = (props: Props) => {
     visible,
     ...headerProps
   } = props
-  const header = {
-    title: 'header',
-    view: (
-      <React.Fragment>
-        <Header {...headerProps} />
-        {!!items.length && <Kb.Divider />}
-      </React.Fragment>
-    ),
-  }
+  const header = (
+    <>
+      <Header {...headerProps} />
+      {!!items.length && <Kb.Divider />}
+    </>
+  )
   return (
     <Kb.FloatingMenu
       closeOnSelect={true}
@@ -210,82 +214,85 @@ const PaymentPopup = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
-  errorDetails: {
-    maxWidth: 200,
-    paddingLeft: Styles.globalMargins.tiny,
-    paddingRight: Styles.globalMargins.tiny,
-  },
-  headerIcon: Styles.platformStyles({
-    common: {height: headerIconHeight},
-    isAndroid: {
-      marginTop: Styles.globalMargins.tiny,
-    },
-    isElectron: {marginBottom: Styles.globalMargins.small},
-    isMobile: {
-      marginBottom: Styles.globalMargins.small,
-      marginTop: Styles.globalMargins.small,
-    },
-  }),
-  headerTextNotPending: {color: Styles.globalColors.white},
-  headerTextPending: {color: Styles.globalColors.black_50},
-  headerTop: Styles.platformStyles({
-    common: {
-      alignItems: 'center',
-      backgroundColor: Styles.globalColors.purpleDark,
-      paddingBottom: Styles.globalMargins.small,
-    },
-    isElectron: {
-      paddingTop: Styles.globalMargins.small,
-    },
-  }),
-  loadingHeaderTop: Styles.platformStyles({
-    common: {
-      backgroundColor: Styles.globalColors.purpleDark,
-    },
-    isElectron: {
-      height: 133,
-    },
-    isMobile: {
-      height: 215,
-    },
-  }),
-  loadingIndicator: {
-    height: 80,
-    width: 80,
-  },
-  messageInfoContainer: {
-    paddingLeft: Styles.globalMargins.small,
-    paddingRight: Styles.globalMargins.small,
-  },
-  pendingHeaderIcon: Styles.platformStyles({
-    common: {height: pendingIconSize},
-    isAndroid: {
-      marginTop: Styles.globalMargins.tiny,
-    },
-    isElectron: {
-      display: 'inline-block',
-      marginBottom: Styles.globalMargins.small,
-    },
-    isMobile: {
-      marginBottom: Styles.globalMargins.small,
-      marginTop: Styles.globalMargins.small,
-    },
-  }),
-  pendingHeaderTop: Styles.platformStyles({
-    common: {
-      alignItems: 'center',
-      backgroundColor: Styles.globalColors.black_05,
-      paddingBottom: Styles.globalMargins.small,
-    },
-    isElectron: {
-      paddingTop: Styles.globalMargins.small,
-    },
-  }),
-  popupContainer: Styles.platformStyles({
-    isElectron: {maxWidth: 240, minWidth: 200},
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      errorDetails: {
+        maxWidth: 200,
+        paddingLeft: Styles.globalMargins.tiny,
+        paddingRight: Styles.globalMargins.tiny,
+      },
+      headerIcon: Styles.platformStyles({
+        common: {height: headerIconHeight},
+        isAndroid: {
+          marginTop: Styles.globalMargins.tiny,
+        },
+        isElectron: {marginBottom: Styles.globalMargins.small},
+        isMobile: {
+          marginBottom: Styles.globalMargins.small,
+          marginTop: Styles.globalMargins.small,
+        },
+      }),
+      headerTextNotPending: {color: Styles.globalColors.white},
+      headerTextPending: {color: Styles.globalColors.black_50},
+      headerTop: Styles.platformStyles({
+        common: {
+          alignItems: 'center',
+          backgroundColor: Styles.globalColors.purpleDark,
+          paddingBottom: Styles.globalMargins.small,
+        },
+        isElectron: {
+          paddingTop: Styles.globalMargins.small,
+        },
+      }),
+      loadingHeaderTop: Styles.platformStyles({
+        common: {
+          backgroundColor: Styles.globalColors.purpleDark,
+        },
+        isElectron: {
+          height: 133,
+        },
+        isMobile: {
+          height: 215,
+        },
+      }),
+      loadingIndicator: {
+        height: 80,
+        width: 80,
+      },
+      messageInfoContainer: {
+        paddingLeft: Styles.globalMargins.small,
+        paddingRight: Styles.globalMargins.small,
+      },
+      pendingHeaderIcon: Styles.platformStyles({
+        common: {height: pendingIconSize},
+        isAndroid: {
+          marginTop: Styles.globalMargins.tiny,
+        },
+        isElectron: {
+          display: 'inline-block',
+          marginBottom: Styles.globalMargins.small,
+        },
+        isMobile: {
+          marginBottom: Styles.globalMargins.small,
+          marginTop: Styles.globalMargins.small,
+        },
+      }),
+      pendingHeaderTop: Styles.platformStyles({
+        common: {
+          alignItems: 'center',
+          backgroundColor: Styles.globalColors.black_05,
+          paddingBottom: Styles.globalMargins.small,
+        },
+        isElectron: {
+          paddingTop: Styles.globalMargins.small,
+        },
+      }),
+      popupContainer: Styles.platformStyles({
+        isElectron: {maxWidth: 240, minWidth: 200},
+      }),
+    } as const)
+)
 
 const headerTop = (props: HeaderProps) => {
   return props.status === 'pending' ? styles.pendingHeaderTop : styles.headerTop

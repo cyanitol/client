@@ -24,7 +24,7 @@ func (s *DeviceEKSeed) DeriveDHKey() *libkb.NaclDHKeyPair {
 }
 
 func postNewDeviceEK(mctx libkb.MetaContext, sig string) (err error) {
-	defer mctx.TraceTimed("postNewDeviceEK", func() error { return err })()
+	defer mctx.Trace("postNewDeviceEK", &err)()
 
 	apiArg := libkb.APIArg{
 		Endpoint:    "user/device_ek",
@@ -39,7 +39,7 @@ func postNewDeviceEK(mctx libkb.MetaContext, sig string) (err error) {
 }
 
 func serverMaxDeviceEK(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (maxGeneration keybase1.EkGeneration, err error) {
-	defer mctx.TraceTimed("serverMaxDeviceEK", func() error { return err })()
+	defer mctx.Trace("serverMaxDeviceEK", &err)()
 
 	deviceEKs, err := allDeviceEKMetadataMaybeStale(mctx, merkleRoot)
 	if err != nil {
@@ -57,7 +57,7 @@ func serverMaxDeviceEK(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (max
 }
 
 func publishNewDeviceEK(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (metadata keybase1.DeviceEkMetadata, err error) {
-	defer mctx.TraceTimed("publishNewDeviceEK", func() error { return err })()
+	defer mctx.Trace("publishNewDeviceEK", &err)()
 
 	seed, err := newDeviceEphemeralSeed()
 	if err != nil {
@@ -66,9 +66,8 @@ func publishNewDeviceEK(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (me
 
 	storage := mctx.G().GetDeviceEKStorage()
 	generation, err := storage.MaxGeneration(mctx, true)
-	if err != nil {
+	if err != nil || generation < 0 {
 		// Let's try to get the max from the server
-		mctx.Debug("Error getting maxGeneration from storage")
 		generation, err = serverMaxDeviceEK(mctx, merkleRoot)
 		if err != nil {
 			return metadata, err
@@ -100,7 +99,7 @@ func publishNewDeviceEK(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (me
 
 func signAndPostDeviceEK(mctx libkb.MetaContext, generation keybase1.EkGeneration,
 	seed DeviceEKSeed, merkleRoot libkb.MerkleRoot) (metadata keybase1.DeviceEkMetadata, err error) {
-	defer mctx.TraceTimed("signAndPostDeviceEK", func() error { return err })()
+	defer mctx.Trace("signAndPostDeviceEK", &err)()
 
 	storage := mctx.G().GetDeviceEKStorage()
 
@@ -126,7 +125,7 @@ func signAndPostDeviceEK(mctx libkb.MetaContext, generation keybase1.EkGeneratio
 	err = postNewDeviceEK(mctx, signedStatement)
 	if err != nil {
 		storage.ClearCache()
-		serr := NewDeviceEKStorage(mctx).Delete(mctx, generation)
+		serr := NewDeviceEKStorage(mctx).Delete(mctx, generation, "unable to post deviceEK: %v", err)
 		if serr != nil {
 			mctx.Debug("DeviceEK deletion failed %v", err)
 		}
@@ -163,7 +162,7 @@ type deviceEKStatementResponse struct {
 }
 
 func allDeviceEKMetadataMaybeStale(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (metadata map[keybase1.DeviceID]keybase1.DeviceEkMetadata, err error) {
-	defer mctx.TraceTimed("allDeviceEKMetadataMaybeStale", func() error { return err })()
+	defer mctx.Trace("allDeviceEKMetadataMaybeStale", &err)()
 
 	apiArg := libkb.APIArg{
 		Endpoint:    "user/device_eks",
@@ -185,17 +184,39 @@ func allDeviceEKMetadataMaybeStale(mctx libkb.MetaContext, merkleRoot libkb.Merk
 	// match deviceEK sigs with the device that issued them below. (Checking
 	// the signing key is intentionally the only way to do this, so that we're
 	// forced to check authenticity.)
-	kidToDevice := map[keybase1.KID]keybase1.PublicKey{}
-	self, _, err := mctx.G().GetUPAKLoader().Load(libkb.NewLoadUserArgWithMetaContext(
-		mctx).WithUID(mctx.ActiveDevice().UID()))
+	getDeviceKIDs := func(force bool) (map[keybase1.KID]keybase1.PublicKey, error) {
+		arg := libkb.NewLoadUserArgWithMetaContext(
+			mctx).WithUID(mctx.ActiveDevice().UID())
+		if force {
+			arg = arg.WithForceReload()
+		}
+		self, _, err := mctx.G().GetUPAKLoader().Load(arg)
+		if err != nil {
+			return nil, err
+		}
+		kidToDevice := map[keybase1.KID]keybase1.PublicKey{}
+		for _, device := range self.Base.DeviceKeys {
+			if device.IsRevoked {
+				continue
+			}
+			kidToDevice[device.KID] = device
+		}
+		return kidToDevice, nil
+	}
+
+	kidToDevice, err := getDeviceKIDs(false)
 	if err != nil {
 		return nil, err
 	}
-	for _, device := range self.Base.DeviceKeys {
-		if device.IsRevoked {
-			continue
+
+	if len(kidToDevice) != len(parsedResponse.Sigs) {
+		mctx.Debug("mismatch of active devices in UPAK to device EK sigs (%d (upak) != %d (ek sigs), attempting force reload.", len(kidToDevice), len(parsedResponse.Sigs))
+		// force a reload in case we are missing a device
+		kidToDevice, err = getDeviceKIDs(true)
+		if err != nil {
+			return nil, err
 		}
-		kidToDevice[device.KID] = device
+		mctx.Debug("%d active devices found after force reload vs %d sigs.", len(kidToDevice), len(parsedResponse.Sigs))
 	}
 
 	// The client now needs to verify two things about these blobs its
@@ -232,7 +253,7 @@ func allDeviceEKMetadataMaybeStale(mctx libkb.MetaContext, merkleRoot libkb.Merk
 // allActiveDeviceEKMetadata fetches the latest deviceEK for each of your
 // devices, filtering out the ones that are stale.
 func allActiveDeviceEKMetadata(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (metadata map[keybase1.DeviceID]keybase1.DeviceEkMetadata, err error) {
-	defer mctx.TraceTimed("allActiveDeviceEKMetadata", func() error { return err })()
+	defer mctx.Trace("allActiveDeviceEKMetadata", &err)()
 
 	maybeStale, err := allDeviceEKMetadataMaybeStale(mctx, merkleRoot)
 	if err != nil {

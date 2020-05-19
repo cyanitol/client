@@ -31,6 +31,7 @@ func ServiceInit(g *libkb.GlobalContext, walletState *WalletState, badger *badge
 	g.SetStellar(s)
 	g.AddLogoutHook(s, "stellar")
 	g.AddDbNukeHook(s, "stellar")
+	g.PushShutdownHook(s.Shutdown)
 }
 
 type Stellar struct {
@@ -64,6 +65,8 @@ type Stellar struct {
 	// Slot for build payments that do not use BuildPaymentID.
 	buildPaymentSlot *slotctx.PrioritySlot
 
+	reconnectSlot *slotctx.Slot
+
 	badger *badges.Badger
 }
 
@@ -77,6 +80,7 @@ func NewStellar(g *libkb.GlobalContext, walletState *WalletState, badger *badges
 		hasWalletCache:   make(map[keybase1.UserVersion]bool),
 		federationClient: getFederationClient(g),
 		buildPaymentSlot: slotctx.NewPriority(),
+		reconnectSlot:    slotctx.New(),
 		badger:           badger,
 	}
 }
@@ -101,6 +105,11 @@ func (s *Stellar) OnLogout(mctx libkb.MetaContext) error {
 }
 
 func (s *Stellar) OnDbNuke(mctx libkb.MetaContext) error {
+	s.Clear(mctx)
+	return nil
+}
+
+func (s *Stellar) Shutdown(mctx libkb.MetaContext) error {
 	s.Clear(mctx)
 	return nil
 }
@@ -287,14 +296,23 @@ func (s *Stellar) HandleOobm(ctx context.Context, obm gregor.OutOfBandMessage) (
 }
 
 func (s *Stellar) handleReconnect(mctx libkb.MetaContext) {
-	defer mctx.TraceTimed("Stellar.handleReconnect", func() error { return nil })()
+	defer mctx.Trace("Stellar.handleReconnect", nil)()
 	mctx.Debug("stellar received reconnect msg, doing delayed wallet refresh")
-	time.Sleep(4 * time.Second)
+	mctx = mctx.WithCtx(s.reconnectSlot.Use(mctx.Ctx()))
+	mctx, cancel := cancelOnMobileBackground(mctx)
+	defer cancel()
+	if err := libkb.Sleep(mctx.Ctx(), libkb.RandomJitter(4*time.Second)); err != nil {
+		mctx.Debug("Stellar.handleReconnect canceled")
+		return
+	}
 	if libkb.IsMobilePlatform() {
 		// sleep some more on mobile
-		time.Sleep(4 * time.Second)
+		if err := libkb.Sleep(mctx.Ctx(), libkb.RandomJitter(4*time.Second)); err != nil {
+			mctx.Debug("Stellar.handleReconnect canceled")
+			return
+		}
 	}
-	mctx.Debug("stellar reconnect msg delay complete, refreshing wallet state")
+	mctx.Debug("Stellar.handleReconnect delay complete, refreshing wallet state")
 
 	if err := s.walletState.RefreshAll(mctx, "reconnect"); err != nil {
 		mctx.Debug("Stellar.handleReconnect RefreshAll error: %s", err)
@@ -303,7 +321,8 @@ func (s *Stellar) handleReconnect(mctx libkb.MetaContext) {
 
 func (s *Stellar) handlePaymentStatus(mctx libkb.MetaContext, obm gregor.OutOfBandMessage) {
 	var err error
-	defer mctx.TraceTimed("Stellar.handlePaymentStatus", func() error { return err })()
+	defer mctx.Trace("Stellar.handlePaymentStatus", &err)()
+
 	var msg stellar1.PaymentStatusMsg
 	if err = json.Unmarshal(obm.Body().Bytes(), &msg); err != nil {
 		mctx.Debug("error unmarshaling obm PaymentStatusMsg: %s", err)
@@ -311,7 +330,7 @@ func (s *Stellar) handlePaymentStatus(mctx libkb.MetaContext, obm gregor.OutOfBa
 	}
 
 	paymentID := stellar1.NewPaymentID(msg.TxID)
-	notifiedAccountID, err := s.refreshPaymentFromNotification(mctx, paymentID)
+	notifiedAccountID, err := s.refreshPaymentFromNotification(mctx, msg.AccountID, paymentID)
 	if err != nil {
 		mctx.Debug("refreshPaymentFromNotification error: %s", err)
 		return
@@ -322,14 +341,14 @@ func (s *Stellar) handlePaymentStatus(mctx libkb.MetaContext, obm gregor.OutOfBa
 
 func (s *Stellar) handlePaymentNotification(mctx libkb.MetaContext, obm gregor.OutOfBandMessage) {
 	var err error
-	defer mctx.TraceTimed("Stellar.handlePaymentNotification", func() error { return err })()
+	defer mctx.Trace("Stellar.handlePaymentNotification", &err)()
 	var msg stellar1.PaymentNotificationMsg
 	if err = json.Unmarshal(obm.Body().Bytes(), &msg); err != nil {
 		mctx.Debug("error unmarshaling obm PaymentNotificationMsg: %s", err)
 		return
 	}
 
-	notifiedAccountID, err := s.refreshPaymentFromNotification(mctx, msg.PaymentID)
+	notifiedAccountID, err := s.refreshPaymentFromNotification(mctx, msg.AccountID, msg.PaymentID)
 	if err != nil {
 		mctx.Debug("refreshPaymentFromNotification error: %s", err)
 		return
@@ -337,8 +356,24 @@ func (s *Stellar) handlePaymentNotification(mctx libkb.MetaContext, obm gregor.O
 	s.G().NotifyRouter.HandleWalletPaymentNotification(mctx.Ctx(), notifiedAccountID, msg.PaymentID)
 }
 
-func (s *Stellar) findAccountFromPayment(mctx libkb.MetaContext, payment *stellar1.PaymentLocal) (stellar1.AccountID, error) {
+func (s *Stellar) findAccountFromPayment(mctx libkb.MetaContext, accountID stellar1.AccountID, payment *stellar1.PaymentLocal) (stellar1.AccountID, error) {
 	var emptyAccountID stellar1.AccountID
+
+	// double-check that the accountID from the notification matches one of the accountIDs
+	// in the payment
+	if accountID == payment.FromAccountID || (payment.ToAccountID != nil && accountID == *payment.ToAccountID) {
+		ok, _, err := getGlobal(mctx.G()).OwnAccountCached(mctx, accountID)
+		if err != nil {
+			return emptyAccountID, err
+		}
+		if ok {
+			// the user owns the accountID in the notification
+			return accountID, nil
+		}
+	}
+
+	// check if the user owns either from or to accountID:
+
 	ok, _, err := getGlobal(mctx.G()).OwnAccountCached(mctx, payment.FromAccountID)
 	if err != nil {
 		return emptyAccountID, err
@@ -361,7 +396,7 @@ func (s *Stellar) findAccountFromPayment(mctx libkb.MetaContext, payment *stella
 	return emptyAccountID, ErrAccountNotFound
 }
 
-func (s *Stellar) refreshPaymentFromNotification(mctx libkb.MetaContext, paymentID stellar1.PaymentID) (notifiedAccountID stellar1.AccountID, err error) {
+func (s *Stellar) refreshPaymentFromNotification(mctx libkb.MetaContext, accountID stellar1.AccountID, paymentID stellar1.PaymentID) (notifiedAccountID stellar1.AccountID, err error) {
 	var emptyAccountID stellar1.AccountID
 
 	// load the payment
@@ -371,8 +406,9 @@ func (s *Stellar) refreshPaymentFromNotification(mctx libkb.MetaContext, payment
 	if !ok {
 		return emptyAccountID, fmt.Errorf("couldn't find the payment immediately after loading it %v", paymentID)
 	}
+
 	// find the accountID for the running user in the payment (could be sender, recipient, neither)
-	notifiedAccountID, err = s.findAccountFromPayment(mctx, payment)
+	notifiedAccountID, err = s.findAccountFromPayment(mctx, accountID, payment)
 	if err != nil {
 		return emptyAccountID, err
 	}
@@ -385,7 +421,7 @@ func (s *Stellar) refreshPaymentFromNotification(mctx libkb.MetaContext, payment
 
 func (s *Stellar) handleRequestStatus(mctx libkb.MetaContext, obm gregor.OutOfBandMessage) {
 	var err error
-	defer mctx.TraceTimed("Stellar.handleRequestStatus", func() error { return err })()
+	defer mctx.Trace("Stellar.handleRequestStatus", &err)()
 	var msg stellar1.RequestStatusMsg
 	if err = json.Unmarshal(obm.Body().Bytes(), &msg); err != nil {
 		mctx.Debug("error unmarshaling obm RequestStatusMsg: %s", err)
@@ -456,7 +492,7 @@ func (s *Stellar) informAcceptedDisclaimer(ctx context.Context) {
 }
 
 func (s *Stellar) informAcceptedDisclaimerLocked(ctx context.Context) (err error) {
-	defer s.G().CTraceTimed(ctx, "Stellar.informAcceptedDisclaimer", func() error { return err })()
+	defer s.G().CTrace(ctx, "Stellar.informAcceptedDisclaimer", &err)()
 	uv, err := s.G().GetMeUV(ctx)
 	if err != nil {
 		return err
@@ -631,23 +667,34 @@ func (s *Stellar) InformDefaultCurrencyChange(mctx libkb.MetaContext) {
 }
 
 func (s *Stellar) OwnAccountCached(mctx libkb.MetaContext, accountID stellar1.AccountID) (own, isPrimary bool, err error) {
+	own, isPrimary, _, err = s.OwnAccountPlusNameCached(mctx, accountID)
+	return own, isPrimary, err
+}
+
+func (s *Stellar) OwnAccountPlusNameCached(mctx libkb.MetaContext, accountID stellar1.AccountID) (own, isPrimary bool, accountName string, err error) {
 	err = libkb.AcquireWithContextAndTimeout(mctx.Ctx(), &s.accountsLock, 5*time.Second)
 	if err != nil {
-		mctx.Debug("OwnAccountCached: error acquiring lock")
+		mctx.Debug("OwnAccountPlusNameCached: error acquiring lock")
 		return
 	}
 	if s.accounts != nil && mctx.G().Clock().Now().Sub(s.accounts.Stored.Round(0)) < 2*time.Minute {
 		for _, acc := range s.accounts.Accounts {
 			if acc.AccountID.Eq(accountID) {
 				s.accountsLock.Unlock()
-				return true, acc.IsPrimary, nil
+				return true, acc.IsPrimary, acc.Name, nil
 			}
 		}
 		s.accountsLock.Unlock()
-		return false, false, nil
+		return false, false, "", nil
 	}
 	s.accountsLock.Unlock()
-	return OwnAccount(mctx, accountID)
+	return OwnAccountPlusName(mctx, accountID)
+}
+
+func (s *Stellar) Refresh(mctx libkb.MetaContext, reason string) {
+	if err := s.walletState.RefreshAll(mctx, reason); err != nil {
+		mctx.Debug("Stellar.Refresh(%s) ws.RefreshAll error: %s", reason, err)
+	}
 }
 
 // getFederationClient is a helper function used during

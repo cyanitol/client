@@ -60,7 +60,7 @@ start_systemd() {
   # We don't want to persist this, so don't store it in the env file.
   # This is unset right after start in the unit file so subsequent direct
   # systemctl calls don't have it set.
-  systemctl --user import-environment "KEYBASE_AUTOSTART"
+  systemctl --user set-environment "KEYBASE_AUTOSTART=$KEYBASE_AUTOSTART"
 
   # The keybase.gui.service unit has keybase.service as dependencies, so we
   # don't have to list them here. But including them lets us report an error if
@@ -159,7 +159,11 @@ init() {
 
   warn_if_exists_and_unwritable "$logdir"
   warn_if_exists_and_unwritable "$runtime_dir"
+  warn_if_exists_and_unwritable "$HOME/.config"
   warn_if_exists_and_unwritable "$HOME/.local/share/keybase/keybase.leveldb"
+  warn_if_exists_and_unwritable "$HOME/.config/keybase"
+  warn_if_exists_and_unwritable "$HOME/.config/keybase/gui_config.json"
+  warn_if_exists_and_unwritable "$HOME/.cache/keybase"
 
   # Cannot do in go due to background processes being piped to log in bash
   mkdir -p "$logdir"
@@ -180,14 +184,18 @@ init() {
   fi
 }
 
-check_for_url_scheme_launch() {
+check_for_url_scheme_or_saltpack_file_launch() {
   # We set a URL scheme handler on our .desktop file, and since that file
   # points to this script, that's what gets called with URL links. We can
   # differentiate between a normal run_keybase invocation and a URL launch
   # by checking argv.
+  #
+  # We also have a .saltpack MIME type registration, so double clicking on
+  # a saltpack file will also cause run_keybase to receive a $1 argument
+  # of a filename to open.
 
   # If Keybase is already running, then pass it the link and exit.
-  if [[ $# -eq 1 && "$1" =~ ^web+.* ]]; then
+  if [[ $# -eq 1 && "$1" =~ ^(/|web\+|keybase).* ]]; then
       if pgrep -u "$USER" -f 'Keybase$' &> /dev/null; then
           "$KEYBASE" "$1" &
           exit
@@ -255,7 +263,7 @@ init
 
 # Exit early if run caused by a URL scheme invocation and Keybase is already
 # running; otherwise fall through to start Keybase.
-check_for_url_scheme_launch "$@"
+check_for_url_scheme_or_saltpack_file_launch "$@"
 
 # Always stop any running services. With systemd, we could've decided to just
 # `start` services and no-op if they're already running, however:

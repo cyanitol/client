@@ -1,5 +1,5 @@
 import * as React from 'react'
-import {connect} from '../../../../util/container'
+import * as Container from '../../../../util/container'
 import * as Constants from '../../../../constants/chat2'
 import * as Chat2Gen from '../../../../actions/chat2-gen'
 import * as Types from '../../../../constants/types/chat2'
@@ -24,34 +24,33 @@ type OwnProps = {
   visible: boolean
 }
 
-const mapStateToProps = (state, ownProps: OwnProps) => {
-  const meta = Constants.getMeta(state, ownProps.conversationIDKey)
-  return {
-    items: makeItems(meta),
-    selected: Constants.getConversationExplodingMode(state, ownProps.conversationIDKey),
-  }
-}
-
-const mapDispatchToProps = (dispatch, ownProps: OwnProps) => ({
-  onSelect: seconds => {
-    dispatch(Chat2Gen.createSetConvExplodingMode({conversationIDKey: ownProps.conversationIDKey, seconds}))
-    ownProps.onAfterSelect && ownProps.onAfterSelect(seconds)
+const SetExplodePopup = Container.connect(
+  (state, ownProps: OwnProps) => {
+    const {conversationIDKey} = ownProps
+    return {
+      _meta: Constants.getMeta(state, conversationIDKey),
+      selected: Constants.getConversationExplodingMode(state, conversationIDKey),
+    }
   },
-})
-
-const mergeProps = (stateProps, dispatchProps, ownProps) => ({
-  attachTo: ownProps.attachTo,
-  items: stateProps.items,
-  onHidden: ownProps.onHidden,
-  onSelect: dispatchProps.onSelect,
-  selected: stateProps.selected,
-  visible: ownProps.visible,
-})
-
-const SetExplodePopup = connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  mergeProps
+  (dispatch, ownProps: OwnProps) => ({
+    onSelect: (seconds: number) => {
+      dispatch(Chat2Gen.createSetConvExplodingMode({conversationIDKey: ownProps.conversationIDKey, seconds}))
+      ownProps.onAfterSelect && ownProps.onAfterSelect(seconds)
+    },
+  }),
+  (stateProps, dispatchProps, ownProps) => {
+    const {_meta, selected} = stateProps
+    const {onHidden, visible, attachTo} = ownProps
+    const {onSelect} = dispatchProps
+    return {
+      attachTo,
+      items: makeItems(_meta),
+      onHidden,
+      onSelect,
+      selected,
+      visible,
+    }
+  }
 )(SetExplodeTime)
 
 export default SetExplodePopup

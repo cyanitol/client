@@ -1,7 +1,8 @@
 import * as React from 'react'
 import * as Types from '../../constants/types/wallets'
 import * as RPCTypes from '../../constants/types/rpc-stellar-gen'
-import {capitalize} from 'lodash-es'
+import * as Constants from '../../constants/wallets'
+import capitalize from 'lodash/capitalize'
 import {
   Avatar,
   Box2,
@@ -11,7 +12,7 @@ import {
   Text,
   WaitingButton,
 } from '../../common-adapters'
-import {collapseStyles, globalColors, globalMargins, platformStyles, styleSheetCreate} from '../../styles'
+import * as Styles from '../../styles'
 import {formatTimeForMessages, formatTimeForStellarTooltip} from '../../util/timestamp'
 import {MarkdownMemo} from '../common'
 
@@ -26,11 +27,11 @@ type CounterpartyIconProps = {
 const CounterpartyIcon = (props: CounterpartyIconProps) => {
   const size = props.large ? 48 : 32
   if (!props.counterparty && props.counterpartyType !== 'airdrop') {
-    return <Icon type="icon-stellar-logo-grey-48" style={{height: size, width: size}} />
+    return <Icon type="iconfont-identity-stellar" fontSize={size} />
   }
   switch (props.counterpartyType) {
     case 'airdrop':
-      return <Icon type="icon-airdrop-star-48" style={{height: size, width: size}} />
+      return <Icon type="icon-airdrop-logo-48" style={{height: size, width: size}} />
     case 'keybaseUser':
       return (
         <Avatar
@@ -40,18 +41,18 @@ const CounterpartyIcon = (props: CounterpartyIconProps) => {
         />
       )
     case 'stellarPublicKey':
-      return <Icon type="icon-placeholder-secret-user-48" style={{height: size, width: size}} />
+      return <Icon type="icon-placeholder-secret-user-48" style={{height: 48, width: 48}} />
     case 'otherAccount':
       return (
         <Box2
           alignSelf="flex-start"
           direction="horizontal"
-          style={collapseStyles([styles.transferIconContainer, {width: size}])}
+          style={Styles.collapseStyles([styles.transferIconContainer, {width: size}])}
         >
           <Icon
-            color={globalColors.purple}
+            color={Styles.globalColors.purple}
             sizeType={props.detailView ? 'Bigger' : 'Big'}
-            style={collapseStyles([!props.detailView && styles.transferIcon])}
+            style={Styles.collapseStyles([!props.detailView && styles.transferIcon])}
             type="iconfont-wallet-transfer"
           />
         </Box2>
@@ -66,15 +67,16 @@ type CounterpartyTextProps = {
   counterpartyType: Types.CounterpartyType
   onShowProfile: (username: string) => void
   textType: 'Body' | 'BodySmall'
-  textTypeSemibold: 'BodySemibold' | 'BodySmallSemibold'
+  textTypeBold: 'BodyBold' | 'BodySmallBold'
   textTypeItalic: 'BodyItalic' | 'BodySmallItalic'
+  textTypeSemibold: 'BodySemibold' | 'BodySmallSemibold'
 }
 
 export const CounterpartyText = (props: CounterpartyTextProps) => {
   switch (props.counterpartyType) {
     case 'airdrop':
       return (
-        <Text style={{color: globalColors.white}} type={props.textTypeSemibold}>
+        <Text style={{color: Styles.globalColors.purpleDark}} type={props.textTypeSemibold}>
           Stellar airdrop
         </Text>
       )
@@ -85,9 +87,9 @@ export const CounterpartyText = (props: CounterpartyTextProps) => {
           colorBroken={true}
           inline={true}
           onUsernameClicked={props.onShowProfile}
-          type={props.textTypeSemibold}
+          type={props.textTypeBold}
           underline={true}
-          usernames={[props.counterparty]}
+          usernames={props.counterparty}
         />
       )
     case 'stellarPublicKey': {
@@ -131,9 +133,9 @@ type DetailProps = {
 const Detail = (props: DetailProps) => {
   const textType = props.large ? 'Body' : 'BodySmall'
   const textStyle = props.canceled || props.status === 'error' ? styles.lineThrough : undefined
+  const textTypeBold = props.large ? 'BodyBold' : 'BodySmallBold'
   const textTypeItalic = props.large ? 'BodyItalic' : 'BodySmallItalic'
   const textTypeSemibold = props.large ? 'BodySemibold' : 'BodySmallSemibold'
-  const textTypeExtrabold = props.large ? 'BodyExtrabold' : 'BodySmallExtrabold'
   // u2026 is an ellipsis
   const textSentenceEnd = props.detailView && props.pending ? '\u2026' : '.'
 
@@ -142,10 +144,7 @@ const Detail = (props: DetailProps) => {
       const assetCode = props.trustline.asset.code
       const assetIssuer = props.trustline.asset.verifiedDomain || 'Unknown'
       const asset = (
-        <Text
-          type={'BodySmall'}
-          style={{textDecorationLine: props.trustline.remove ? 'line-through' : 'none'}}
-        >
+        <Text type="BodySmall" style={{textDecorationLine: props.trustline.remove ? 'line-through' : 'none'}}>
           <Text type="BodySmallBold">{assetCode}</Text>/{assetIssuer}
         </Text>
       )
@@ -167,33 +166,33 @@ const Detail = (props: DetailProps) => {
   if (props.issuerDescription) {
     // non-native asset
     amount = (
-      <React.Fragment>
-        <Text selectable={props.selectableText} type={textTypeExtrabold}>
+      <>
+        <Text selectable={props.selectableText} type={textType}>
           {props.amountUser}
         </Text>{' '}
         <Text selectable={props.selectableText} type={textType}>
           ({props.issuerDescription})
         </Text>
-      </React.Fragment>
+      </>
     )
   } else if (props.isXLM) {
     // purely, strictly lumens
     amount = (
-      <React.Fragment>
-        <Text selectable={props.selectableText} type={textTypeExtrabold}>
+      <>
+        <Text selectable={props.selectableText} type={textType}>
           {props.amountUser}
         </Text>
-      </React.Fragment>
+      </>
     )
   } else {
     // lumens sent with outside currency exchange rate
     amount = (
-      <React.Fragment>
+      <>
         Lumens worth{' '}
-        <Text selectable={true} type={textTypeExtrabold}>
+        <Text selectable={true} type={textType}>
           {props.amountUser}
         </Text>
-      </React.Fragment>
+      </>
     )
   }
 
@@ -203,15 +202,13 @@ const Detail = (props: DetailProps) => {
       counterpartyType={props.counterpartyType}
       onShowProfile={props.onShowProfile}
       textType={textType}
-      textTypeSemibold={textTypeSemibold}
       textTypeItalic={textTypeItalic}
+      textTypeSemibold={textTypeSemibold}
+      textTypeBold={textTypeBold}
     />
   )
   const approxWorth = props.approxWorth ? (
-    <Text type={textType}>
-      {' '}
-      (approximately <Text type={textTypeExtrabold}>{props.approxWorth}</Text>)
-    </Text>
+    <Text type={textType}> (approximately {props.approxWorth})</Text>
   ) : (
     ''
   )
@@ -271,6 +268,13 @@ const Detail = (props: DetailProps) => {
         </Text>
       )
     }
+    case 'none': {
+      return (
+        <Text type={textType} style={{...styles.breakWord, ...textStyle}}>
+          {props.summaryAdvanced || 'This account was involved in a complex transaction.'}
+        </Text>
+      )
+    }
     default:
       throw new Error(`Unexpected role ${props.yourRole}`)
   }
@@ -288,15 +292,15 @@ type AmountProps = {
 const roleToColor = (role: Types.Role): string => {
   switch (role) {
     case 'airdrop':
-      return globalColors.white
+      return Styles.globalColors.purpleDark
     case 'senderOnly':
-      return globalColors.black
+      return Styles.globalColors.black
     case 'receiverOnly':
-      return globalColors.greenDark
+      return Styles.globalColors.greenDark
     case 'senderAndReceiver':
-      return globalColors.black
+      return Styles.globalColors.black
     case 'none':
-      return globalColors.black
+      return Styles.globalColors.black
     default:
       throw new Error(`Unexpected role ${role}`)
   }
@@ -310,6 +314,7 @@ const getAmount = (role: Types.Role, amount: string, sourceAmount?: string): str
     case 'receiverOnly':
       return `+ ${amount}`
     case 'senderAndReceiver':
+    case 'none':
       return '0 XLM'
     default:
       throw new Error(`Unexpected role ${role}`)
@@ -317,13 +322,13 @@ const getAmount = (role: Types.Role, amount: string, sourceAmount?: string): str
 }
 
 const Amount = (props: AmountProps) => {
-  const color = props.pending || props.canceled ? globalColors.black_20 : roleToColor(props.yourRole)
+  const color = props.pending || props.canceled ? Styles.globalColors.black_20 : roleToColor(props.yourRole)
 
   const amount = getAmount(props.yourRole, props.amountDescription, props.sourceAmountDescription)
   return (
     <Text
       selectable={props.selectableText}
-      style={collapseStyles([
+      style={Styles.collapseStyles([
         {color, flexShrink: 0, textAlign: 'right'},
         props.canceled && styles.lineThrough,
       ])}
@@ -382,7 +387,7 @@ const TimestampLine = (props: TimestampLineProps) => {
   return (
     <Text
       selectable={props.selectableText}
-      style={props.reverseColor ? {color: globalColors.white} : undefined}
+      style={props.reverseColor ? {color: Styles.globalColors.white} : undefined}
       title={tooltip}
       type="BodySmall"
     >
@@ -405,6 +410,15 @@ const TimestampLine = (props: TimestampLineProps) => {
       )}
     </Text>
   )
+}
+
+const styleMarkdownMemo = {
+  paragraph: {
+    color: Styles.globalColors.purpleDark,
+  },
+  strong: {
+    color: Styles.globalColors.purpleDark,
+  },
 }
 
 export type ReadState = 'read' | 'unread' | 'oldestUnread'
@@ -445,8 +459,6 @@ export const Transaction = (props: Props) => {
   let showMemo: boolean
   switch (props.counterpartyType) {
     case 'airdrop':
-      showMemo = false
-      break
     case 'keybaseUser':
       showMemo = true
       break
@@ -464,11 +476,10 @@ export const Transaction = (props: Props) => {
   }
   const large = true
   const pending = !props.timestamp || ['pending', 'claimable'].includes(props.status)
-  const backgroundColor = props.fromAirdrop
-    ? globalColors.purpleLight
-    : (props.unread || pending) && !props.detailView
-    ? globalColors.blueLighter2
-    : globalColors.white
+  const backgroundColor =
+    (props.unread || pending) && !props.detailView
+      ? Styles.globalColors.blueLighter2
+      : Styles.globalColors.white
   return (
     <Box2 direction="vertical" fullWidth={true} style={{backgroundColor}}>
       <ClickableBox onClick={props.onSelectTransaction}>
@@ -486,7 +497,6 @@ export const Transaction = (props: Props) => {
             <TimestampLine
               detailView={props.detailView || false}
               error={props.status === 'error' ? props.statusDetail : ''}
-              reverseColor={props.fromAirdrop}
               selectableText={props.selectableText}
               status={props.status}
               timestamp={props.timestamp}
@@ -513,13 +523,18 @@ export const Transaction = (props: Props) => {
               summaryAdvanced={props.summaryAdvanced}
               trustline={props.trustline}
             />
-            {showMemo && <MarkdownMemo style={styles.marginTopXTiny} memo={props.memo} />}
+            {showMemo && (
+              <MarkdownMemo
+                memo={props.memo}
+                hideDivider={props.fromAirdrop}
+                style={styles.memoStyle}
+                styleOverride={props.fromAirdrop ? styleMarkdownMemo : undefined}
+              />
+            )}
             <Box2 direction="horizontal" fullWidth={true} style={styles.marginTopXTiny}>
               {props.onCancelPayment && (
                 <Box2 direction="vertical" gap="tiny" style={styles.flexOne}>
-                  <Text type="BodySmall">
-                    {props.counterparty} can claim this when they set up their wallet.
-                  </Text>
+                  <Text type="BodySmall">{Constants.makeCancelButtonInfo(props.counterparty)}</Text>
                   <WaitingButton
                     type="Danger"
                     mode="Secondary"
@@ -558,35 +573,47 @@ export const Transaction = (props: Props) => {
   )
 }
 
-const styles = styleSheetCreate({
-  breakWord: platformStyles({isElectron: {wordBreak: 'break-word'}}),
-  cancelButton: {
-    alignSelf: 'flex-start',
-  },
-  container: {
-    padding: globalMargins.tiny,
-    paddingRight: globalMargins.small,
-  },
-  flexOne: {flex: 1},
-  lineThrough: {
-    textDecorationLine: 'line-through',
-  } as const,
-  marginLeftAuto: {marginLeft: 'auto'},
-  marginTopXTiny: {
-    marginTop: globalMargins.xtiny,
-  },
-  orangeLine: {backgroundColor: globalColors.orange, height: 1},
-  rightContainer: {
-    flex: 1,
-    marginLeft: globalMargins.tiny,
-  },
-  transferIcon: {
-    position: 'relative',
-    top: globalMargins.xtiny,
-  },
-  transferIconContainer: {
-    justifyContent: 'center',
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      breakWord: Styles.platformStyles({isElectron: {wordBreak: 'break-word'} as const}),
+      cancelButton: {
+        alignSelf: 'flex-start',
+      },
+      container: Styles.platformStyles({
+        isElectron: {
+          padding: Styles.globalMargins.tiny,
+          paddingRight: Styles.globalMargins.small,
+        },
+        isMobile: {
+          ...Styles.padding(Styles.globalMargins.tiny, Styles.globalMargins.small),
+        },
+      }),
+      flexOne: {flex: 1},
+      lineThrough: {
+        textDecorationLine: 'line-through',
+      } as const,
+      marginLeftAuto: {marginLeft: 'auto'},
+      marginTopXTiny: {
+        marginTop: Styles.globalMargins.xtiny,
+      },
+      memoStyle: {
+        marginTop: Styles.globalMargins.xtiny,
+        paddingRight: Styles.globalMargins.small,
+      },
+      orangeLine: {backgroundColor: Styles.globalColors.orange, height: 1},
+      rightContainer: {
+        flex: 1,
+        marginLeft: Styles.globalMargins.tiny,
+      },
+      transferIcon: {
+        position: 'relative',
+        top: Styles.globalMargins.xtiny,
+      },
+      transferIconContainer: {
+        justifyContent: 'center',
+      },
+    } as const)
+)
 
 export default Transaction

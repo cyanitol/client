@@ -1,5 +1,5 @@
 import * as React from 'react'
-import {isMobile} from '../../constants/platform'
+import {isMobile, hoistNonReactStatic} from '../../util/container'
 
 export type OverlayParentProps = {
   getAttachmentRef?: () => React.Component<any> | null
@@ -16,6 +16,7 @@ type OverlayParentState = {
   showingMenu: boolean
 }
 
+// This is deprecated. Use `Kb.usePopup instead.`
 const OverlayParentHOC = <Props extends {}>(
   ComposedComponent: React.ComponentType<PropsWithOverlay<Props>>
 ): React.ComponentType<PropsWithoutOverlay<Props>> => {
@@ -47,6 +48,7 @@ const OverlayParentHOC = <Props extends {}>(
   }
   const OverlayParent: React.ComponentClass<PropsWithoutOverlay<Props>, OverlayParentState> = _OverlayParent
   OverlayParent.displayName = ComposedComponent.displayName || 'OverlayParent'
+  hoistNonReactStatic(OverlayParent, ComposedComponent)
   return OverlayParent
 }
 

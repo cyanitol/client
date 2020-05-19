@@ -377,7 +377,7 @@ function parseVariant(t, project) {
         } else if (c.body.type === 'array') {
           bodyType = `Array<${capitalize(c.body.items)}>`
         }
-        const bodyStr = c.body ? `, ${label}: ${bodyType} | null` : ''
+        const bodyStr = c.body ? `, ${label}: ${bodyType}` : ''
         return `{ ${t.switch.name}: ${type}.${label}${bodyStr} }`
       }
     })
@@ -488,7 +488,7 @@ export type String = string
 export type Uint = number
 export type Uint64 = number
 type WaitingKey = string | Array<string>
-export type IncomingErrorCallback = (err: {code?: number, desc?: string} | null) => void
+export type IncomingErrorCallback = (err?: {code?: number, desc?: string} | null) => void
 type IncomingReturn = Effect | null | void | false | Array<Effect | null | void | false>
 
 // Dummy calls to avoid undelcared warnings in TS strict mode

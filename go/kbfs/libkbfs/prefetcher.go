@@ -13,6 +13,7 @@ import (
 	"github.com/eapache/channels"
 	"github.com/keybase/backoff"
 	"github.com/keybase/client/go/kbfs/data"
+	"github.com/keybase/client/go/kbfs/env"
 	"github.com/keybase/client/go/kbfs/kbfsblock"
 	"github.com/keybase/client/go/kbfs/libkey"
 	"github.com/keybase/client/go/kbfs/tlf"
@@ -26,7 +27,6 @@ import (
 const (
 	updatePointerPrefetchPriority int           = 1
 	prefetchTimeout               time.Duration = 24 * time.Hour
-	maxNumPrefetches              int           = 10000
 	overallSyncStatusInterval     time.Duration = 1 * time.Second
 )
 
@@ -39,6 +39,8 @@ type prefetcherConfig interface {
 	clockGetter
 	reporterGetter
 	settingsDBGetter
+	subscriptionManagerGetter
+	subscriptionManagerPublisherGetter
 }
 
 type prefetchRequest struct {
@@ -114,10 +116,11 @@ type cancelTlfPrefetch struct {
 }
 
 type blockPrefetcher struct {
-	ctx    context.Context
-	config prefetcherConfig
-	log    logger.Logger
-	vlog   *libkb.VDebugLog
+	ctx             context.Context
+	config          prefetcherConfig
+	log             logger.Logger
+	vlog            *libkb.VDebugLog
+	appStateUpdater env.AppStateUpdater
 
 	makeNewBackOff func() backoff.BackOff
 
@@ -152,6 +155,10 @@ type blockPrefetcher struct {
 	// channel that's always closed, to avoid overhead on certain requests
 	closedCh <-chan struct{}
 
+	pauseLock sync.RWMutex
+	paused    bool
+	pausedCh  chan struct{}
+
 	// map to channels for cancelling queued prefetches
 	queuedPrefetchHandlesLock sync.Mutex
 	queuedPrefetchHandles     map[data.BlockPointer]queuedPrefetch
@@ -172,11 +179,13 @@ func defaultBackOffForPrefetcher() backoff.BackOff {
 
 func newBlockPrefetcher(retriever BlockRetriever,
 	config prefetcherConfig, testSyncCh <-chan struct{},
-	testDoneCh chan<- struct{}) *blockPrefetcher {
+	testDoneCh chan<- struct{},
+	appStateUpdater env.AppStateUpdater) *blockPrefetcher {
 	closedCh := make(chan struct{})
 	close(closedCh)
 	p := &blockPrefetcher{
 		config:                config,
+		appStateUpdater:       appStateUpdater,
 		makeNewBackOff:        defaultBackOffForPrefetcher,
 		retriever:             retriever,
 		prefetchRequestCh:     NewInfiniteChannelWrapper(),
@@ -186,12 +195,13 @@ func newBlockPrefetcher(retriever BlockRetriever,
 		prefetchStatusCh:      NewInfiniteChannelWrapper(),
 		inFlightFetches:       NewInfiniteChannelWrapper(),
 		shutdownCh:            make(chan struct{}),
-		almostDoneCh:          make(chan struct{}, 1),
+		almostDoneCh:          make(chan struct{}),
 		doneCh:                make(chan struct{}),
 		prefetches:            make(map[kbfsblock.ID]*prefetch),
 		queuedPrefetchHandles: make(map[data.BlockPointer]queuedPrefetch),
 		rescheduled:           make(map[kbfsblock.ID]*rescheduledPrefetch),
 		closedCh:              closedCh,
+		pausedCh:              make(chan struct{}),
 	}
 	if config != nil {
 		p.log = config.MakeLogger("PRE")
@@ -224,6 +234,8 @@ func (p *blockPrefetcher) sendOverallSyncStatusHelperLocked() {
 		p.config.DiskBlockCache())
 
 	p.config.Reporter().NotifyOverallSyncStatus(context.Background(), status)
+	p.config.SubscriptionManagerPublisher().PublishChange(
+		keybase1.SubscriptionTopic_OVERALL_SYNC_STATUS)
 	p.lastOverallSyncStatusSent = p.config.Clock().Now()
 
 }
@@ -269,8 +281,9 @@ func (p *blockPrefetcher) decOverallSyncTotalBytes(req *prefetchRequest) {
 	defer p.overallSyncStatusLock.Unlock()
 	if p.overallSyncStatus.SubtreeBytesTotal < uint64(req.encodedSize) {
 		// Both log and panic so that we get the PFID in the log.
-		p.log.CErrorf(nil, "panic: decOverallSyncTotalBytes overstepped "+
-			"its bounds (bytes=%d, fetched=%d, total=%d)", req.encodedSize,
+		p.log.CErrorf(
+			context.TODO(), "panic: decOverallSyncTotalBytes overstepped "+
+				"its bounds (bytes=%d, fetched=%d, total=%d)", req.encodedSize,
 			p.overallSyncStatus.SubtreeBytesFetched,
 			p.overallSyncStatus.SubtreeBytesTotal)
 		panic("decOverallSyncTotalBytes overstepped its bounds")
@@ -294,8 +307,9 @@ func (p *blockPrefetcher) incOverallSyncFetchedBytes(req *prefetchRequest) {
 	if p.overallSyncStatus.SubtreeBytesFetched >
 		p.overallSyncStatus.SubtreeBytesTotal {
 		// Both log and panic so that we get the PFID in the log.
-		p.log.CErrorf(nil, "panic: incOverallSyncFetchedBytes overstepped "+
-			"its bounds (fetched=%d, total=%d)",
+		p.log.CErrorf(
+			context.TODO(), "panic: incOverallSyncFetchedBytes overstepped "+
+				"its bounds (fetched=%d, total=%d)",
 			p.overallSyncStatus.SubtreeBytesFetched,
 			p.overallSyncStatus.SubtreeBytesTotal)
 		panic("incOverallSyncFetchedBytes overstepped its bounds")
@@ -597,7 +611,7 @@ top:
 		ch := chInterface.(<-chan error)
 		<-ch
 	}
-	p.almostDoneCh <- struct{}{}
+	close(p.almostDoneCh)
 }
 
 // calculatePriority returns either a base priority for an unsynced TLF or a
@@ -1149,12 +1163,13 @@ func (p *blockPrefetcher) handlePrefetchRequest(req *prefetchRequest) {
 	}
 
 	if isPrefetchWaiting {
-		if pre.subtreeRetrigger {
+		switch {
+		case pre.subtreeRetrigger:
 			p.vlog.CLogf(
 				ctx, libkb.VLog2,
 				"retriggering prefetch subtree for block ID %s", req.ptr.ID)
 			pre.subtreeRetrigger = false
-		} else if pre.subtreeTriggered {
+		case pre.subtreeTriggered:
 			p.vlog.CLogf(
 				ctx, libkb.VLog2, "prefetch subtree already triggered "+
 					"for block ID %s", req.ptr.ID)
@@ -1176,7 +1191,7 @@ func (p *blockPrefetcher) handlePrefetchRequest(req *prefetchRequest) {
 				// prefetch action.
 				return
 			}
-		} else {
+		default:
 			// This block was in the tree and thus was counted, but now
 			// it has been successfully fetched. We need to percolate
 			// that information up the tree.
@@ -1294,6 +1309,117 @@ func (p *blockPrefetcher) handlePrefetchRequest(req *prefetchRequest) {
 	}
 }
 
+func (p *blockPrefetcher) setPaused(paused bool) {
+	p.pauseLock.Lock()
+	defer p.pauseLock.Unlock()
+	oldPaused := p.paused
+	p.paused = paused
+	if oldPaused != paused {
+		close(p.pausedCh)
+		p.pausedCh = make(chan struct{})
+	}
+}
+
+func (p *blockPrefetcher) getPaused() (paused bool, ch <-chan struct{}) {
+	p.pauseLock.RLock()
+	defer p.pauseLock.RUnlock()
+	return p.paused, p.pausedCh
+}
+
+func (p *blockPrefetcher) handleAppStateChange(
+	appState *keybase1.MobileAppState) {
+	defer func() {
+		p.setPaused(false)
+	}()
+
+	// Pause the prefetcher when backgrounded.
+	for *appState != keybase1.MobileAppState_FOREGROUND {
+		p.setPaused(true)
+		p.log.CDebugf(
+			context.TODO(), "Pausing prefetcher while backgrounded")
+		select {
+		case *appState = <-p.appStateUpdater.NextAppStateUpdate(
+			appState):
+		case req := <-p.prefetchStatusCh.Out():
+			p.handleStatusRequest(req.(*prefetchStatusRequest))
+			continue
+		case <-p.almostDoneCh:
+			return
+		}
+	}
+}
+
+type prefetcherSubscriber struct {
+	ch       chan<- struct{}
+	clientID SubscriptionManagerClientID
+}
+
+func makePrefetcherSubscriptionManagerClientID() SubscriptionManagerClientID {
+	return SubscriptionManagerClientID(
+		fmt.Sprintf("prefetcher-%d", time.Now().UnixNano()))
+}
+
+func (ps prefetcherSubscriber) OnPathChange(
+	_ SubscriptionManagerClientID,
+	_ []SubscriptionID, _ string, _ []keybase1.PathSubscriptionTopic) {
+}
+
+func (ps prefetcherSubscriber) OnNonPathChange(
+	clientID SubscriptionManagerClientID,
+	_ []SubscriptionID, _ keybase1.SubscriptionTopic) {
+	if clientID != ps.clientID {
+		return
+	}
+
+	select {
+	case ps.ch <- struct{}{}:
+	default:
+	}
+}
+
+func (p *blockPrefetcher) handleNetStateChange(
+	netState *keybase1.MobileNetworkState, subCh <-chan struct{}) {
+	for *netState != keybase1.MobileNetworkState_CELLULAR {
+		return
+	}
+
+	defer func() {
+		p.setPaused(false)
+	}()
+
+	for *netState == keybase1.MobileNetworkState_CELLULAR {
+		// Default to not syncing while on a cell network.
+		syncOnCellular := false
+		db := p.config.GetSettingsDB()
+		if db != nil {
+			s, err := db.Settings(context.TODO())
+			if err == nil {
+				syncOnCellular = s.SyncOnCellular
+			}
+		}
+
+		if syncOnCellular {
+			// Can ignore this network change.
+			break
+		}
+
+		p.setPaused(true)
+		p.log.CDebugf(
+			context.TODO(), "Pausing prefetcher on cell network")
+		select {
+		case *netState = <-p.appStateUpdater.NextNetworkStateUpdate(
+			netState):
+		case <-subCh:
+			p.log.CDebugf(context.TODO(), "Settings changed")
+		case req := <-p.prefetchStatusCh.Out():
+			p.handleStatusRequest(req.(*prefetchStatusRequest))
+			continue
+		case <-p.almostDoneCh:
+			return
+		}
+	}
+}
+
 // run prefetches blocks.
 // E.g. a synced prefetch:
 // a -> {b -> {c, d}, e -> {f, g}}:
@@ -1344,6 +1470,36 @@ func (p *blockPrefetcher) run(
 	isShuttingDown := false
 	var shuttingDownCh <-chan interface{}
 	first := true
+	appState := keybase1.MobileAppState_FOREGROUND
+	netState := keybase1.MobileNetworkState_NONE
+
+	// Subscribe to settings updates while waiting for the network to
+	// change.
+	subCh := make(chan struct{}, 1)
+	clientID := makePrefetcherSubscriptionManagerClientID()
+	subMan := p.config.SubscriptionManager(
+		clientID, false,
+		prefetcherSubscriber{
+			ch:       subCh,
+			clientID: clientID,
+		})
+	if subMan != nil {
+		const prefetcherSubKey = "prefetcherSettings"
+		err := subMan.SubscribeNonPath(
+			context.TODO(), prefetcherSubKey,
+			keybase1.SubscriptionTopic_SETTINGS, nil)
+		if err != nil {
+			p.log.CDebugf(
+				context.TODO(), "Error subscribing to settings: %+v", err)
+		} else {
+			defer subMan.Unsubscribe(context.TODO(), prefetcherSubKey)
+		}
+		defer subMan.Shutdown(context.TODO())
+	} else {
+		close(subCh)
+		subCh = nil
+	}
+
 	for {
 		if !first && testDoneCh != nil && !isShuttingDown {
 			testDoneCh <- struct{}{}
@@ -1372,6 +1528,13 @@ func (p *blockPrefetcher) run(
 			p.log.Debug("shutting down, clearing in flight fetches")
 			ch := chInterface.(<-chan error)
 			<-ch
+		case appState = <-p.appStateUpdater.NextAppStateUpdate(&appState):
+			p.handleAppStateChange(&appState)
+		case netState = <-p.appStateUpdater.NextNetworkStateUpdate(&netState):
+			p.handleNetStateChange(&netState, subCh)
+		case <-subCh:
+			// Settings have changed, so recheck the network state.
+			netState = keybase1.MobileNetworkState_NONE
 		case ptrInt := <-p.prefetchCancelCh.Out():
 			ptr := ptrInt.(data.BlockPointer)
 			pre, ok := p.prefetches[ptr.ID]
@@ -1387,7 +1550,9 @@ func (p *blockPrefetcher) run(
 			p.applyToPtrParentsRecursive(p.cancelPrefetch, ptr, pre)
 		case reqInt := <-p.prefetchCancelTlfCh.Out():
 			req := reqInt.(cancelTlfPrefetch)
-			p.log.CDebugf(nil, "Canceling all prefetches for TLF %s", req.tlfID)
+			p.log.CDebugf(
+				context.TODO(), "Canceling all prefetches for TLF %s",
+				req.tlfID)
 			// Cancel all prefetches for this TLF.
 			for id, pre := range p.prefetches {
 				if pre.req.kmd.TlfID() != req.tlfID {
@@ -1489,16 +1654,20 @@ func (p *blockPrefetcher) ProcessBlockForPrefetch(ctx context.Context,
 	req := &prefetchRequest{
 		ptr, block.GetEncodedSize(), block.NewEmptier(), kmd, priority,
 		lifetime, prefetchStatus, action, nil, nil, false}
-	if prefetchStatus == FinishedPrefetch {
+	switch {
+	case prefetchStatus == FinishedPrefetch:
 		// Finished prefetches can always be short circuited.
 		// If we're here, then FinishedPrefetch is already cached.
-	} else if !action.Prefetch(block) {
+	case !action.Prefetch(block):
 		// Only high priority requests can trigger prefetches. Leave the
 		// prefetchStatus unchanged, but cache anyway.
-		p.retriever.PutInCaches(
+		err := p.retriever.PutInCaches(
 			ctx, ptr, kmd.TlfID(), block, lifetime, prefetchStatus,
 			action.CacheType())
-	} else {
+		if err != nil {
+			p.log.CDebugf(ctx, "Couldn't put block %s in caches: %+v", ptr, err)
+		}
+	default:
 		// Note that here we are caching `TriggeredPrefetch`, but the request
 		// will still reflect the passed-in `prefetchStatus`, since that's the
 		// one the prefetching goroutine needs to decide what to do with.
@@ -1513,6 +1682,29 @@ func (p *blockPrefetcher) ProcessBlockForPrefetch(ctx context.Context,
 }
 
 var errPrefetcherAlreadyShutDown = errors.New("Already shut down")
+
+func (p *blockPrefetcher) proxyWaitCh(
+	ctx context.Context, ptr data.BlockPointer,
+	c <-chan <-chan struct{}) <-chan struct{} {
+	p.log.CDebugf(
+		ctx, "Proxying the wait channel for %s while prefetching is paused",
+		ptr)
+	proxyCh := make(chan struct{})
+	go func() {
+		var waitCh <-chan struct{}
+		select {
+		case waitCh = <-c:
+		case <-p.shutdownCh:
+			return
+		}
+		select {
+		case <-waitCh:
+			close(proxyCh)
+		case <-p.shutdownCh:
+		}
+	}()
+	return proxyCh
+}
 
 // WaitChannelForBlockPrefetch implements the Prefetcher interface for
 // blockPrefetcher.
@@ -1531,14 +1723,32 @@ func (p *blockPrefetcher) WaitChannelForBlockPrefetch(
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+
+	// If we're paused for some reason, we still want to return a
+	// channel quickly to the caller, so proxy the real wait channel
+	// and return right away.  The caller can still wait on the proxy
+	// channel while the real request is waiting on the prefetcher
+	// request queue.
+	paused, pausedCh := p.getPaused()
+	if paused {
+		return p.proxyWaitCh(ctx, ptr, c), nil
+	}
+
 	// Wait for response.
-	select {
-	case waitCh := <-c:
-		return waitCh, nil
-	case <-p.shutdownCh:
-		return nil, errPrefetcherAlreadyShutDown
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	for {
+		select {
+		case waitCh := <-c:
+			return waitCh, nil
+		case <-pausedCh:
+			paused, pausedCh = p.getPaused()
+			if paused {
+				return p.proxyWaitCh(ctx, ptr, c), nil
+			}
+		case <-p.shutdownCh:
+			return nil, errPrefetcherAlreadyShutDown
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 

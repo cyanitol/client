@@ -16,6 +16,10 @@
           "name": "username"
         },
         {
+          "type": "FullName",
+          "name": "fullname"
+        },
+        {
           "type": "boolean",
           "name": "hasStoredSecret"
         },
@@ -48,7 +52,7 @@
         },
         {
           "name": "deviceType",
-          "type": "string"
+          "type": "DeviceTypeV2"
         },
         {
           "name": "username",
@@ -73,7 +77,7 @@
         }
       ],
       "response": null,
-      "doc": "Performs login.  deviceType should be libkb.DeviceTypeDesktop\n    or libkb.DeviceTypeMobile. username is optional. If the current\n    device isn't provisioned, this function will provision it."
+      "doc": "Performs login.  deviceType should be keybase1.DeviceTypeV2_DESKTOP\n    or keybase1.DeviceTypeV2_MOBILE. username is optional. If the current\n    device isn't provisioned, this function will provision it."
     },
     "loginProvisionedDevice": {
       "request": [
@@ -107,25 +111,19 @@
       "response": null,
       "doc": "Login and unlock by\n  - trying unlocked device keys if available\n  - prompting for a paper key and using that"
     },
-    "clearStoredSecret": {
+    "logout": {
       "request": [
         {
           "name": "sessionID",
           "type": "int"
         },
         {
-          "name": "username",
-          "type": "string"
-        }
-      ],
-      "response": null,
-      "doc": "Removes any existing stored secret for the given username.\n    loginWithStoredSecret(_, username) will fail after this is called."
-    },
-    "logout": {
-      "request": [
+          "name": "force",
+          "type": "boolean"
+        },
         {
-          "name": "sessionID",
-          "type": "int"
+          "name": "keepSecrets",
+          "type": "boolean"
         }
       ],
       "response": null
@@ -222,10 +220,17 @@
         {
           "name": "sessionID",
           "type": "int"
+        },
+        {
+          "name": "passphrase",
+          "type": [
+            null,
+            "string"
+          ]
         }
       ],
       "response": null,
-      "doc": "accountDelete is for devel/testing to delete the current user's account."
+      "doc": "accountDelete deletes the current user's account."
     },
     "loginOneshot": {
       "request": [
@@ -244,6 +249,11 @@
       ],
       "response": null,
       "doc": "loginOneshot allows a service to have a \"onetime login\", without\n   provisioning a device. It bootstraps credentials with the given\n   paperkey"
+    },
+    "isOnline": {
+      "request": [],
+      "response": "bool",
+      "doc": "isOnline returns whether the device is able to open a connection to keybase.io.\n   Used for determining whether to offer proxy settings on the login screen."
     }
   },
   "namespace": "keybase.1"

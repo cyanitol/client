@@ -36,6 +36,8 @@ go/revision
 ./build
 # vscode
 .vscode
+# intellij
+.idea
 
 npm-debug.log
 yarn-error.log
@@ -65,3 +67,10 @@ shared/android/app/local.properties
 browser/node_modules
 browser/js/bundle.js
 go/.go_package_deps*
+
+# Files used during the Docker build
+.docker
+
+# Files used during Vagrant smoketests
+.vagrant
+*cloudimg-console.log

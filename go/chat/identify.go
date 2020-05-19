@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -33,7 +32,7 @@ type SimpleIdentifyNotifier struct {
 func NewSimpleIdentifyNotifier(g *globals.Context) *SimpleIdentifyNotifier {
 	return &SimpleIdentifyNotifier{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "SimpleIdentifyNotifier", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "SimpleIdentifyNotifier", false),
 		storage:      storage.New(g, g.ConvSource),
 	}
 }
@@ -61,7 +60,7 @@ type CachingIdentifyNotifier struct {
 func NewCachingIdentifyNotifier(g *globals.Context) *CachingIdentifyNotifier {
 	return &CachingIdentifyNotifier{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "CachingIdentifyNotifier", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "CachingIdentifyNotifier", false),
 		identCache:   make(map[string]keybase1.CanonicalTLFNameAndIDWithBreaks),
 		storage:      storage.New(g, g.ConvSource),
 	}
@@ -115,11 +114,9 @@ type IdentifyChangedHandler struct {
 func NewIdentifyChangedHandler(g *globals.Context) *IdentifyChangedHandler {
 	return &IdentifyChangedHandler{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "IdentifyChangedHandler", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "IdentifyChangedHandler", false),
 	}
 }
-
-var errNoConvForUser = errors.New("user not found in inbox")
 
 func (h *IdentifyChangedHandler) getUsername(ctx context.Context, uid keybase1.UID) (string, error) {
 	u, err := h.G().GetUPAKLoader().LookupUsername(ctx, uid)
@@ -127,7 +124,7 @@ func (h *IdentifyChangedHandler) getUsername(ctx context.Context, uid keybase1.U
 }
 
 func (h *IdentifyChangedHandler) HandleUserChanged(uid keybase1.UID) (err error) {
-	defer h.Trace(context.Background(), func() error { return err },
+	defer h.Trace(context.Background(), &err,
 		fmt.Sprintf("HandleUserChanged(uid=%s)", uid))()
 	// If this is about us we don't care
 	me := h.G().Env.GetUID()
@@ -161,7 +158,7 @@ type NameIdentifier struct {
 func NewNameIdentifier(g *globals.Context) *NameIdentifier {
 	return &NameIdentifier{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "NameIdentifier", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "NameIdentifier", false),
 	}
 }
 
@@ -172,7 +169,7 @@ func (t *NameIdentifier) Identify(ctx context.Context, names []string, private b
 	if !ok {
 		return res, fmt.Errorf("invalid context with no chat metadata")
 	}
-	defer t.Trace(ctx, func() error { return err },
+	defer t.Trace(ctx, &err,
 		fmt.Sprintf("Identify(names=%s,mode=%v,uid=%s)", strings.Join(names, ","), identBehavior,
 			t.G().GetEnv().GetUsername()))()
 
@@ -220,7 +217,7 @@ func (t *NameIdentifier) Identify(ctx context.Context, names []string, private b
 	}
 
 	go func() {
-		group.Wait()
+		_ = group.Wait()
 		close(fails)
 	}()
 	for f := range fails {

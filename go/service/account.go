@@ -6,6 +6,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/keybase/client/go/engine"
 	"github.com/keybase/client/go/libkb"
@@ -83,7 +84,7 @@ func (h *AccountHandler) ResetAccount(ctx context.Context, arg keybase1.ResetAcc
 	}
 
 	m := libkb.NewMetaContext(ctx, h.G())
-	defer m.Trace("AccountHandler#ResetAccount", func() error { return err })()
+	defer m.Trace("AccountHandler#ResetAccount", &err)()
 
 	username := h.G().GetEnv().GetUsername()
 	m.Debug("resetting account for %s", username.String())
@@ -106,7 +107,7 @@ func (h *AccountHandler) ResetAccount(ctx context.Context, arg keybase1.ResetAcc
 
 	m.Debug("reset account succeeded, logging out.")
 
-	return h.G().Logout(m.Ctx())
+	return m.LogoutKillSecrets()
 }
 
 type GetLockdownResponse struct {
@@ -117,7 +118,7 @@ type GetLockdownResponse struct {
 
 func (h *AccountHandler) GetLockdownMode(ctx context.Context, sessionID int) (ret keybase1.GetLockdownResponse, err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G())
-	defer mctx.TraceTimed("GetLockdownMode", func() error { return err })()
+	defer mctx.Trace("GetLockdownMode", &err)()
 	apiArg := libkb.APIArg{
 		Endpoint:    "account/lockdown",
 		SessionType: libkb.APISessionTypeREQUIRED,
@@ -156,7 +157,7 @@ func (h *AccountHandler) GetLockdownMode(ctx context.Context, sessionID int) (re
 
 func (h *AccountHandler) SetLockdownMode(ctx context.Context, arg keybase1.SetLockdownModeArg) (err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G())
-	defer mctx.TraceTimed(fmt.Sprintf("SetLockdownMode(%v)", arg.Enabled), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("SetLockdownMode(%v)", arg.Enabled), &err)()
 	apiArg := libkb.APIArg{
 		Endpoint:    "account/lockdown",
 		SessionType: libkb.APISessionTypeREQUIRED,
@@ -170,7 +171,7 @@ func (h *AccountHandler) SetLockdownMode(ctx context.Context, arg keybase1.SetLo
 
 func (h *AccountHandler) PassphraseCheck(ctx context.Context, arg keybase1.PassphraseCheckArg) (ret bool, err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G())
-	defer mctx.Trace("PassphraseCheck", func() error { return err })()
+	defer mctx.Trace("PassphraseCheck", &err)()
 	eng := engine.NewPassphraseCheck(mctx.G(), &arg)
 	uis := libkb.UIs{
 		SecretUI:  h.getSecretUI(arg.SessionID, h.G()),
@@ -182,7 +183,7 @@ func (h *AccountHandler) PassphraseCheck(ctx context.Context, arg keybase1.Passp
 
 func (h *AccountHandler) RecoverUsernameWithEmail(ctx context.Context, arg keybase1.RecoverUsernameWithEmailArg) (err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G())
-	defer mctx.TraceTimed(fmt.Sprintf("RecoverUsernameWithEmail(%q)", arg.Email), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("RecoverUsernameWithEmail(%q)", arg.Email), &err)()
 	apiArg := libkb.APIArg{
 		Endpoint:    "account/recover_username",
 		SessionType: libkb.APISessionTypeNONE,
@@ -196,7 +197,7 @@ func (h *AccountHandler) RecoverUsernameWithEmail(ctx context.Context, arg keyba
 
 func (h *AccountHandler) RecoverUsernameWithPhone(ctx context.Context, arg keybase1.RecoverUsernameWithPhoneArg) (err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G())
-	defer mctx.TraceTimed(fmt.Sprintf("RecoverUsernameWithPhone(%q)", arg.Phone), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("RecoverUsernameWithPhone(%q)", arg.Phone), &err)()
 	if err = libkb.IsPossiblePhoneNumber(arg.Phone); err != nil {
 		return err
 	}
@@ -216,7 +217,7 @@ func (h *AccountHandler) RecoverUsernameWithPhone(ctx context.Context, arg keyba
 // Resets are not allowed on a provisioned device.
 func (h *AccountHandler) EnterResetPipeline(ctx context.Context, arg keybase1.EnterResetPipelineArg) (err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G())
-	defer mctx.TraceTimed("EnterResetPipline", func() error { return err })()
+	defer mctx.Trace("EnterResetPipline", &err)()
 	uis := libkb.UIs{
 		LoginUI:   h.getLoginUI(arg.SessionID),
 		SecretUI:  h.getSecretUI(arg.SessionID, h.G()),
@@ -224,26 +225,87 @@ func (h *AccountHandler) EnterResetPipeline(ctx context.Context, arg keybase1.En
 		SessionID: arg.SessionID,
 	}
 	eng := engine.NewAccountReset(h.G(), arg.UsernameOrEmail)
+	// In noninteractive mode, use this to set skipPassword
+	if arg.Passphrase != "" || !arg.Interactive {
+		eng.SetPassphrase(arg.Passphrase)
+	}
 	m := libkb.NewMetaContext(ctx, h.G()).WithUIs(uis)
 	return engine.RunEngine2(m, eng)
 }
 
 // CancelReset allows a user to cancel the reset process via an authenticated API call.
-func (h *AccountHandler) CancelReset(ctx context.Context, sessionID int) error {
+func (h *AccountHandler) CancelReset(ctx context.Context, sessionID int) (err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G())
-	return libkb.CancelResetPipeline(mctx)
+	defer mctx.Trace("CancelReset", &err)()
+	err = libkb.CancelResetPipeline(mctx)
+	if err != nil {
+		mctx.Debug("CancelResetPipeline failed with: %s", err)
+		mctx.Debug("Checking if we are not revoked")
+		err2 := mctx.LogoutAndDeprovisionIfRevoked()
+		if err2 != nil {
+			mctx.Error("LogoutAndDeprovisionIfRevoked failed in CancelReset check: %s", err2)
+			return libkb.CombineErrors(err, err2)
+		}
+		if mctx.CurrentUID().IsNil() {
+			// We got logged out.
+			return UserWasLoggedOutError{}
+		}
+	}
+	return err
 }
 
-// TimeTravelReset allows a user to move forward in the reset process via an authenticated API call [devel-only].
+// TimeTravelReset allows a user to move forward in the reset process via an API call [devel-only].
 func (h *AccountHandler) TimeTravelReset(ctx context.Context, arg keybase1.TimeTravelResetArg) error {
 	mctx := libkb.NewMetaContext(ctx, h.G())
+	if arg.Username == "" {
+		current, _, err := mctx.G().GetAllUserNames()
+		if err != nil {
+			return err
+		}
+		arg.Username = current.String()
+	}
+
 	_, err := mctx.G().API.Post(mctx, libkb.APIArg{
 		Endpoint:    "autoreset/timetravel",
-		SessionType: libkb.APISessionTypeREQUIRED,
+		SessionType: libkb.APISessionTypeNONE,
 		Args: libkb.HTTPArgs{
+			"username":     libkb.S{Val: arg.Username},
 			"duration_sec": libkb.I{Val: int(arg.Duration)},
 		},
 	})
 
 	return err
+}
+
+func (h *AccountHandler) GuessCurrentLocation(ctx context.Context, arg keybase1.GuessCurrentLocationArg) (string, error) {
+	mctx := libkb.NewMetaContext(ctx, h.G())
+	res, err := mctx.G().API.Get(mctx, libkb.APIArg{
+		Endpoint:       "account/location_suggest",
+		SessionType:    libkb.APISessionTypeNONE,
+		InitialTimeout: 2500 * time.Millisecond,
+		RetryCount:     2,
+	})
+	if err != nil {
+		mctx.Warning("Unable to retrieve the current location: %v", err)
+		return arg.DefaultCountry, nil
+	}
+	code, err := res.Body.AtKey("country_code").GetString()
+	if err != nil || code == "-" {
+		mctx.Warning("Unable to retrieve the current location: %v", err)
+		return arg.DefaultCountry, nil
+	}
+	mctx.Debug("Guessed this device's country to be %v", code)
+	return code, nil
+}
+
+func (h *AccountHandler) UserGetContactSettings(ctx context.Context) (res keybase1.ContactSettings, err error) {
+	mctx := libkb.NewMetaContext(ctx, h.G())
+	defer mctx.Trace("AccountHandler#UserGetContactSettings", &err)()
+	return libkb.GetContactSettings(mctx)
+}
+
+func (h *AccountHandler) UserSetContactSettings(ctx context.Context, arg keybase1.ContactSettings) (err error) {
+	mctx := libkb.NewMetaContext(ctx, h.G())
+	defer mctx.Trace("AccountHandler#UserSetContactSettings", &err)()
+	return libkb.SetContactSettings(mctx, arg)
 }

@@ -27,12 +27,13 @@ func GetCurrentStatus(mctx libkb.MetaContext) (res keybase1.CurrentStatus, err e
 	}
 	res.SessionIsValid = mctx.ActiveDevice().Valid()
 	res.LoggedIn = res.SessionIsValid
+	res.DeviceName = mctx.ActiveDevice().Name()
 	return res, nil
 }
 
 func GetExtendedStatus(mctx libkb.MetaContext) (res keybase1.ExtendedStatus, err error) {
 	mctx = mctx.WithLogTag("EXTSTATUS")
-	defer mctx.TraceTimed("GetExtendedStatus", func() error { return err })()
+	defer mctx.Trace("GetExtendedStatus", &err)()
 	g := mctx.G()
 
 	res.Standalone = g.Env.GetStandalone()
@@ -98,7 +99,7 @@ func GetExtendedStatus(mctx libkb.MetaContext) (res keybase1.ExtendedStatus, err
 	}
 	res.ProvisionedUsernames = p
 
-	accounts, err := libkb.GetConfiguredAccounts(mctx, mctx.G().SecretStore())
+	accounts, err := libkb.GetConfiguredAccountsFromProvisionedUsernames(mctx, mctx.G().SecretStore(), current, all)
 	if err != nil {
 		mctx.Debug("| died in GetConfiguredAccounts()")
 		return res, err
@@ -107,7 +108,7 @@ func GetExtendedStatus(mctx libkb.MetaContext) (res keybase1.ExtendedStatus, err
 
 	res.PlatformInfo = getPlatformInfo()
 	res.DefaultDeviceID = g.Env.GetDeviceID()
-	res.RememberPassphrase = g.Env.RememberPassphrase()
+	res.RememberPassphrase = g.Env.GetRememberPassphrase(g.Env.GetUsername())
 	// DeviceEK status, can be nil if user is logged out
 	deviceEKStorage := g.GetDeviceEKStorage()
 	if deviceEKStorage != nil {
@@ -168,10 +169,10 @@ func GetConfig(mctx libkb.MetaContext, forkType keybase1.ForkType) (c keybase1.C
 	}
 
 	gpg := mctx.G().GetGpgClient()
-	canExec, err := gpg.CanExec()
+	canExec, err := gpg.CanExec(mctx)
 	if err == nil {
 		c.GpgExists = canExec
-		c.GpgPath = gpg.Path()
+		c.GpgPath = gpg.Path(mctx)
 	}
 
 	c.Version = libkb.VersionString()
@@ -194,7 +195,7 @@ func GetConfig(mctx libkb.MetaContext, forkType keybase1.ForkType) (c keybase1.C
 	if err == nil {
 		c.BinaryRealpath = realpath
 	} else {
-		mctx.Warning("Failed to get service realpath: %s", err)
+		mctx.Debug("Failed to get service realpath: %s", err)
 	}
 
 	c.ConfigPath = mctx.G().Env.GetConfigFilename()
@@ -238,7 +239,10 @@ func GetFullStatus(mctx libkb.MetaContext) (status *keybase1.FullStatus, err err
 
 	// set kbfs status
 	kbfsInstalledVersion, err := install.KBFSBundleVersion(mctx.G(), "")
-	if err == nil {
+	if err != nil {
+		mctx.Debug("Failed to get KBFSBundleVersion: %s", err)
+	} else {
+		mctx.Debug("Got KBFSBundleVersion: %s", kbfsInstalledVersion)
 		status.Kbfs.InstalledVersion = kbfsInstalledVersion
 	}
 	if kbfs := GetFirstClient(status.ExtStatus.Clients, keybase1.ClientType_KBFS); kbfs != nil {
@@ -266,13 +270,17 @@ func GetFullStatus(mctx libkb.MetaContext) (status *keybase1.FullStatus, err err
 	// set log paths
 	status.Service.Log = getServiceLog(mctx, status.ExtStatus.LogDir)
 	status.Service.EkLog = filepath.Join(status.ExtStatus.LogDir, libkb.EKLogFileName)
+	status.Service.PerfLog = filepath.Join(status.ExtStatus.LogDir, libkb.PerfLogFileName)
 	status.Kbfs.Log = filepath.Join(status.ExtStatus.LogDir, libkb.KBFSLogFileName)
-	status.Desktop.Log = filepath.Join(status.ExtStatus.LogDir, libkb.DesktopLogFileName)
+	status.Kbfs.PerfLog = filepath.Join(status.ExtStatus.LogDir, libkb.KBFSPerfLogFileName)
+	status.Desktop.Log = filepath.Join(status.ExtStatus.LogDir, libkb.GUILogFileName)
 	status.Updater.Log = filepath.Join(status.ExtStatus.LogDir, libkb.UpdaterLogFileName)
 	status.Start.Log = filepath.Join(status.ExtStatus.LogDir, libkb.StartLogFileName)
 	status.Git.Log = filepath.Join(status.ExtStatus.LogDir, libkb.GitLogFileName)
+	status.Git.PerfLog = filepath.Join(status.ExtStatus.LogDir, libkb.GitPerfLogFileName)
 
 	// set anything os-specific
+	mctx.Debug("Getting osSpecific status info")
 	if err := osSpecific(mctx, status); err != nil {
 		return nil, err
 	}

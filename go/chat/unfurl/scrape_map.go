@@ -10,10 +10,11 @@ import (
 	"github.com/keybase/client/go/chat/maps"
 	"github.com/keybase/client/go/chat/types"
 	"github.com/keybase/client/go/protocol/chat1"
+	"github.com/keybase/client/go/protocol/gregor1"
 )
 
 func (s *Scraper) scrapeMap(ctx context.Context, uri string) (res chat1.UnfurlRaw, err error) {
-	defer s.Trace(ctx, func() error { return err }, "scrapeMap")()
+	defer s.Trace(ctx, &err, "scrapeMap")()
 	puri, err := url.Parse(uri)
 	if err != nil {
 		return res, err
@@ -34,7 +35,7 @@ func (s *Scraper) scrapeMap(ctx context.Context, uri string) (res chat1.UnfurlRa
 	if err != nil {
 		return res, err
 	}
-	done, err := strconv.ParseBool(sdone)
+	liveLocationDone, err := strconv.ParseBool(sdone)
 	if err != nil {
 		return res, err
 	}
@@ -47,19 +48,37 @@ func (s *Scraper) scrapeMap(ctx context.Context, uri string) (res chat1.UnfurlRa
 		return res, err
 	}
 	linkURL := maps.GetExternalMapURL(ctx, lat, lon)
+	now := time.Now()
+	var liveLocationEndTime *gregor1.Time
 	if len(skey) > 0 {
+		siteName = "Live Location Share"
+		if liveLocationDone {
+			// if we're done sharing location, replace coordinates with false data
+			linkURL = "https://google.com/maps"
+			return chat1.NewUnfurlRawWithMaps(chat1.UnfurlMapsRaw{
+				Title:               "Location share ended",
+				Url:                 linkURL,
+				SiteName:            siteName,
+				ImageUrl:            mapURL,
+				LiveLocationDone:    liveLocationDone,
+				LiveLocationEndTime: liveLocationEndTime,
+				Time:                gregor1.ToTime(now),
+			}), nil
+		}
 		key := types.LiveLocationKey(skey)
 		coords := s.G().LiveLocationTracker.GetCoordinates(ctx, key)
+		endTime := s.G().LiveLocationTracker.GetEndTime(ctx, key)
+		if endTime != nil {
+			liveLocationEndTime = new(gregor1.Time)
+			*liveLocationEndTime = gregor1.ToTime(*endTime)
+		}
 		liveMapURL = new(string)
 		if *liveMapURL, err = maps.GetLiveMapURL(ctx, s.G().ExternalAPIKeySource, coords); err != nil {
 			return res, err
 		}
-		timeStr = fmt.Sprintf("Posted %s.", time.Now().Format("15:04:05 MST"))
-		siteName = "Live Location Share"
-		if done {
-			siteName += " (finished)"
-		}
+		timeStr = fmt.Sprintf("Posted %s.", now.Format("15:04:05 MST"))
 	}
+
 	desc := fmt.Sprintf("Accurate to %dm. %s", int(acc), timeStr)
 	return chat1.NewUnfurlRawWithMaps(chat1.UnfurlMapsRaw{
 		Title:           "Open this location with Google Maps",
@@ -68,5 +87,13 @@ func (s *Scraper) scrapeMap(ctx context.Context, uri string) (res chat1.UnfurlRa
 		ImageUrl:        mapURL,
 		Description:     desc,
 		HistoryImageUrl: liveMapURL,
+		Coord: chat1.Coordinate{
+			Lat:      lat,
+			Lon:      lon,
+			Accuracy: acc,
+		},
+		LiveLocationDone:    liveLocationDone,
+		LiveLocationEndTime: liveLocationEndTime,
+		Time:                gregor1.ToTime(now),
 	}), nil
 }

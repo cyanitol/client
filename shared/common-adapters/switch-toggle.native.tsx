@@ -20,6 +20,7 @@ class SwitchToggle extends React.PureComponent<Props, {}> {
       duration: 100,
       easing: NativeEasing.linear,
       toValue: this._getOffset(),
+      useNativeDriver: false,
     })
     this._animation.start()
   }
@@ -48,7 +49,7 @@ export default SwitchToggle
 const disabledOffset = 2
 const enabledOffset = 22
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   inner: {
     backgroundColor: Styles.globalColors.white,
     borderRadius: 12,
@@ -63,4 +64,4 @@ const styles = Styles.styleSheetCreate({
     height: 28,
     width: 48,
   },
-})
+}))

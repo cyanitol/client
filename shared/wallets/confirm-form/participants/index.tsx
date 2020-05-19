@@ -46,7 +46,7 @@ const Participants = (props: ParticipantsProps) => {
       }
       toFieldContent = (
         <Kb.Box2 direction="horizontal" gap="xtiny">
-          <Kb.Icon type="iconfont-identity-stellar" style={Kb.iconCastPlatformStyles(styles.stellarIcon)} />
+          <Kb.Icon type="iconfont-identity-stellar" style={styles.stellarIcon} />
           <Kb.Text selectable={true} type="BodySemibold" style={styles.stellarAddressConfirmText}>
             {props.recipientStellarAddress}
           </Kb.Text>
@@ -87,19 +87,22 @@ const Participants = (props: ParticipantsProps) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
-  avatar: {
-    marginRight: 8,
-  },
-  stellarAddressConfirmText: Styles.platformStyles({
-    isElectron: {
-      wordBreak: 'break-all',
-    },
-  }),
-  stellarIcon: {
-    alignSelf: 'flex-start',
-    marginRight: Styles.globalMargins.xxtiny,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      avatar: {
+        marginRight: 8,
+      },
+      stellarAddressConfirmText: Styles.platformStyles({
+        isElectron: {
+          wordBreak: 'break-all',
+        },
+      }),
+      stellarIcon: {
+        alignSelf: 'flex-start',
+        marginRight: Styles.globalMargins.xxtiny,
+      },
+    } as const)
+)
 
 export default Participants

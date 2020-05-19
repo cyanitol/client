@@ -3,62 +3,60 @@ import * as Constants from '../../../constants/teams'
 import * as Chat2Gen from '../../../actions/chat2-gen'
 import * as ConfigGen from '../../../actions/config-gen'
 import * as Types from '../../../constants/types/teams'
-import {createAddResultsToUserInput} from '../../../actions/search-gen'
 import * as RouteTreeGen from '../../../actions/route-tree-gen'
 import {createAddUsersToTeamSoFar} from '../../../actions/team-building-gen'
 import {appendNewTeamBuilder} from '../../../actions/typed-routes'
 import {TeamHeader} from '.'
+import {selfToUser} from '../../../constants/team-building'
+import * as ImagePicker from 'expo-image-picker'
 
 export type OwnProps = {
-  teamname: Types.Teamname
+  teamID: Types.TeamID
 }
-
-const mapStateToProps = (state: Container.TypedState, {teamname}: OwnProps) => {
-  const yourOperations = Constants.getCanPerform(state, teamname)
-  return {
-    _canRenameTeam: yourOperations.renameTeam,
-    _you: state.config.username,
-    canChat: yourOperations.chat,
-    canEditDescription: yourOperations.editTeamDescription,
-    canJoinTeam: yourOperations.joinTeam,
-    canManageMembers: yourOperations.manageMembers,
-    description: Constants.getTeamPublicitySettings(state, teamname).description,
-    memberCount: Constants.getTeamMemberCount(state, teamname),
-    openTeam: Constants.getTeamSettings(state, teamname).open,
-    role: Constants.getRole(state, teamname),
-  }
-}
-
-const mapDispatchToProps = (dispatch: Container.TypedDispatch, {teamname}: OwnProps) => ({
-  _onAddSelf: (you: string | null) => {
-    if (!you) {
-      return
-    }
-    dispatch(appendNewTeamBuilder(teamname))
-    dispatch(
-      createAddUsersToTeamSoFar({namespace: 'teams', users: [{id: you, prettyName: you, serviceMap: {}}]})
-    )
-  },
-  onChat: () => dispatch(Chat2Gen.createPreviewConversation({reason: 'teamHeader', teamname})),
-  onEditDescription: () =>
-    dispatch(
-      RouteTreeGen.createNavigateAppend({path: [{props: {teamname}, selected: 'teamEditTeamDescription'}]})
-    ),
-  onEditIcon: (image?) =>
-    dispatch(
-      RouteTreeGen.createNavigateAppend({
-        path: [{props: {image, sendChatNotification: true, teamname}, selected: 'teamEditTeamAvatar'}],
-      })
-    ),
-  onFilePickerError: (error: Error) => dispatch(ConfigGen.createFilePickerError({error})),
-  onRename: () =>
-    dispatch(RouteTreeGen.createNavigateAppend({path: [{props: {teamname}, selected: 'teamRename'}]})),
-})
 
 export default Container.connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  (stateProps, dispatchProps, ownProps: OwnProps) => ({
+  (state, {teamID}: OwnProps) => {
+    const yourOperations = Constants.getCanPerformByID(state, teamID)
+    const {teamname, isOpen, memberCount} = Constants.getTeamMeta(state, teamID)
+    return {
+      _canRenameTeam: yourOperations.renameTeam,
+      _you: state.config.username,
+      canChat: yourOperations.chat,
+      canEditDescription: yourOperations.editTeamDescription,
+      canJoinTeam: yourOperations.joinTeam,
+      canManageMembers: yourOperations.manageMembers,
+      description: Constants.getTeamDetails(state, teamID).description,
+      memberCount,
+      openTeam: isOpen,
+      role: Constants.getRole(state, teamID),
+      teamname,
+    }
+  },
+  (dispatch, {teamID}: OwnProps) => ({
+    _onAddSelf: (you: string | null) => {
+      if (!you) {
+        return
+      }
+      dispatch(appendNewTeamBuilder(teamID))
+      dispatch(createAddUsersToTeamSoFar({namespace: 'teams', users: [selfToUser(you)]}))
+    },
+    _onChat: (teamname: string) =>
+      dispatch(Chat2Gen.createPreviewConversation({reason: 'teamHeader', teamname})),
+    _onEditIcon: (image?: ImagePicker.ImagePickerResult) =>
+      dispatch(
+        RouteTreeGen.createNavigateAppend({
+          path: [{props: {image, sendChatNotification: true, teamID}, selected: 'profileEditAvatar'}],
+        })
+      ),
+    _onRename: (teamname: string) =>
+      dispatch(RouteTreeGen.createNavigateAppend({path: [{props: {teamname}, selected: 'teamRename'}]})),
+    onEditDescription: () =>
+      dispatch(
+        RouteTreeGen.createNavigateAppend({path: [{props: {teamID}, selected: 'teamEditTeamDescription'}]})
+      ),
+    onFilePickerError: (error: Error) => dispatch(ConfigGen.createFilePickerError({error})),
+  }),
+  (stateProps, dispatchProps, ownProps) => ({
     canChat: stateProps.canChat,
     canEditDescription: stateProps.canEditDescription,
     canJoinTeam: stateProps.canJoinTeam,
@@ -67,14 +65,15 @@ export default Container.connect(
     loading: false,
     memberCount: stateProps.memberCount,
     onAddSelf: () => dispatchProps._onAddSelf(stateProps._you),
-    onChat: dispatchProps.onChat,
+    onChat: () => dispatchProps._onChat(stateProps.teamname),
     onEditDescription: dispatchProps.onEditDescription,
-    onEditIcon: dispatchProps.onEditIcon,
+    onEditIcon: dispatchProps._onEditIcon,
     onFilePickerError: dispatchProps.onFilePickerError,
-    onRename: stateProps._canRenameTeam ? dispatchProps.onRename : null,
+    onRename: stateProps._canRenameTeam ? () => dispatchProps._onRename(stateProps.teamname) : null,
     openTeam: stateProps.openTeam,
     role: stateProps.role,
     showingMenu: false,
-    teamname: ownProps.teamname,
+    teamID: ownProps.teamID,
+    teamname: stateProps.teamname,
   })
 )(TeamHeader)

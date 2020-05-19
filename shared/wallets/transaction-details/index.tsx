@@ -1,11 +1,10 @@
 import * as React from 'react'
 import * as Types from '../../constants/types/wallets'
 import * as Constants from '../../constants/wallets'
-import * as Flow from '../../util/flow'
 import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
 import * as RPCTypes from '../../constants/types/rpc-stellar-gen'
-import {capitalize} from 'lodash-es'
+import capitalize from 'lodash/capitalize'
 import {Transaction, TimestampError, TimestampPending} from '../transaction'
 import {SmallAccountID} from '../common'
 import {formatTimeForStellarDetail, formatTimeForStellarTooltip} from '../../util/timestamp'
@@ -52,7 +51,6 @@ export type NotLoadingProps = {
   statusDetail: string
   // A null timestamp means the transaction is still pending.
   timestamp: Date | null
-  title: string
   transactionID?: string
   you: string
   yourRole: Types.Role
@@ -68,7 +66,6 @@ export type Props =
       loading: true
       onBack: () => void
       onLoadPaymentDetail: () => void
-      title: string
     }
 
 type PartyAccountProps = {
@@ -312,7 +309,11 @@ const ConvertedCurrencyLabel = (props: ConvertedCurrencyLabelProps) => (
 const TransactionDetails = (props: NotLoadingProps) => {
   const {sender, receiver} = propsToParties(props)
 
-  const isPathPayment = !!props.sourceAmount
+  const hasNontrivialPath =
+    !!props.sourceAmount &&
+    props.assetCode !== props.sourceAsset &&
+    props.issuerAccountID !== props.sourceIssuerAccountID &&
+    props.issuerDescription !== props.sourceIssuer
 
   // If we don't have a sourceAsset, the source is native Lumens
   const sourceIssuer =
@@ -365,7 +366,7 @@ const TransactionDetails = (props: NotLoadingProps) => {
       </Kb.Box2>
       <Kb.Divider />
       <Kb.Box2 direction="vertical" gap="small" fullWidth={true} style={styles.container}>
-        {isPathPayment && (
+        {hasNontrivialPath && (
           <Kb.Box2 direction="vertical" gap="tiny" fullWidth={true}>
             <Kb.Text type="BodySmallSemibold">Payment path:</Kb.Text>
             <PaymentPath
@@ -378,7 +379,7 @@ const TransactionDetails = (props: NotLoadingProps) => {
           </Kb.Box2>
         )}
 
-        {isPathPayment && (
+        {hasNontrivialPath && (
           <Kb.Box2 direction="vertical" gap="xtiny" fullWidth={true}>
             <Kb.Text type="BodySmallSemibold">Conversion rate:</Kb.Text>
             <Kb.Box2 direction="horizontal" gap="small" fullWidth={true}>
@@ -387,7 +388,12 @@ const TransactionDetails = (props: NotLoadingProps) => {
                 assetCode={props.sourceAsset}
                 issuerDescription={sourceIssuer}
               />
-              <Kb.Box2 direction="horizontal" alignSelf="flex-start" centerChildren={true} style={styles.equals}>
+              <Kb.Box2
+                direction="horizontal"
+                alignSelf="flex-start"
+                centerChildren={true}
+                style={styles.equals}
+              >
                 <Kb.Text type="BodyBig">=</Kb.Text>
               </Kb.Box2>
               <ConvertedCurrencyLabel
@@ -440,11 +446,9 @@ const TransactionDetails = (props: NotLoadingProps) => {
           <Kb.Text type="BodySmallSemibold">Status:</Kb.Text>
           <Kb.WithTooltip
             containerStyle={styles.statusBox}
-            text={
+            tooltip={
               props.status === 'claimable'
-                ? `${
-                    props.counterparty
-                  } hasn't generated a Stellar account yet. This payment will automatically complete when they create one.`
+                ? `${props.counterparty} hasn't generated a Stellar account yet. This payment will automatically complete when they create one.`
                 : ''
             }
             textStyle={styles.tooltipText}
@@ -453,7 +457,7 @@ const TransactionDetails = (props: NotLoadingProps) => {
             <Kb.Icon
               color={colorForStatus(props.status)}
               sizeType="Small"
-              style={Kb.iconCastPlatformStyles(styles.statusIcon)}
+              style={styles.statusIcon}
               type={
                 ['error', 'canceled'].includes(props.status)
                   ? 'iconfont-remove'
@@ -538,7 +542,12 @@ function isNotLoadingProps(props: Props): props is NotLoadingProps {
   return !props.loading
 }
 
-class LoadTransactionDetails extends React.Component<Props> {
+class LoadTransactionDetails extends React.Component<NotLoadingProps /*Props TODO fix*/> {
+  static navigationOptions = {
+    header: undefined,
+    title: 'Transaction details',
+  }
+
   componentDidMount() {
     this.props.onLoadPaymentDetail()
   }
@@ -574,86 +583,89 @@ class LoadTransactionDetails extends React.Component<Props> {
 
 export default LoadTransactionDetails
 
-const styles = Styles.styleSheetCreate({
-  alignItemsFlexStart: {alignItems: 'flex-start'},
-  button: {
-    alignSelf: 'center',
-  },
-  buttonBox: Styles.platformStyles({
-    common: {
-      justifyContent: 'center',
-      minHeight: 0,
-      paddingLeft: Styles.globalMargins.small,
-      paddingRight: Styles.globalMargins.small,
-    },
-    isElectron: {
-      marginTop: 'auto',
-    },
-    isMobile: {
-      marginTop: Styles.globalMargins.medium,
-    },
-  }),
-  chatButton: {
-    alignSelf: 'flex-start',
-    marginTop: Styles.globalMargins.tiny,
-  },
-  container: {
-    alignSelf: 'flex-start',
-    padding: Styles.globalMargins.small,
-  },
-  equals: Styles.platformStyles({isMobile: {flex: 1}}),
-  flexOne: {flex: 1},
-  icon32: {height: 32, width: 32},
-  operation: Styles.platformStyles({isElectron: {wordBreak: 'break-all'}}),
-  partyAccountContainer: {
-    alignSelf: 'flex-start',
-  },
-  progressIndicator: {height: 50, width: 50},
-  rightContainer: {
-    flex: 1,
-    marginLeft: Styles.globalMargins.tiny,
-  },
-  scrollView: {
-    display: 'flex',
-    flexGrow: 1,
-    width: '100%',
-  },
-  scrollViewContainer: {
-    flexGrow: 1,
-  },
-  statusBox: {
-    ...Styles.globalStyles.flexBoxRow,
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-  },
-  statusIcon: {
-    position: 'relative',
-    top: 1,
-  },
-  statusText: {
-    marginLeft: Styles.globalMargins.xtiny,
-  },
-  stellarPublicKey: Styles.platformStyles({
-    common: {
-      flex: 1,
-      justifyContent: 'center',
-      marginLeft: Styles.globalMargins.tiny,
-    },
-    isElectron: {wordBreak: 'break-all'},
-  }),
-  tooltipText: Styles.platformStyles({
-    isElectron: {
-      wordBreak: 'break-word',
-    },
-  }),
-  transactionID: Styles.platformStyles({isElectron: {wordBreak: 'break-all'}}),
-  warningBannerContainer: {
-    backgroundColor: Styles.backgroundModeToColor.Information,
-    borderRadius: Styles.borderRadius,
-    marginTop: Styles.globalMargins.xtiny,
-    padding: Styles.globalMargins.tiny,
-  },
-  warningBannerText: {
-    color: Styles.globalColors.brown_75,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      alignItemsFlexStart: {alignItems: 'flex-start'},
+      button: {
+        alignSelf: 'center',
+      },
+      buttonBox: Styles.platformStyles({
+        common: {
+          justifyContent: 'center',
+          minHeight: 0,
+          paddingLeft: Styles.globalMargins.small,
+          paddingRight: Styles.globalMargins.small,
+        },
+        isElectron: {
+          marginTop: 'auto',
+        },
+        isMobile: {
+          marginTop: Styles.globalMargins.medium,
+        },
+      }),
+      chatButton: {
+        alignSelf: 'flex-start',
+        marginTop: Styles.globalMargins.tiny,
+      },
+      container: {
+        alignSelf: 'flex-start',
+        padding: Styles.globalMargins.small,
+      },
+      equals: Styles.platformStyles({isMobile: {flex: 1}}),
+      flexOne: {flex: 1},
+      icon32: {height: 32, width: 32},
+      operation: Styles.platformStyles({isElectron: {wordBreak: 'break-all'}}),
+      partyAccountContainer: {
+        alignSelf: 'flex-start',
+      },
+      progressIndicator: {height: 50, width: 50},
+      rightContainer: {
+        flex: 1,
+        marginLeft: Styles.globalMargins.tiny,
+      },
+      scrollView: {
+        display: 'flex',
+        flexGrow: 1,
+        width: '100%',
+      },
+      scrollViewContainer: {
+        flexGrow: 1,
+      },
+      statusBox: {
+        ...Styles.globalStyles.flexBoxRow,
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+      },
+      statusIcon: {
+        position: 'relative',
+        top: 1,
+      },
+      statusText: {
+        marginLeft: Styles.globalMargins.xtiny,
+      },
+      stellarPublicKey: Styles.platformStyles({
+        common: {
+          flex: 1,
+          justifyContent: 'center',
+          marginLeft: Styles.globalMargins.tiny,
+        },
+        isElectron: {wordBreak: 'break-all'},
+      }),
+      tooltipText: Styles.platformStyles({
+        isElectron: {
+          wordBreak: 'break-word',
+        } as const,
+      }),
+      transactionID: Styles.platformStyles({isElectron: {wordBreak: 'break-all'}}),
+      warningBannerContainer: {
+        backgroundColor: Styles.globalColors.yellow,
+        borderRadius: Styles.borderRadius,
+        marginTop: Styles.globalMargins.xtiny,
+        padding: Styles.globalMargins.tiny,
+      },
+      warningBannerText: {
+        color: Styles.globalColors.brown_75,
+      },
+    } as const)
+)

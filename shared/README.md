@@ -13,10 +13,12 @@ If you really want to install Keybase, please return to the [top level Readme.md
 ## Keybase
 
 ### Install
+Run within the `shared/` directory.
 
 ```sh
-yarn install
+yarn modules
 ```
+Which is just an alias to run `yarn install --pure-lockfile --ignore-optional`. 
 
 ### Desktop
 
@@ -38,9 +40,10 @@ You can set environment variables for debugging:
 |---------|-------------|
 | KEYBASE_RUN_MODE | Run mode: prod, staging, devel |
 | NO_DASHBOARD | Don't show dashboard |
+| KEYBASE_DEVEL_USE_XDG | Force Keybase to use XDG paths, can fix service socket location issues on Linux |
 
 You can also edit `~/Library/Logs/Keybase.app.debug` on macOS,
-`$HOME/.cache/keybase.app.debug` on Linux, or
+`$HOME/.cache/keybase/keybase.app.debug` on Linux, or
 `%localappdata%\Keybase\keybase.app.debug` on Windows (see
 `platform.desktop.js`) to add debug flags. In particular, you probably want
 ```json
@@ -55,16 +58,13 @@ not all source files are available if the dev tools aren't opened at launch.
 
 1) Install the [React Developer
 Tools](https://chrome.google.com/webstore/detail/react-developer-tools/fmkadmapgofadopljbjfkapdkoienihi)
-and the [Immutable.js Object
-Formatter](https://chrome.google.com/webstore/detail/immutablejs-object-format/hgldghadipiblonfkkicmgcbbijnpeog)
-extensions in your regular Chrome browser.
 2) Set the following environment variables and make sure
 `KEYBASE_PERF` is unset. If you're using fish shell on macOS:
 
 ```
 set -e KEYBASE_PERF
 set -x KEYBASE_LOCAL_DEBUG 1
-set -x KEYBASE_DEV_TOOL_ROOTS "$HOME/Library/Application Support/Google/Chrome/Default/Extensions/fmkadmapgofadopljbjfkapdkoienihi,$HOME/Library/Application Support/Google/Chrome/Default/Extensions/hgldghadipiblonfkkicmgcbbijnpeog"
+set -x KEYBASE_DEV_TOOL_ROOTS "$HOME/Library/Application Support/Google/Chrome/Default/Extensions/fmkadmapgofadopljbjfkapdkoienihi"
 ```
 
 If you're using fish shell on Linux:
@@ -72,7 +72,7 @@ If you're using fish shell on Linux:
 ```
 set -e KEYBASE_PERF
 set -x KEYBASE_LOCAL_DEBUG 1
-set -x KEYBASE_DEV_TOOL_ROOTS "$HOME/.config/google-chrome/Default/Extensions/fmkadmapgofadopljbjfkapdkoienihi,$HOME/.config/google-chrome/Default/Extensions/hgldghadipiblonfkkicmgcbbijnpeog"
+set -x KEYBASE_DEV_TOOL_ROOTS "$HOME/.config/google-chrome/Default/Extensions/fmkadmapgofadopljbjfkapdkoienihi"
 ```
 
 If you're using bash on macOS:
@@ -80,7 +80,7 @@ If you're using bash on macOS:
 ```
 unset KEYBASE_PERF
 export KEYBASE_LOCAL_DEBUG=1
-export KEYBASE_DEV_TOOL_ROOTS="$HOME/Library/Application Support/Google/Chrome/Default/Extensions/fmkadmapgofadopljbjfkapdkoienihi,$HOME/Library/Application Support/Google/Chrome/Default/Extensions/hgldghadipiblonfkkicmgcbbijnpeog"
+export KEYBASE_DEV_TOOL_ROOTS="$HOME/Library/Application Support/Google/Chrome/Default/Extensions/fmkadmapgofadopljbjfkapdkoienihi"
 ```
 
 If you're using bash on Linux:
@@ -88,7 +88,7 @@ If you're using bash on Linux:
 ```
 unset KEYBASE_PERF
 export KEYBASE_LOCAL_DEBUG=1
-export KEYBASE_DEV_TOOL_ROOTS="$HOME/.config/google-chrome/Default/Extensions/fmkadmapgofadopljbjfkapdkoienihi,$HOME/.config/google-chrome/Default/Extensions/hgldghadipiblonfkkicmgcbbijnpeog"
+export KEYBASE_DEV_TOOL_ROOTS=",$HOME/.config/google-chrome/Default/Extensions/hgldghadipiblonfkkicmgcbbijnpeog"
 ```
 
 (See [this code](https://github.com/keybase/client/blob/master/shared/desktop/yarn-helper/electron.js#L47) for details.)
@@ -104,7 +104,7 @@ set `KEYBASE_DEV_TOOL_EXTENSIONS` instead of `KEYBASE_DEV_TOOL_ROOTS`,
 and you'll have to use the version subdirectory:
 
 ```
-set -x KEYBASE_DEV_TOOL_EXTENSIONS "$HOME/Library/Application Support/Google/Chrome/Default/Extensions/fmkadmapgofadopljbjfkapdkoienihi/2.5.2_0,$HOME/Library/Application Support/Google/Chrome/Default/Extensions/hgldghadipiblonfkkicmgcbbijnpeog/1.7_0"
+set -x KEYBASE_DEV_TOOL_EXTENSIONS "$HOME/Library/Application Support/Google/Chrome/Default/Extensions/fmkadmapgofadopljbjfkapdkoienihi/2.5.2_0"
 ```
 
 Note that this means you'll have to change the last path component if
@@ -166,3 +166,27 @@ In order to update the list of countries supported by Amazon SNS, run
 the [update-data.sh](https://github.com/keybase/client/blob/master/shared/util/phone-numbers/sms-support/update-data.sh)
 script. It will first fetch the JSON from Amazon's public S3 bucket and
 transform it for use in our internal country filtering code.
+
+### ESLint in VSCode
+
+VSCode's ESLint extension needs to know where to look for .eslintrc. Add this to `REPO/.vscode/settings.json`.
+
+```
+{ "eslint.workingDirectories": ["shared"] }
+```
+
+### React Devtools standalone
+
+If you want to use react devtools to examine the DOM of a running RN app in the simulator, you'll need:
+
+```
+yarn global add react-devtools@3
+```
+
+### Watchman
+
+You'll need to have watchman installed if you're running out of file descriptors:
+
+```
+brew install watchman
+```

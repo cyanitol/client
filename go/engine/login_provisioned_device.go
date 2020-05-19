@@ -4,8 +4,6 @@
 package engine
 
 import (
-	"fmt"
-
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/keybase1"
 )
@@ -69,11 +67,12 @@ func (e *LoginProvisionedDevice) Run(m libkb.MetaContext) error {
 }
 
 func (e *LoginProvisionedDevice) loadMe(m libkb.MetaContext) (err error) {
-	defer m.Trace("LoginProvisionedDevice#loadMe", func() error { return err })()
+	defer m.Trace("LoginProvisionedDevice#loadMe", &err)()
 
 	var config *libkb.UserConfig
 	var nu libkb.NormalizedUsername
-	loadUserArg := libkb.NewLoadUserArgWithMetaContext(m).WithPublicKeyOptional().WithForcePoll(true)
+	loadUserArg := libkb.NewLoadUserArgWithMetaContext(m).
+		WithPublicKeyOptional().WithForcePoll(true).WithStaleOK(true)
 	if len(e.username) == 0 {
 		m.Debug("| using current username")
 		config, err = m.G().Env.GetConfig().GetUserConfig()
@@ -144,7 +143,7 @@ func (e *LoginProvisionedDevice) loadMe(m libkb.MetaContext) (err error) {
 }
 
 func (e *LoginProvisionedDevice) reattemptUnlockIfDifferentUID(m libkb.MetaContext, loggedInUID keybase1.UID) (success bool, err error) {
-	defer m.Trace("LoginProvisionedDevice#reattemptUnlockIfDifferentUID", func() error { return err })()
+	defer m.Trace("LoginProvisionedDevice#reattemptUnlockIfDifferentUID", &err)()
 	if loggedInUID.Equal(e.uid) {
 		m.Debug("no reattempting unlock; already tried for same UID")
 		return false, nil
@@ -157,7 +156,7 @@ func (e *LoginProvisionedDevice) reattemptUnlockIfDifferentUID(m libkb.MetaConte
 // shebang again twice more: once after switching users (if there is indeeed a switch). And again
 // after asking the user for a passphrase login.
 func (e *LoginProvisionedDevice) reattemptUnlock(m libkb.MetaContext) (success bool, err error) {
-	defer m.Trace("LoginProvisionedDevice#reattemptUnlock", func() error { return err })()
+	defer m.Trace("LoginProvisionedDevice#reattemptUnlock", &err)()
 	ad, err := libkb.LoadProvisionalActiveDevice(m, e.uid, e.deviceID, true)
 	if err != nil {
 		m.Debug("Failed to load provisional device for user, but swallowing error: %s", err.Error())
@@ -180,7 +179,7 @@ func (e *LoginProvisionedDevice) reattemptUnlock(m libkb.MetaContext) (success b
 // usual attempts to run LoadProvisionalActiveDevice or BootstrapActiveDevice will succeed
 // without a prompt.
 func (e *LoginProvisionedDevice) tryPassphraseLogin(m libkb.MetaContext) (err error) {
-	defer m.Trace("LoginProvisionedDevice#tryPassphraseLogin", func() error { return err })()
+	defer m.Trace("LoginProvisionedDevice#tryPassphraseLogin", &err)()
 	err = libkb.PassphraseLoginPrompt(m, e.username.String(), 3)
 	if err != nil {
 		return err
@@ -198,7 +197,7 @@ func (e *LoginProvisionedDevice) tryPassphraseLogin(m libkb.MetaContext) (err er
 }
 
 func (e *LoginProvisionedDevice) runBug3964Repairman(m libkb.MetaContext) (err error) {
-	defer m.Trace("LoginProvisionedDevice#runBug3964Repairman", func() error { return err })()
+	defer m.Trace("LoginProvisionedDevice#runBug3964Repairman", &err)()
 	return libkb.RunBug3964Repairman(m)
 }
 
@@ -223,7 +222,7 @@ func (e *LoginProvisionedDevice) passiveLoginWithUsername(m libkb.MetaContext) (
 }
 
 func (e *LoginProvisionedDevice) passiveLogin(m libkb.MetaContext) (ok bool, uid keybase1.UID) {
-	defer m.CTraceString("LoginProvisionedDevice#passiveLogin", func() string { return fmt.Sprintf("<%v,%s>", ok, uid) })()
+	defer m.Trace("LoginProvisionedDevice#passiveLogin", nil)()
 	if len(e.username) > 0 {
 		return e.passiveLoginWithUsername(m)
 	}
@@ -231,7 +230,7 @@ func (e *LoginProvisionedDevice) passiveLogin(m libkb.MetaContext) (ok bool, uid
 }
 
 func (e *LoginProvisionedDevice) run(m libkb.MetaContext) (err error) {
-	defer m.Trace("LoginProvisionedDevice#run", func() error { return err })()
+	defer m.Trace("LoginProvisionedDevice#run", &err)()
 
 	in, loggedInUID := e.passiveLogin(m)
 
@@ -266,7 +265,10 @@ func (e *LoginProvisionedDevice) run(m libkb.MetaContext) (err error) {
 		return err
 	}
 
-	e.runBug3964Repairman(m)
+	err = e.runBug3964Repairman(m)
+	if err != nil {
+		m.Debug("couldn't run bug 3964 repairman: %+v", err)
+	}
 
 	success, err = e.reattemptUnlock(m)
 	if err != nil {
@@ -292,4 +294,9 @@ func (e *LoginProvisionedDevice) connectivityWarning(m libkb.MetaContext) {
 			m.Debug("after CheckReachability(), IsConnected() => %v (connected? %v)", connected, connected == libkb.ConnectivityMonitorYes)
 		}
 	}
+}
+
+// Returns the username that the user typed during the engine's execution
+func (e *LoginProvisionedDevice) GetUsername() libkb.NormalizedUsername {
+	return e.username
 }

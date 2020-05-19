@@ -11,7 +11,7 @@ const ConfirmSend: any = _ConfirmSend
 // TODO fill these out
 const provider = Sb.createPropProviderWithCommon({
   ConfirmSend: props => props,
-  Participants: props => ({
+  Participants: () => ({
     fromAccountAssets: '280.0871234 XLM',
     fromAccountName: '2nd',
     recipientAccountAssets: '534 XLM',
@@ -49,6 +49,7 @@ const banner = {
 
 const sendFailedBanner = {
   action: Sb.action('onExitFailed'),
+  actionText: 'Review payments',
   bannerBackground: 'HighRisk' as 'HighRisk',
   bannerText:
     'The request to the stellar network timed out. Please make sure your payment failed before trying again.',

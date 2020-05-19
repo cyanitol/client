@@ -1,13 +1,14 @@
 import * as React from 'react'
 import * as Kb from '../../../../../common-adapters/mobile.native'
 import * as Styles from '../../../../../styles'
-import {throttle} from 'lodash-es'
-import {Props} from './index.types'
+import throttle from 'lodash/throttle'
+import {Props} from '.'
 import SharedTimer, {SharedTimerID} from '../../../../../util/shared-timers'
 
 // If this image changes, some hard coded dimensions
 // in this file also need to change.
 const explodedIllustrationURL = require('../../../../../images/icons/pattern-ashes-mobile-400-80.png')
+const explodedIllustrationDarkURL = require('../../../../../images/icons/dark-pattern-ashes-mobile-400-80.png')
 
 export const animationDuration = 1500
 
@@ -27,7 +28,7 @@ class ExplodingHeightRetainer extends React.Component<Props, State> {
     height: 20,
     numImages: 1,
   }
-  timeoutID?: NodeJS.Timer
+  timeoutID?: ReturnType<typeof setTimeout>
 
   static getDerivedStateFromProps(nextProps: Props, _: State) {
     return nextProps.retainHeight ? null : {children: copyChildren(nextProps.children)}
@@ -48,7 +49,7 @@ class ExplodingHeightRetainer extends React.Component<Props, State> {
     this._clearTimeout()
   }
 
-  _onLayout = evt => {
+  _onLayout = (evt: any) => {
     if (evt.nativeEvent && evt.nativeEvent.layout.height !== this.state.height) {
       this.setState({
         height: evt.nativeEvent.layout.height,
@@ -114,6 +115,7 @@ class AnimatedAshTower extends React.Component<AshTowerProps, AshTowerState> {
         duration: animationDuration,
         easing: Kb.NativeEasing.inOut(Kb.NativeEasing.ease),
         toValue: 100,
+        useNativeDriver: false,
       }).start()
       // insert 'EXPLODED' in sync with 'boom!' disappearing
       this.timerID && SharedTimer.removeObserver(this.props.messageKey, this.timerID)
@@ -200,7 +202,13 @@ class EmojiTower extends React.Component<
 const AshTower = (props: {explodedBy?: string; numImages: number; showExploded: boolean}) => {
   const children: Array<React.ReactNode> = []
   for (let i = 0; i < props.numImages; i++) {
-    children.push(<Kb.NativeImage key={i} source={explodedIllustrationURL} style={styles.ashes} />)
+    children.push(
+      <Kb.NativeImage
+        key={i}
+        source={Styles.isDarkMode() ? explodedIllustrationDarkURL : explodedIllustrationURL}
+        style={styles.ashes}
+      />
+    )
   }
   let exploded: React.ReactNode = null
   if (props.showExploded) {
@@ -212,9 +220,9 @@ const AshTower = (props: {explodedBy?: string; numImages: number; showExploded: 
       <Kb.Text lineClamp={1} type="BodyTiny" style={styles.exploded}>
         EXPLODED BY{' '}
         <Kb.ConnectedUsernames
-          type="BodySmallSemibold"
+          type="BodySmallBold"
           onUsernameClicked="profile"
-          usernames={[props.explodedBy]}
+          usernames={props.explodedBy}
           inline={true}
           colorFollowing={true}
           colorYou={true}
@@ -224,51 +232,54 @@ const AshTower = (props: {explodedBy?: string; numImages: number; showExploded: 
     )
   }
   return (
-    <React.Fragment>
+    <>
       {children}
       <Kb.Box style={styles.tagBox}>{exploded}</Kb.Box>
-    </React.Fragment>
+    </>
   )
 }
-const styles = Styles.styleSheetCreate({
-  ashes: {
-    height: 80,
-    width: 400,
-  },
-  container: {...Styles.globalStyles.flexBoxColumn, flex: 1},
-  emojiTower: {
-    ...Styles.globalStyles.flexBoxColumn,
-    bottom: 0,
-    overflow: 'hidden',
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    width: 20,
-  },
-  exploded: {
-    backgroundColor: Styles.globalColors.white,
-    color: Styles.globalColors.black_20_on_white,
-    paddingLeft: Styles.globalMargins.tiny,
-  },
-  retaining: {
-    overflow: 'hidden',
-  },
-  slider: {
-    backgroundColor: Styles.globalColors.white,
-    bottom: 0,
-    height: '100%',
-    left: 0,
-    overflow: 'hidden',
-    position: 'absolute',
-    top: 0,
-  },
-  tagBox: {
-    ...Styles.globalStyles.flexBoxColumn,
-    alignItems: 'flex-end',
-    bottom: 2,
-    minWidth: 200,
-    position: 'absolute',
-    right: 0,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      ashes: {
+        height: 80,
+        width: 400,
+      },
+      container: {...Styles.globalStyles.flexBoxColumn, flex: 1},
+      emojiTower: {
+        ...Styles.globalStyles.flexBoxColumn,
+        bottom: 0,
+        overflow: 'hidden',
+        position: 'absolute',
+        right: 0,
+        top: 0,
+        width: 20,
+      },
+      exploded: {
+        backgroundColor: Styles.globalColors.white,
+        color: Styles.globalColors.black_20_on_white,
+        paddingLeft: Styles.globalMargins.tiny,
+      },
+      retaining: {
+        overflow: 'hidden',
+      },
+      slider: {
+        backgroundColor: Styles.globalColors.white,
+        bottom: 0,
+        height: '100%',
+        left: 0,
+        overflow: 'hidden',
+        position: 'absolute',
+        top: 0,
+      },
+      tagBox: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'flex-end',
+        bottom: 2,
+        minWidth: 200,
+        position: 'absolute',
+        right: 0,
+      },
+    } as const)
+)
 export default ExplodingHeightRetainer

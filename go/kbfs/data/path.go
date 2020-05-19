@@ -23,6 +23,10 @@ type Path struct {
 // IsValid returns true if the path has at least one node (for the
 // root).
 func (p Path) IsValid() bool {
+	if p.Tlf == tlf.NullID {
+		return false
+	}
+
 	if len(p.Path) < 1 {
 		return false
 	}
@@ -102,6 +106,23 @@ func (p Path) Plaintext() string {
 		names = append(names, node.Name.Plaintext())
 	}
 	return strings.Join(names, "/")
+}
+
+// PlaintextSansTlf returns an unobfuscated string for this path, rooted at the
+// TLF.
+//
+// Examples: /keybase/private/alice -> "/", true
+//           /keybase/private/alice/folder -> "/folder", true
+//           /keybase/private -> "", false
+func (p Path) PlaintextSansTlf() (string, bool) {
+	if len(p.Path) == 0 {
+		return "", false
+	}
+	names := make([]string, 0, len(p.Path)-1)
+	for _, node := range p.Path[1:] {
+		names = append(names, node.Name.Plaintext())
+	}
+	return "/" + strings.Join(names, "/"), true
 }
 
 // CanonicalPathString returns an obfuscated canonical

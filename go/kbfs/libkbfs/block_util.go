@@ -89,7 +89,7 @@ func doOneBlockPut(ctx context.Context, bserv BlockServer, reporter Reporter,
 		err = bps.synced(ptr)
 	}
 	if err != nil && isRecoverableBlockError(err) {
-		block, blockErr := bps.getBlock(ctx, ptr)
+		block, blockErr := bps.GetBlock(ctx, ptr)
 		if blockErr == nil {
 			fblock, ok := block.(*data.FileBlock)
 			if ok && !fblock.IsInd {
@@ -145,7 +145,7 @@ func doBlockPuts(ctx context.Context, bserv BlockServer, bcache data.BlockCache,
 		eg.Go(worker)
 	}
 
-	for _, ptr := range bps.ptrs() {
+	for _, ptr := range bps.Ptrs() {
 		blocks <- ptr
 	}
 	close(blocks)
@@ -159,7 +159,7 @@ func doBlockPuts(ctx context.Context, bserv BlockServer, bcache data.BlockCache,
 			// Let the caller know which blocks shouldn't be
 			// retried.
 			blocksToRemove = append(blocksToRemove, ptr)
-			if block, err := bps.getBlock(ctx, ptr); err == nil {
+			if block, err := bps.GetBlock(ctx, ptr); err == nil {
 				if fblock, ok := block.(*data.FileBlock); ok {
 					// Remove each problematic block from the cache so
 					// the redo can just make a new block instead.
@@ -177,14 +177,11 @@ func doBlockPuts(ctx context.Context, bserv BlockServer, bcache data.BlockCache,
 	return blocksToRemove, err
 }
 
-func assembleBlock(ctx context.Context, keyGetter blockKeyGetter,
-	codec kbfscodec.Codec, cryptoPure cryptoPure, kmd libkey.KeyMetadata,
-	blockPtr data.BlockPointer, block data.Block, buf []byte,
+func doAssembleBlock(
+	ctx context.Context, keyGetter blockKeyGetter, codec kbfscodec.Codec,
+	cryptoPure cryptoPure, kmd libkey.KeyMetadata, blockPtr data.BlockPointer,
+	block data.Block, buf []byte,
 	blockServerHalf kbfscrypto.BlockCryptKeyServerHalf) error {
-	if err := kbfsblock.VerifyID(buf, blockPtr.ID); err != nil {
-		return err
-	}
-
 	tlfCryptKey, err := keyGetter.GetTLFCryptKeyForBlockDecryption(
 		ctx, kmd, blockPtr)
 	if err != nil {
@@ -215,4 +212,34 @@ func assembleBlock(ctx context.Context, keyGetter blockKeyGetter,
 
 	block.SetEncodedSize(uint32(len(buf)))
 	return nil
+}
+
+func assembleBlockLocal(
+	ctx context.Context, keyGetter blockKeyGetter, codec kbfscodec.Codec,
+	cryptoPure cryptoPure, kmd libkey.KeyMetadata, blockPtr data.BlockPointer,
+	block data.Block, buf []byte,
+	blockServerHalf kbfscrypto.BlockCryptKeyServerHalf) error {
+	// This call only verifies the block ID if we're not running
+	// production mode, for performance reasons.
+	if err := verifyLocalBlockIDMaybe(buf, blockPtr.ID); err != nil {
+		return err
+	}
+
+	return doAssembleBlock(
+		ctx, keyGetter, codec, cryptoPure, kmd, blockPtr, block, buf,
+		blockServerHalf)
+}
+
+func assembleBlock(
+	ctx context.Context, keyGetter blockKeyGetter, codec kbfscodec.Codec,
+	cryptoPure cryptoPure, kmd libkey.KeyMetadata, blockPtr data.BlockPointer,
+	block data.Block, buf []byte,
+	blockServerHalf kbfscrypto.BlockCryptKeyServerHalf) error {
+	if err := kbfsblock.VerifyID(buf, blockPtr.ID); err != nil {
+		return err
+	}
+
+	return doAssembleBlock(
+		ctx, keyGetter, codec, cryptoPure, kmd, blockPtr, block, buf,
+		blockServerHalf)
 }

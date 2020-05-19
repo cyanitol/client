@@ -2,53 +2,54 @@ package io.keybase.ossifrage;
 
 import android.app.Application;
 import android.content.Context;
-import android.support.multidex.MultiDex;
 
-import com.reactnativecommunity.netinfo.NetInfoPackage;
+import androidx.multidex.MultiDex;
+
 import com.evernote.android.job.JobManager;
-import com.facebook.imagepipeline.core.ImagePipelineConfig;
+import com.facebook.react.PackageList;
 import com.facebook.react.ReactApplication;
+import com.rnim.rn.audio.ReactNativeAudioPackage;
 import com.facebook.react.ReactNativeHost;
 import com.facebook.react.ReactPackage;
 import com.facebook.react.bridge.NativeModule;
 import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.shell.MainPackageConfig;
-import com.facebook.react.shell.MainReactPackage;
-import com.dieam.reactnativepushnotification.ReactNativePushNotificationPackage;
 import com.facebook.soloader.SoLoader;
-import com.imagepicker.ImagePickerPackage;
-import com.RNFetchBlob.RNFetchBlobPackage;
-import com.reactnativecommunity.webview.RNCWebViewPackage;
-import com.rt2zz.reactnativecontacts.ReactNativeContacts;
-import com.dylanvann.fastimage.FastImageViewPackage;
 
-import org.reactnative.camera.RNCameraPackage;
+import org.unimodules.adapters.react.ModuleRegistryAdapter;
+import org.unimodules.adapters.react.ReactAdapterPackage;
+import org.unimodules.adapters.react.ReactModuleRegistryProvider;
+import org.unimodules.core.interfaces.Package;
 
-import com.airbnb.android.react.lottie.LottiePackage;
-import com.swmansion.gesturehandler.react.RNGestureHandlerPackage;
-import com.swmansion.reanimated.ReanimatedPackage;
-import com.swmansion.rnscreens.RNScreensPackage;
-import com.brentvatne.react.ReactVideoPackage;
-
-
-import java.io.File;
+// import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
-import io.keybase.ossifrage.modules.StorybookConstants;
+import expo.modules.barcodescanner.BarCodeScannerPackage;
+import expo.modules.constants.ConstantsPackage;
+import expo.modules.contacts.ContactsPackage;
+import expo.modules.imagepicker.ImagePickerPackage;
+import expo.modules.permissions.PermissionsPackage;
+import expo.modules.sms.SMSPackage;
 import io.keybase.ossifrage.modules.BackgroundJobCreator;
 import io.keybase.ossifrage.modules.BackgroundSyncJob;
 import io.keybase.ossifrage.modules.NativeLogger;
-import io.keybase.ossifrage.generated.BasePackageList;
+import io.keybase.ossifrage.modules.StorybookConstants;
 
-import org.unimodules.adapters.react.ModuleRegistryAdapter;
-import org.unimodules.adapters.react.ReactModuleRegistryProvider;
-import org.unimodules.core.interfaces.SingletonModule;
+import static keybase.Keybase.forceGC;
 
 public class MainApplication extends Application implements ReactApplication {
-    private final ReactModuleRegistryProvider mModuleRegistryProvider = new ReactModuleRegistryProvider(new BasePackageList().getPackageList(), Arrays.<SingletonModule>asList());
+    private final ReactModuleRegistryProvider mModuleRegistryProvider = new ReactModuleRegistryProvider(Arrays.<Package>asList(
+      new ReactAdapterPackage(),
+      new ConstantsPackage(),
+      // Same order as package.json
+      new BarCodeScannerPackage(),
+      new ContactsPackage(),
+      new ImagePickerPackage(),
+      new PermissionsPackage(),
+      new SMSPackage()
+    ), null);
+
 
     @Override
     protected void attachBaseContext(Context base) {
@@ -61,6 +62,7 @@ public class MainApplication extends Application implements ReactApplication {
         NativeLogger.info("MainApplication created");
         super.onCreate();
         SoLoader.init(this, /* native exopackage */ false);
+        // initializeFlipper(this); // Remove this line if you don't want Flipper enabled
         JobManager manager = JobManager.create(this);
         manager.addJobCreator(new BackgroundJobCreator());
 
@@ -74,6 +76,38 @@ public class MainApplication extends Application implements ReactApplication {
         }
     }
 
+    @Override
+    public void onLowMemory() {
+        forceGC();
+        super.onLowMemory();
+    }
+
+    /**
+     * Loads Flipper in React Native templates.
+     *
+     * @param context
+     */
+    // private static void initializeFlipper(Context context) {
+        // if (BuildConfig.DEBUG) {
+            // try {
+          // [>
+           // We use reflection here to pick up the class that initializes Flipper,
+          // since Flipper library is not available in release mode
+          // */
+                // Class<?> aClass = Class.forName("com.facebook.flipper.ReactNativeFlipper");
+                // aClass.getMethod("initializeFlipper", Context.class).invoke(null, context);
+            // } catch (ClassNotFoundException e) {
+                // e.printStackTrace();
+            // } catch (NoSuchMethodException e) {
+                // e.printStackTrace();
+            // } catch (IllegalAccessException e) {
+                // e.printStackTrace();
+            // } catch (InvocationTargetException e) {
+                // e.printStackTrace();
+            // }
+        // }
+    // }
+
     private final ReactNativeHost mReactNativeHost = new ReactNativeHost(this) {
 
         @Override
@@ -85,46 +119,42 @@ public class MainApplication extends Application implements ReactApplication {
         protected List<ReactPackage> getPackages() {
             Context context = getApplicationContext();
             // limit fresco memory
-            ImagePipelineConfig frescoConfig = ImagePipelineConfig
-                    .newBuilder(context)
-                    .setBitmapMemoryCacheParamsSupplier(new CustomBitmapMemoryCacheParamsSupplier(context))
-                    .build();
+//            ImagePipelineConfig frescoConfig = ImagePipelineConfig
+//                    .newBuilder(context)
+//                    .setBitmapMemoryCacheParamsSupplier(new CustomBitmapMemoryCacheParamsSupplier(context))
+//                    .build();
+//
+//            MainPackageConfig appConfig = new MainPackageConfig.Builder().setFrescoConfig(frescoConfig).build();
 
-            MainPackageConfig appConfig = new MainPackageConfig.Builder().setFrescoConfig(frescoConfig).build();
+            @SuppressWarnings("UnnecessaryLocalVariable")
+            List<ReactPackage> packages = new PackageList(this).getPackages();
+            // new MainReactPackage(appConfig),// removed from rn-diff but maybe we need it for fresco config?
+            packages.add(new KBReactPackage() {
+                @Override
+                public List<NativeModule> createNativeModules(ReactApplicationContext reactApplicationContext) {
+                    if (BuildConfig.BUILD_TYPE == "storyBook") {
+                        List<NativeModule> modules = new ArrayList<>();
+                        modules.add(new StorybookConstants(reactApplicationContext));
+                        return modules;
+                    } else {
+                        return super.createNativeModules(reactApplicationContext);
+                    }
+                }
+            });
 
-            return Arrays.<ReactPackage>asList(
-                    new MainReactPackage(appConfig),
-                    new KBReactPackage() {
-                        @Override
-                        public List<NativeModule> createNativeModules(ReactApplicationContext reactApplicationContext) {
-                            if (BuildConfig.BUILD_TYPE == "storyBook") {
-                                List<NativeModule> modules = new ArrayList<>();
-                                modules.add(new StorybookConstants(reactApplicationContext));
-                                return modules;
-                            } else {
-                                return super.createNativeModules(reactApplicationContext);
-                            }
-                        }
-                    },
-                    new ReactNativePushNotificationPackage(),
-                    new RNCameraPackage(),
-                    new ImagePickerPackage(),
-                    new RNFetchBlobPackage(),
-                    new ReactNativeContacts(),
-                    new FastImageViewPackage(),
-                    new LottiePackage(),
-                    new RNGestureHandlerPackage(),
-                    new RNScreensPackage(),
-                    new NetInfoPackage(),
-                    new RNCWebViewPackage(),
-                    new ReactVideoPackage(),
-                    new ReanimatedPackage(),
-                    new ModuleRegistryAdapter(mModuleRegistryProvider)
-            );
+            packages.add(new ModuleRegistryAdapter(mModuleRegistryProvider));
+
+            return packages;
         }
         @Override
         protected String getJSMainModuleName() {
-            return "index";
+            // This is a mildly hacky solution to mock out some code when we're in storybook mode.
+            // The code that handles this is in `shared/metro.config.js`.
+            if (BuildConfig.BUILD_TYPE == "storyBook") {
+                return "storybook-index";
+            } else {
+                return "normal-index";
+            }
         }
     };
 

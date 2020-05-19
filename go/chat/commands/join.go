@@ -22,7 +22,7 @@ func NewJoin(g *globals.Context) *Join {
 
 func (h *Join) Execute(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	tlfName, text string, replyTo *chat1.MessageID) (err error) {
-	defer h.Trace(ctx, func() error { return err }, "Join")()
+	defer h.Trace(ctx, &err, "Join")()
 	if !h.Match(ctx, text) {
 		return ErrInvalidCommand
 	}
@@ -34,13 +34,16 @@ func (h *Join) Execute(ctx context.Context, uid gregor1.UID, convID chat1.Conver
 		types.InboxSourceDataSourceAll, nil,
 		&chat1.GetInboxLocalQuery{
 			ConvIDs: []chat1.ConversationID{convID},
-		}, nil)
+		})
 	if err != nil {
 		return err
 	}
 	if len(ib.Convs) == 0 {
 		return errors.New("conv not found")
 	}
-	ui.ChatShowManageChannels(ctx, ib.Convs[0].Info.TlfName)
+	err = ui.ChatShowManageChannels(ctx, ib.Convs[0].Info.TlfName)
+	if err != nil {
+		h.Debug(ctx, "Execute: error with managing channels: %+v", err)
+	}
 	return nil
 }

@@ -55,10 +55,14 @@ func (e *SelfProvisionEngine) Result() error {
 	return e.result
 }
 
-func (e *SelfProvisionEngine) Run(m libkb.MetaContext) (err error) {
+func (e *SelfProvisionEngine) Run(mctx libkb.MetaContext) (err error) {
+	defer mctx.Trace("SelfProvisionEngine#Run", &err)()
+	return retryOnEphemeralRace(mctx, e.run)
+}
+
+func (e *SelfProvisionEngine) run(m libkb.MetaContext) (err error) {
 	m.G().LocalSigchainGuard().Set(m.Ctx(), "SelfProvisionEngine")
 	defer m.G().LocalSigchainGuard().Clear(m.Ctx(), "SelfProvisionEngine")
-	defer m.Trace("SelfProvisionEngine#Run", func() error { return err })()
 
 	if d, err := libkb.GetDeviceCloneState(m); err != nil {
 		return err
@@ -111,7 +115,7 @@ func (e *SelfProvisionEngine) Run(m libkb.MetaContext) (err error) {
 
 	// Store and encrypt the new deviceEK with the new globally set
 	// active device.
-	if e.ekReboxer.storeEKs(m); err != nil {
+	if err := e.ekReboxer.storeEKs(m); err != nil {
 		m.Debug("unable to store ephemeral keys: %v", err)
 	}
 
@@ -138,16 +142,10 @@ func (e *SelfProvisionEngine) loadUserAndActiveDeviceKeys(m libkb.MetaContext) (
 	}
 	e.perUserKeyring = pukRing
 
-	activeDevice := e.G().ActiveDevice
-	encKey, err := activeDevice.EncryptionKey()
+	keys, err := e.G().ActiveDevice.DeviceKeys()
 	if err != nil {
 		return nil, err
 	}
-	sigKey, err := activeDevice.SigningKey()
-	if err != nil {
-		return nil, err
-	}
-	keys := libkb.NewDeviceWithKeysOnly(sigKey, encKey)
 	if _, err := keys.Populate(m); err != nil {
 		return nil, err
 	}

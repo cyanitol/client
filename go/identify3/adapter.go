@@ -12,7 +12,7 @@ import (
 )
 
 // UIAdapter converts between the Identify2 UI that Identify2 engine expects, and the
-// Identify3UI interface that the frontend is soon to implement. It's going to maintain the
+// Identify3UI interface that the frontend implements. It's maintains the
 // state machine that was previously implemented in JS.
 type UIAdapter struct {
 	sync.Mutex
@@ -148,6 +148,13 @@ func (i *UIAdapter) priority(key string) int {
 	return p
 }
 
+func (i *UIAdapter) getColorForValid(following bool) keybase1.Identify3RowColor {
+	if following {
+		return keybase1.Identify3RowColor_GREEN
+	}
+	return keybase1.Identify3RowColor_BLUE
+}
+
 // return true if we need an upgrade
 func (i *UIAdapter) setRowStatus(mctx libkb.MetaContext, arg *keybase1.Identify3Row, lcr keybase1.LinkCheckResult) bool {
 
@@ -156,10 +163,9 @@ func (i *UIAdapter) setRowStatus(mctx libkb.MetaContext, arg *keybase1.Identify3
 		lcr, lcr.Cached, lcr.Diff, lcr.RemoteDiff, lcr.Hint)
 
 	switch {
-
 	// The proof worked, and either we tracked it as working, or we didn't track it at all.
 	case (lcr.ProofResult.State == keybase1.ProofState_OK && (lcr.RemoteDiff == nil || lcr.RemoteDiff.Type == keybase1.TrackDiffType_NONE)):
-		arg.Color = keybase1.Identify3RowColor_GREEN
+		arg.Color = i.getColorForValid(lcr.RemoteDiff != nil)
 		arg.State = keybase1.Identify3RowState_VALID
 
 	// The proof worked, and it's new to us.
@@ -234,18 +240,14 @@ func (i *UIAdapter) rowPartial(mctx libkb.MetaContext, proof keybase1.RemoteProo
 		humanURLOrSigchainURL = i.makeSigchainViewURL(mctx, proof.SigID)
 	}
 
-	iconKey := proof.Key
 	row.ProofURL = humanURLOrSigchainURL
 	switch proof.ProofType {
 	case keybase1.ProofType_TWITTER:
 		row.SiteURL = fmt.Sprintf("https://twitter.com/%v", proof.Value)
-		iconKey = "twitter"
 	case keybase1.ProofType_GITHUB:
 		row.SiteURL = fmt.Sprintf("https://github.com/%v", proof.Value)
-		iconKey = "github"
 	case keybase1.ProofType_REDDIT:
 		row.SiteURL = fmt.Sprintf("https://reddit.com/user/%v", proof.Value)
-		iconKey = "reddit"
 	case keybase1.ProofType_HACKERNEWS:
 		// hackernews profile urls must have the username in its original casing.
 		username := proof.Value
@@ -253,10 +255,8 @@ func (i *UIAdapter) rowPartial(mctx libkb.MetaContext, proof keybase1.RemoteProo
 			username = proof.DisplayMarkup
 		}
 		row.SiteURL = fmt.Sprintf("https://news.ycombinator.com/user?id=%v", username)
-		iconKey = "hackernews"
 	case keybase1.ProofType_FACEBOOK:
 		row.SiteURL = fmt.Sprintf("https://facebook.com/%v", proof.Value)
-		iconKey = "facebook"
 	case keybase1.ProofType_GENERIC_SOCIAL:
 		row.SiteURL = humanURLOrSigchainURL
 		serviceType := mctx.G().GetProofServices().GetServiceType(mctx.Ctx(), proof.Key)
@@ -267,9 +267,6 @@ func (i *UIAdapter) rowPartial(mctx libkb.MetaContext, proof keybase1.RemoteProo
 					row.SiteURL = profileURL
 				}
 			}
-			iconKey = serviceType.GetLogoKey()
-		} else {
-			iconKey = proof.Key
 		}
 		row.ProofURL = i.makeSigchainViewURL(mctx, proof.SigID)
 	case keybase1.ProofType_GENERIC_WEB_SITE:
@@ -278,16 +275,28 @@ func (i *UIAdapter) rowPartial(mctx libkb.MetaContext, proof keybase1.RemoteProo
 			protocol = "http"
 		}
 		row.SiteURL = fmt.Sprintf("%v://%v", protocol, proof.Value)
-		iconKey = "web"
 	case keybase1.ProofType_DNS:
 		row.SiteURL = fmt.Sprintf("http://%v", proof.Value)
 		row.ProofURL = i.makeSigchainViewURL(mctx, proof.SigID)
-		iconKey = "web"
 	default:
 		row.SiteURL = humanURLOrSigchainURL
 	}
-	row.SiteIcon = externals.MakeIcons(mctx, iconKey, "logo_black", 16)
-	row.SiteIconFull = externals.MakeIcons(mctx, iconKey, "logo_full", 64)
+	iconKey := libkb.ProofIconKey(mctx, proof.ProofType, proof.Key)
+	row.SiteIcon = libkb.MakeProofIcons(mctx, iconKey, libkb.ProofIconTypeSmall, 16)
+	row.SiteIconDarkmode = libkb.MakeProofIcons(mctx, iconKey, libkb.ProofIconTypeSmallDarkmode, 16)
+	row.SiteIconFull = libkb.MakeProofIcons(mctx, iconKey, libkb.ProofIconTypeFull, 64)
+	row.SiteIconFullDarkmode = libkb.MakeProofIcons(mctx, iconKey, libkb.ProofIconTypeFullDarkmode, 64)
+	switch proof.ProofType {
+	case keybase1.ProofType_NONE, keybase1.ProofType_PGP:
+		// These types are not eligible for web-of-trust selection.
+	default:
+		wotProof, err := libkb.NewWotProof(proof.ProofType, proof.Key, proof.Value)
+		if err != nil {
+			mctx.Debug("Error creating web-of-trust proof summary: %v", err)
+		} else {
+			row.WotProof = &wotProof
+		}
+	}
 	return row
 }
 
@@ -350,16 +359,19 @@ func (i *UIAdapter) displayKey(mctx libkb.MetaContext, key keybase1.IdentifyKey)
 		Priority: i.priority("pgp"),
 		SiteURL:  i.makeKeybaseProfileURL(mctx),
 		// key.SigID is blank if the PGP key was there pre-sigchain
-		ProofURL:     i.makeSigchainViewURL(mctx, key.SigID),
-		SiteIcon:     externals.MakeIcons(mctx, "pgp", "logo_black", 16),
-		SiteIconFull: externals.MakeIcons(mctx, "pgp", "logo_full", 64),
-		Kid:          &key.KID,
+		ProofURL:             i.makeSigchainViewURL(mctx, key.SigID),
+		SiteIcon:             libkb.MakeProofIcons(mctx, "pgp", libkb.ProofIconTypeSmall, 16),
+		SiteIconDarkmode:     libkb.MakeProofIcons(mctx, "pgp", libkb.ProofIconTypeSmallDarkmode, 16),
+		SiteIconFull:         libkb.MakeProofIcons(mctx, "pgp", libkb.ProofIconTypeFull, 64),
+		SiteIconFullDarkmode: libkb.MakeProofIcons(mctx, "pgp", libkb.ProofIconTypeFullDarkmode, 64),
+		Kid:                  &key.KID,
+		// PICNIC-1092 consider adding `WotProof` to support pgp in web-of-trust.
 	}
 
 	switch {
 	case key.TrackDiff == nil || key.TrackDiff.Type == keybase1.TrackDiffType_NONE:
 		arg.State = keybase1.Identify3RowState_VALID
-		arg.Color = keybase1.Identify3RowColor_GREEN
+		arg.Color = i.getColorForValid(key.TrackDiff != nil)
 	case key.TrackDiff != nil && (key.TrackDiff.Type == keybase1.TrackDiffType_REVOKED || key.TrackDiff.Type == keybase1.TrackDiffType_NEW_ELDEST):
 		arg.State = keybase1.Identify3RowState_REVOKED
 		arg.Color = keybase1.Identify3RowColor_RED
@@ -394,6 +406,13 @@ func (i *UIAdapter) ReportLastTrack(mctx libkb.MetaContext, track *keybase1.Trac
 }
 
 func (i *UIAdapter) plumbUncheckedProofs(mctx libkb.MetaContext, proofs []keybase1.IdentifyRow) {
+	err := i.ui.Identify3Summary(mctx.Ctx(), keybase1.Identify3Summary{
+		GuiID:            i.session.ID(),
+		NumProofsToCheck: len(proofs),
+	})
+	if err != nil {
+		mctx.Debug("Identify3Summary call failed: %s", err.Error())
+	}
 	for _, proof := range proofs {
 		i.plumbUncheckedProof(mctx, proof)
 	}
@@ -406,14 +425,13 @@ func (i *UIAdapter) plumbUncheckedProof(mctx libkb.MetaContext, row keybase1.Ide
 	i.updateRow(mctx, arg)
 }
 
-func (i *UIAdapter) updateRow(mctx libkb.MetaContext, arg keybase1.Identify3Row) error {
+func (i *UIAdapter) updateRow(mctx libkb.MetaContext, arg keybase1.Identify3Row) {
 	arg.GuiID = i.session.ID()
 	err := i.ui.Identify3UpdateRow(mctx.Ctx(), arg)
 	mctx.Debug("update row %+v", arg)
 	if err != nil {
 		mctx.Debug("Failed to send update row (%+v): %s", arg, err)
 	}
-	return err
 }
 
 func (i *UIAdapter) shouldSkipSendResult() bool {
@@ -479,33 +497,41 @@ func (i *UIAdapter) plumbCryptocurrency(mctx libkb.MetaContext, crypto keybase1.
 		mctx.Debug("unrecgonized crypto family: %v, %v", crypto.Type, crypto.Family)
 	}
 	i.updateRow(mctx, keybase1.Identify3Row{
-		Key:          key,
-		Value:        crypto.Address,
-		Priority:     i.priority(key),
-		State:        keybase1.Identify3RowState_VALID,
-		Color:        keybase1.Identify3RowColor_GREEN,
-		SigID:        crypto.SigID,
-		Ctime:        0,
-		SiteURL:      i.makeSigchainViewURL(mctx, crypto.SigID),
-		SiteIcon:     externals.MakeIcons(mctx, key, "logo_black", 16),
-		SiteIconFull: externals.MakeIcons(mctx, key, "logo_full", 64),
-		ProofURL:     i.makeSigchainViewURL(mctx, crypto.SigID),
+		Key:                  key,
+		Value:                crypto.Address,
+		Priority:             i.priority(key),
+		State:                keybase1.Identify3RowState_VALID,
+		Color:                i.getColorForValid(i.iFollowThem),
+		SigID:                crypto.SigID,
+		Ctime:                0,
+		SiteURL:              i.makeSigchainViewURL(mctx, crypto.SigID),
+		SiteIcon:             libkb.MakeProofIcons(mctx, key, libkb.ProofIconTypeSmall, 16),
+		SiteIconDarkmode:     libkb.MakeProofIcons(mctx, key, libkb.ProofIconTypeSmallDarkmode, 16),
+		SiteIconFull:         libkb.MakeProofIcons(mctx, key, libkb.ProofIconTypeFull, 64),
+		SiteIconFullDarkmode: libkb.MakeProofIcons(mctx, key, libkb.ProofIconTypeFullDarkmode, 64),
+		ProofURL:             i.makeSigchainViewURL(mctx, crypto.SigID),
 	})
 }
 
 func (i *UIAdapter) plumbStellarAccount(mctx libkb.MetaContext, str keybase1.StellarAccount) {
+	color := i.getColorForValid(i.iFollowThem)
+	if str.Hidden {
+		color = keybase1.Identify3RowColor_GRAY
+	}
 	i.updateRow(mctx, keybase1.Identify3Row{
-		Key:          "stellar",
-		Value:        str.FederationAddress,
-		Priority:     i.priority("stellar"),
-		State:        keybase1.Identify3RowState_VALID,
-		Color:        keybase1.Identify3RowColor_GREEN,
-		SigID:        str.SigID,
-		Ctime:        0,
-		SiteURL:      i.makeSigchainViewURL(mctx, str.SigID),
-		SiteIcon:     externals.MakeIcons(mctx, "stellar", "logo_black", 16),
-		SiteIconFull: externals.MakeIcons(mctx, "stellar", "logo_full", 64),
-		ProofURL:     i.makeSigchainViewURL(mctx, str.SigID),
+		Key:                  "stellar",
+		Value:                str.FederationAddress,
+		Priority:             i.priority("stellar"),
+		State:                keybase1.Identify3RowState_VALID,
+		Color:                color,
+		SigID:                str.SigID,
+		Ctime:                0,
+		SiteURL:              i.makeSigchainViewURL(mctx, str.SigID),
+		SiteIcon:             libkb.MakeProofIcons(mctx, "stellar", libkb.ProofIconTypeSmall, 16),
+		SiteIconDarkmode:     libkb.MakeProofIcons(mctx, "stellar", libkb.ProofIconTypeSmallDarkmode, 16),
+		SiteIconFull:         libkb.MakeProofIcons(mctx, "stellar", libkb.ProofIconTypeFull, 64),
+		SiteIconFullDarkmode: libkb.MakeProofIcons(mctx, "stellar", libkb.ProofIconTypeFullDarkmode, 64),
+		ProofURL:             i.makeSigchainViewURL(mctx, str.SigID),
 	})
 }
 
@@ -541,14 +567,6 @@ func (i *UIAdapter) DisplayTrackStatement(libkb.MetaContext, string) error {
 }
 
 func (i *UIAdapter) DisplayUserCard(mctx libkb.MetaContext, card keybase1.UserCard) error {
-
-	// Do not take the server's word on this! Overwrite with what we got above.
-	// Depends on the fact this gets called after ReportLastTrack, which is currently
-	// the case.
-	i.Lock()
-	card.YouFollowThem = i.iFollowThem
-	i.Unlock()
-
 	arg := keybase1.Identify3UpdateUserCardArg{
 		GuiID: i.session.ID(),
 		Card:  card,
@@ -570,12 +588,12 @@ func (i *UIAdapter) ReportTrackToken(mctx libkb.MetaContext, token keybase1.Trac
 }
 
 func (i *UIAdapter) Cancel(mctx libkb.MetaContext) error {
-	i.sendResult(mctx, keybase1.Identify3ResultType_CANCELED)
+	_ = i.sendResult(mctx, keybase1.Identify3ResultType_CANCELED)
 	return nil
 }
 
 func (i *UIAdapter) Finish(mctx libkb.MetaContext) error {
-	i.sendResult(mctx, i.session.ResultType())
+	_ = i.sendResult(mctx, i.session.ResultType())
 	return nil
 }
 func (i *UIAdapter) DisplayTLFCreateWithInvite(libkb.MetaContext, keybase1.DisplayTLFCreateWithInviteArg) error {

@@ -1,22 +1,17 @@
-import * as I from 'immutable'
 import {DeviceID} from './rpc-gen'
 import {DeviceType} from './devices'
 
-export type _Device = {
+export type Device = {
   type: DeviceType
   name: string
   deviceID: DeviceID
 }
 
-export type Device = I.RecordOf<_Device>
-
-export type _State = {
-  popupOpen: boolean
-  devices: I.List<Device>
-  paperkeyError: string | null
-  phase: 'dead' | 'promptOtherDevice' | 'paperKeyInput' | 'success'
-  sessionID: number | null
-  waiting: boolean
+export type State = {
+  readonly popupOpen: boolean
+  readonly devices: Array<Device>
+  readonly paperkeyError?: string
+  readonly phase: 'dead' | 'promptOtherDevice' | 'paperKeyInput' | 'success'
+  readonly sessionID?: number
+  readonly waiting: boolean
 }
-
-export type State = I.RecordOf<_State>

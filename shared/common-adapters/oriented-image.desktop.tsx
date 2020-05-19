@@ -1,9 +1,11 @@
 import * as React from 'react'
 import fs from 'fs'
 import EXIF from 'exif-js'
-import {noop, isNumber} from 'lodash-es'
+import noop from 'lodash/noop'
+import isNumber from 'lodash/isNumber'
 import logger from '../logger'
-import {Props} from './oriented-image.types'
+import {Props} from './oriented-image'
+import {StylesCrossPlatform} from 'styles'
 
 type State = {
   srcTransformed: string
@@ -20,7 +22,7 @@ const uploadedSrc = /https?:\/\/127.0.0.1:.*$/i
 const NO_TRANSFORM = 'notransform'
 const _cacheNoTransforms: {[K in string]: string} = {}
 
-// Define transformatin functions to operate on canvas elements
+// Define transformation functions to operate on canvas elements
 //
 // 1: rotate 0 deg left
 // 2: flip horizontally
@@ -32,15 +34,15 @@ const _cacheNoTransforms: {[K in string]: string} = {}
 // 8: rotate 270 deg left
 const transformMap: {[K in string]: TransformFn} = {
   '1': noop,
-  '2': (canvas, ctx, width, height) => {
+  '2': (_, ctx, width) => {
     ctx.translate(width, 0)
     ctx.scale(-1, 1)
   },
-  '3': (canvas, ctx, width, height) => {
+  '3': (_, ctx, width, height) => {
     ctx.translate(width, height)
     ctx.rotate((180 * Math.PI) / 180)
   },
-  '4': (canvas, ctx, width, height) => {
+  '4': (_, ctx, __, height) => {
     ctx.translate(0, height)
     ctx.scale(1, -1)
   },
@@ -70,10 +72,23 @@ const transformMap: {[K in string]: TransformFn} = {
     ctx.rotate((-90 * Math.PI) / 180)
   },
 }
-
-const ImageRef = React.forwardRef((props, ref) => (
-  // @ts-ignore codemod issue
-  <img src={props.src} style={props.style} onDragStart={props.onDragStart} onLoad={props.onLoad} ref={ref} />
+type ImageRefProps = {
+  src: string
+  style?: StylesCrossPlatform
+  onDragStart?: (e: React.SyntheticEvent) => void
+  onLoad?: (e: React.SyntheticEvent) => void
+  onError?: () => void
+}
+// @ts-ignore I can't figure out the ref typing
+const ImageRef = React.forwardRef((props: ImageRefProps, ref: React.RefObject<HTMLImageElement>) => (
+  <img
+    src={props.src}
+    style={props.style as React.CSSProperties}
+    onDragStart={props.onDragStart}
+    onLoad={props.onLoad}
+    ref={ref}
+    onError={props.onError}
+  />
 ))
 
 /*
@@ -139,6 +154,7 @@ class OrientedImage extends React.Component<Props, State> {
       if (p.srcTransformed === imageData) return undefined
       return {srcTransformed: imageData}
     })
+    return undefined
   }
 
   _canvasImageTransform = (orientation: number) => {
@@ -147,6 +163,9 @@ class OrientedImage extends React.Component<Props, State> {
     /* eslint-disable-next-line no-undef */
     const img = new Image()
     img.onload = () => this._drawCanvasOrientation(img, orientation)
+    img.onerror = () => {
+      this.props.onError?.()
+    }
     img.src = src
   }
 
@@ -159,8 +178,8 @@ class OrientedImage extends React.Component<Props, State> {
     const {src} = this.props
     return new Promise((resolve, reject) => {
       try {
-        // @ts-ignore codemod issue
-        const ret = EXIF.getData({src}, function() {
+        // @ts-ignore types actually wrong
+        const ret = EXIF.getData({src}, function(this: unknown) {
           const orientation = EXIF.getTag(this, 'Orientation')
           resolve(orientation)
         })
@@ -248,7 +267,7 @@ class OrientedImage extends React.Component<Props, State> {
     this._context = null
   }
 
-  componentDidUpdate(prevProps: Props, prevState: State) {
+  componentDidUpdate(prevProps: Props) {
     // New src requires changing EXIF transform
     if (prevProps.src !== this.props.src) {
       this._setTranformForExifOrientation()
@@ -260,19 +279,20 @@ class OrientedImage extends React.Component<Props, State> {
    */
   render() {
     return (
-      <React.Fragment>
+      <>
         {this.state.srcTransformed && (
-          // @ts-ignore codemod issue
           <ImageRef
             ref={this.props.forwardedRef}
+            // @ts-ignore TODO type
             src={this.state.srcTransformed}
             style={this.props.style}
             onDragStart={this.props.onDragStart}
             onLoad={this.props.onLoad}
+            onError={this.props.onError}
           />
         )}
         <canvas ref={el => (this._canvasRef = el)} style={styleCanvas} />
-      </React.Fragment>
+      </>
     )
   }
 }

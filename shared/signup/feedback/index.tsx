@@ -8,7 +8,7 @@ type Props = {
   onBack: () => void
   onSendFeedback: (feedback: string, sendLogs: boolean, sendMaxBytes: boolean) => void
   sending: boolean
-  sendError: Error | null
+  sendError?: Error
 }
 
 const SendFeedback = (props: Props) => {
@@ -16,7 +16,6 @@ const SendFeedback = (props: Props) => {
 
   return (
     <SignupScreen
-      buttons={[]}
       banners={[
         ...(feedbackSent
           ? [
@@ -28,7 +27,7 @@ const SendFeedback = (props: Props) => {
         ...(props.sendError ? errorBanner(props.sendError.message) : []),
       ]}
       title="Send feedback"
-      onBack={!props.loggedOut ? props.onBack : undefined}
+      onBack={props.onBack}
       showHeaderInfoicon={false}
       showHeaderInfoiconRow={!props.loggedOut}
     >
@@ -42,6 +41,12 @@ const SendFeedback = (props: Props) => {
       />
     </SignupScreen>
   )
+}
+SendFeedback.navigationOptions = {
+  header: null,
+  headerBottomStyle: {height: undefined},
+  headerLeft: null,
+  headerRightActions: null,
 }
 
 export default SendFeedback

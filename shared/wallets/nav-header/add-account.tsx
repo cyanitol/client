@@ -22,10 +22,12 @@ const _AddAccount = (props: Kb.PropsWithOverlay<AddAccountProps>) => (
     <Kb.FloatingMenu
       items={[
         {
+          icon: 'iconfont-new',
           onClick: props.onAddNew,
           title: 'Create a new account',
         },
         {
+          icon: 'iconfont-identity-stellar',
           onClick: props.onLinkExisting,
           title: 'Link an existing Stellar account',
         },
@@ -55,6 +57,9 @@ const mapDispatchToProps = dispatch => ({
   },
 })
 
-export default Container.namedConnect(() => ({}), mapDispatchToProps, (_, d) => d, 'WalletAddAccount')(
-  AddAccount
-)
+export default Container.namedConnect(
+  () => ({}),
+  mapDispatchToProps,
+  (_, d) => d,
+  'WalletAddAccount'
+)(AddAccount)

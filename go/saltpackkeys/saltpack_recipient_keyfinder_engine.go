@@ -24,8 +24,6 @@ type SaltpackRecipientKeyfinderEngine struct {
 	engine.SaltpackUserKeyfinder
 	SymmetricEntityKeyMap map[keybase1.TeamID](keybase1.TeamApplicationKey)
 	SaltpackSymmetricKeys []libkb.SaltpackReceiverSymmetricKey
-
-	SkipTlfKeysForTesting bool // CORE-8423 remove this after most clients update
 }
 
 var _ libkb.Engine2 = (*SaltpackRecipientKeyfinderEngine)(nil)
@@ -39,23 +37,13 @@ func NewSaltpackRecipientKeyfinderEngineAsInterface(arg libkb.SaltpackRecipientK
 	}
 }
 
-// SaltpackRecipientKeyfinderEngineForTesting creates a SaltpackRecipientKeyfinderEngine engine.
-// CORE-8423 remove this after most clients update
-func NewSaltpackRecipientKeyfinderEngineAsInterfaceForTesting(arg libkb.SaltpackRecipientKeyfinderArg) libkb.SaltpackRecipientKeyfinderEngineInterface {
-	return &SaltpackRecipientKeyfinderEngine{
-		SaltpackUserKeyfinder: *engine.NewSaltpackUserKeyfinder(arg),
-		SymmetricEntityKeyMap: make(map[keybase1.TeamID](keybase1.TeamApplicationKey)),
-		SkipTlfKeysForTesting: true,
-	}
-}
-
 // Name is the unique engine name.
 func (e *SaltpackRecipientKeyfinderEngine) Name() string {
 	return "SaltpackRecipientKeyfinder"
 }
 
 func (e *SaltpackRecipientKeyfinderEngine) Run(m libkb.MetaContext) (err error) {
-	defer m.Trace("SaltpackRecipientKeyfinder#Run", func() error { return err })()
+	defer m.Trace("SaltpackRecipientKeyfinder#Run", &err)()
 
 	err = e.AddOwnKeysIfNeeded(m)
 	if err != nil {
@@ -68,16 +56,6 @@ func (e *SaltpackRecipientKeyfinderEngine) Run(m libkb.MetaContext) (err error) 
 	}
 
 	err = e.uploadKeyPseudonymsAndGenerateSymmetricKeys(m)
-
-	// CORE-8423 remove this after most clients update
-	// Note: we do not add tlf keys for users added as members of a recipient team.
-	if !e.SkipTlfKeysForTesting && !e.Arg.NoSelfEncrypt && len(e.Arg.Recipients) > 0 {
-		kf := NewSaltpackKBFSKeyfinderEngineForTesting(e.Arg)
-		if err := engine.RunEngine2(m, kf); err != nil {
-			return err
-		}
-		e.SaltpackSymmetricKeys = append(e.SaltpackSymmetricKeys, kf.GetSymmetricKeys()...)
-	}
 
 	return err
 }
@@ -184,6 +162,8 @@ func (e *SaltpackRecipientKeyfinderEngine) identifyAndAddUserRecipient(m libkb.M
 	case libkb.IsNoKeyError(err):
 		// User exists but has no keys. Just try adding implicit team keys.
 		return e.lookupAndAddImplicitTeamKeys(m, u)
+	case libkb.IsAssertionParseErrorWithReason(err, libkb.AssertionParseErrorReasonUnexpectedOR):
+		return err
 	default:
 		return fmt.Errorf("Error while adding keys for %v: %v", u, err)
 	}
@@ -293,8 +273,9 @@ func (e *SaltpackRecipientKeyfinderEngine) lookupAndAddImplicitTeamKeys(m libkb.
 		return err
 	}
 	m.Debug("adding team key for implicit team %v", impTeamName)
-	m.Warning("encrypting for %v who is not yet a keybase user (or does not have a provisioned device): one of your devices will need to be online after they join keybase (or provision a new device), or they won't be able to decrypt it.", validSocialAssertionOrExistingUser)
+	e.UsingSBS = true
+	e.SBSAssertion = validSocialAssertionOrExistingUser
 	e.SymmetricEntityKeyMap[team.ID] = appKey
 
-	return err
+	return nil
 }

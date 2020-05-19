@@ -8,7 +8,9 @@ import * as Container from '../../util/container'
 import {formatTimeForDeviceTimeline, formatTimeRelativeToNow} from '../../util/timestamp'
 
 type Props = {
+  iconNumber: number
   id: Types.DeviceID
+  onBack: () => void
 }
 
 const TimelineMarker = ({first, last, closedCircle}) => (
@@ -85,6 +87,7 @@ const Timeline = ({device}) => {
 
 const DevicePage = (props: Props) => {
   const device = Container.useSelector(state => Constants.getDevice(state, props.id))
+  const canRevoke = Container.useSelector(state => Constants.getDeviceCounts(state).numActive > 1)
   const dispatch = Container.useDispatch()
   const showRevokeDevicePage = React.useCallback(
     () => dispatch(DevicesGen.createShowRevokePage({deviceID: props.id})),
@@ -97,22 +100,23 @@ const DevicePage = (props: Props) => {
     <Kb.Meta title="revoked" style={styles.meta} backgroundColor={Styles.globalColors.red} />
   ) : null
 
-  const icon: Kb.IconType = ({
+  let maybeIcon = ({
     backup: 'icon-paper-key-96',
-    desktop: 'icon-computer-96',
-    mobile: 'icon-phone-96',
+    desktop: `icon-computer-background-${props.iconNumber}-96`,
+    mobile: `icon-phone-background-${props.iconNumber}-96`,
   } as const)[device.type]
+  const icon = Kb.isValidIconType(maybeIcon) ? maybeIcon : 'icon-computer-96'
 
   const revokeName = {
     backup: 'paper key',
     desktop: 'computer',
-    mobile: 'phone',
+    mobile: 'device',
   }[device.type]
 
   const metaTwo = {
     backup: 'Paper key',
     desktop: 'Computer',
-    mobile: 'Phone',
+    mobile: 'Device',
   }[device.type]
 
   return (
@@ -128,51 +132,63 @@ const DevicePage = (props: Props) => {
       <Kb.NameWithIcon icon={icon} title={device.name} metaOne={metaOne} metaTwo={metaTwo} size="big" />
       <Timeline device={device} />
       {!device.revokedAt && (
-        <Kb.Button type="Danger" label={`Revoke this ${revokeName}`} onClick={showRevokeDevicePage} />
+        <Kb.Button
+          disabled={!canRevoke}
+          type="Danger"
+          label={`Revoke this ${revokeName}`}
+          onClick={showRevokeDevicePage}
+        />
       )}
+      {!canRevoke && <Kb.Text type="BodySmall">You can't revoke your last device.</Kb.Text>}
     </Kb.Box2>
   )
 }
+DevicePage.navigationOptions = {
+  header: undefined,
+}
 
-const styles = Styles.styleSheetCreate({
-  circleClosed: {
-    backgroundColor: Styles.globalColors.grey,
-    borderColor: Styles.globalColors.white,
-    borderRadius: 8 / 2,
-    borderStyle: 'solid',
-    borderWidth: 2,
-    height: 8,
-    width: 8,
-  },
-  circleOpen: {
-    borderColor: Styles.globalColors.grey,
-    borderRadius: 8 / 2,
-    borderStyle: 'solid',
-    borderWidth: 2,
-    height: 8,
-    width: 8,
-  },
-  invisible: {opacity: 0},
-  marker: {
-    ...Styles.globalStyles.flexBoxColumn,
-    alignItems: 'center',
-  },
-  meta: {
-    alignSelf: 'center',
-    marginTop: 4,
-  },
-  subDesc: {color: Styles.globalColors.black},
-  timelineLabel: {alignItems: 'flex-start'},
-  timelineLineBottom: {
-    backgroundColor: Styles.globalColors.grey,
-    flex: 1,
-    width: 2,
-  },
-  timelineLineTop: {
-    backgroundColor: Styles.globalColors.grey,
-    height: 6,
-    width: 2,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      circleClosed: {
+        backgroundColor: Styles.globalColors.grey,
+        borderColor: Styles.globalColors.white,
+        borderRadius: 8 / 2,
+        borderStyle: 'solid',
+        borderWidth: 2,
+        height: 8,
+        width: 8,
+      },
+      circleOpen: {
+        borderColor: Styles.globalColors.grey,
+        borderRadius: 8 / 2,
+        borderStyle: 'solid',
+        borderWidth: 2,
+        height: 8,
+        width: 8,
+      },
+      invisible: {opacity: 0},
+      marker: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'center',
+      },
+      meta: {
+        alignSelf: 'center',
+        marginTop: 4,
+      },
+      subDesc: {color: Styles.globalColors.black},
+      timelineLabel: {alignItems: 'flex-start'},
+      timelineLineBottom: {
+        backgroundColor: Styles.globalColors.grey,
+        flex: 1,
+        width: 2,
+      },
+      timelineLineTop: {
+        backgroundColor: Styles.globalColors.grey,
+        height: 6,
+        width: 2,
+      },
+    } as const)
+)
 
-export default Kb.HeaderHoc(DevicePage)
+export default DevicePage

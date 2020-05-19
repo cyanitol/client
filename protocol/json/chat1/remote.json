@@ -2,12 +2,12 @@
   "protocol": "remote",
   "imports": [
     {
-      "path": "github.com/keybase/client/go/protocol/gregor1",
+      "path": "../gregor1",
       "type": "idl",
       "import_as": "gregor1"
     },
     {
-      "path": "github.com/keybase/client/go/protocol/keybase1",
+      "path": "../keybase1",
       "type": "idl",
       "import_as": "keybase1"
     }
@@ -208,6 +208,14 @@
             "items": "MessageBoxed"
           },
           "name": "msgs"
+        },
+        {
+          "type": "ConversationMembersType",
+          "name": "membersType"
+        },
+        {
+          "type": "keybase1.TLFVisibility",
+          "name": "visibility"
         },
         {
           "type": [
@@ -518,6 +526,19 @@
     },
     {
       "type": "record",
+      "name": "RemoveFromConversationRemoteRes",
+      "fields": [
+        {
+          "type": [
+            null,
+            "RateLimit"
+          ],
+          "name": "rateLimit"
+        }
+      ]
+    },
+    {
+      "type": "record",
       "name": "GetMessageBeforeRes",
       "fields": [
         {
@@ -661,6 +682,13 @@
     },
     {
       "type": "record",
+      "name": "BotInfoHashVers",
+      "fields": [],
+      "typedef": "uint64",
+      "lint": "ignore"
+    },
+    {
+      "type": "record",
       "name": "CommandConvVers",
       "fields": [],
       "typedef": "uint64",
@@ -687,6 +715,20 @@
         {
           "type": "TLFID",
           "name": "tlfID"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "RemoteBotCommandsAdvertisementConv",
+      "fields": [
+        {
+          "type": "ConversationID",
+          "name": "convID"
+        },
+        {
+          "type": "ConversationID",
+          "name": "advertiseConvID"
         }
       ]
     },
@@ -718,6 +760,13 @@
             "def": false
           },
           "body": "RemoteBotCommandsAdvertisementTLFID"
+        },
+        {
+          "label": {
+            "name": "CONV",
+            "def": false
+          },
+          "body": "RemoteBotCommandsAdvertisementConv"
         }
       ]
     },
@@ -730,6 +779,10 @@
           "name": "uid"
         },
         {
+          "type": "keybase1.TeamRole",
+          "name": "untrustedTeamRole"
+        },
+        {
           "type": "ConversationID",
           "name": "convID"
         },
@@ -740,6 +793,10 @@
         {
           "type": "gregor1.Time",
           "name": "mtime"
+        },
+        {
+          "type": "BotCommandsAdvertisementTyp",
+          "name": "typ"
         }
       ]
     },
@@ -747,6 +804,14 @@
       "type": "record",
       "name": "BotInfo",
       "fields": [
+        {
+          "type": "BotInfoHashVers",
+          "name": "serverHashVers"
+        },
+        {
+          "type": "BotInfoHashVers",
+          "name": "clientHashVers"
+        },
         {
           "type": {
             "type": "array",
@@ -766,6 +831,69 @@
             "RateLimit"
           ],
           "name": "rateLimit"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "RemoteClearBotCommandsFilterPublic",
+      "fields": []
+    },
+    {
+      "type": "record",
+      "name": "RemoteClearBotCommandsFilterTLFID",
+      "fields": [
+        {
+          "type": "TLFID",
+          "name": "tlfID"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "RemoteClearBotCommandsFilterConv",
+      "fields": [
+        {
+          "type": "ConversationID",
+          "name": "convID"
+        }
+      ]
+    },
+    {
+      "type": "variant",
+      "name": "RemoteClearBotCommandsFilter",
+      "switch": {
+        "type": "BotCommandsAdvertisementTyp",
+        "name": "typ"
+      },
+      "cases": [
+        {
+          "label": {
+            "name": "PUBLIC",
+            "def": false
+          },
+          "body": "RemoteClearBotCommandsFilterPublic"
+        },
+        {
+          "label": {
+            "name": "TLFID_MEMBERS",
+            "def": false
+          },
+          "body": "RemoteClearBotCommandsFilterTLFID"
+        },
+        {
+          "label": {
+            "name": "TLFID_CONVS",
+            "def": false
+          },
+          "body": "RemoteClearBotCommandsFilterTLFID"
+        },
+        {
+          "label": {
+            "name": "CONV",
+            "def": false
+          },
+          "body": "RemoteClearBotCommandsFilterConv"
         }
       ]
     },
@@ -836,6 +964,135 @@
       "name": "BotInfoHash",
       "fields": [],
       "typedef": "bytes"
+    },
+    {
+      "type": "record",
+      "name": "GetDefaultTeamChannelsRes",
+      "fields": [
+        {
+          "type": {
+            "type": "array",
+            "items": "ConversationID"
+          },
+          "name": "convs"
+        },
+        {
+          "type": [
+            null,
+            "RateLimit"
+          ],
+          "name": "rateLimit"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "SetDefaultTeamChannelsRes",
+      "fields": [
+        {
+          "type": [
+            null,
+            "RateLimit"
+          ],
+          "name": "rateLimit"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "GetRecentJoinsRes",
+      "fields": [
+        {
+          "type": "int",
+          "name": "numJoins"
+        },
+        {
+          "type": [
+            null,
+            "RateLimit"
+          ],
+          "name": "rateLimit"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "RefreshParticipantsRemoteRes",
+      "fields": [
+        {
+          "type": "boolean",
+          "name": "hashMatch"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "gregor1.UID"
+          },
+          "name": "uids"
+        },
+        {
+          "type": "string",
+          "name": "hash"
+        },
+        {
+          "type": [
+            null,
+            "RateLimit"
+          ],
+          "name": "rateLimit"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "GetLastActiveAtRes",
+      "fields": [
+        {
+          "type": "gregor1.Time",
+          "name": "lastActiveAt"
+        },
+        {
+          "type": [
+            null,
+            "RateLimit"
+          ],
+          "name": "rateLimit"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "ResetConversationMember",
+      "fields": [
+        {
+          "type": "ConversationID",
+          "name": "convID"
+        },
+        {
+          "type": "gregor1.UID",
+          "name": "uid"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "GetResetConversationsRes",
+      "fields": [
+        {
+          "type": {
+            "type": "array",
+            "items": "ResetConversationMember"
+          },
+          "name": "resetConvs"
+        },
+        {
+          "type": [
+            null,
+            "RateLimit"
+          ],
+          "name": "rateLimit"
+        }
+      ]
     }
   ],
   "messages": {
@@ -860,7 +1117,8 @@
           ]
         }
       ],
-      "response": "GetInboxRemoteRes"
+      "response": "GetInboxRemoteRes",
+      "timeout_msec": 1200000
     },
     "getThreadRemote": {
       "request": [
@@ -993,6 +1251,13 @@
             null,
             "ConversationID"
           ]
+        },
+        {
+          "name": "retentionPolicy",
+          "type": [
+            null,
+            "RetentionPolicy"
+          ]
         }
       ],
       "response": "NewConversationRemoteRes",
@@ -1107,6 +1372,10 @@
         {
           "name": "summarizeMaxMsgs",
           "type": "boolean"
+        },
+        {
+          "name": "participantsMode",
+          "type": "InboxParticipantsMode"
         }
       ],
       "response": "SyncChatRes"
@@ -1148,6 +1417,10 @@
         {
           "name": "summarizeMaxMsgs",
           "type": "boolean"
+        },
+        {
+          "name": "participantsMode",
+          "type": "InboxParticipantsMode"
         }
       ],
       "response": "SyncAllResult",
@@ -1265,6 +1538,22 @@
       ],
       "response": "DeleteConversationRemoteRes"
     },
+    "removeFromConversation": {
+      "request": [
+        {
+          "name": "convID",
+          "type": "ConversationID"
+        },
+        {
+          "name": "users",
+          "type": {
+            "type": "array",
+            "items": "gregor1.UID"
+          }
+        }
+      ],
+      "response": "RemoveFromConversationRemoteRes"
+    },
     "getMessageBefore": {
       "request": [
         {
@@ -1290,10 +1579,6 @@
         },
         {
           "name": "summarizeMaxMsgs",
-          "type": "boolean"
-        },
-        {
-          "name": "useCache",
           "type": "boolean"
         }
       ],
@@ -1403,6 +1688,10 @@
         {
           "name": "tlfID",
           "type": "TLFID"
+        },
+        {
+          "name": "teamID",
+          "type": "keybase1.TeamID"
         }
       ],
       "response": null
@@ -1454,6 +1743,18 @@
       ],
       "response": null
     },
+    "teamIDOfConv": {
+      "request": [
+        {
+          "name": "convID",
+          "type": "ConversationID"
+        }
+      ],
+      "response": [
+        null,
+        "keybase1.TeamID"
+      ]
+    },
     "serverNow": {
       "request": [],
       "response": "ServerNowRes"
@@ -1486,7 +1787,15 @@
       "response": "AdvertiseBotCommandsRes"
     },
     "clearBotCommands": {
-      "request": [],
+      "request": [
+        {
+          "name": "filter",
+          "type": [
+            null,
+            "RemoteClearBotCommandsFilter"
+          ]
+        }
+      ],
       "response": "ClearBotCommandsRes"
     },
     "getBotInfo": {
@@ -1498,9 +1807,77 @@
         {
           "name": "infoHash",
           "type": "BotInfoHash"
+        },
+        {
+          "name": "clientHashVers",
+          "type": "BotInfoHashVers"
         }
       ],
       "response": "GetBotInfoRes"
+    },
+    "getDefaultTeamChannels": {
+      "request": [
+        {
+          "name": "teamID",
+          "type": "keybase1.TeamID"
+        }
+      ],
+      "response": "GetDefaultTeamChannelsRes"
+    },
+    "setDefaultTeamChannels": {
+      "request": [
+        {
+          "name": "teamID",
+          "type": "keybase1.TeamID"
+        },
+        {
+          "name": "convs",
+          "type": {
+            "type": "array",
+            "items": "ConversationID"
+          }
+        }
+      ],
+      "response": "SetDefaultTeamChannelsRes"
+    },
+    "getRecentJoins": {
+      "request": [
+        {
+          "name": "convID",
+          "type": "ConversationID"
+        }
+      ],
+      "response": "GetRecentJoinsRes"
+    },
+    "refreshParticipantsRemote": {
+      "request": [
+        {
+          "name": "convID",
+          "type": "ConversationID"
+        },
+        {
+          "name": "hash",
+          "type": "string"
+        }
+      ],
+      "response": "RefreshParticipantsRemoteRes"
+    },
+    "getLastActiveAt": {
+      "request": [
+        {
+          "name": "teamID",
+          "type": "keybase1.TeamID"
+        },
+        {
+          "name": "uid",
+          "type": "gregor1.UID"
+        }
+      ],
+      "response": "GetLastActiveAtRes"
+    },
+    "getResetConversations": {
+      "request": [],
+      "response": "GetResetConversationsRes"
     }
   },
   "namespace": "chat.1",

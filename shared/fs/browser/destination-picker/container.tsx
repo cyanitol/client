@@ -1,131 +1,139 @@
-import * as I from 'immutable'
 import * as Container from '../../../util/container'
 import {memoize} from '../../../util/memoize'
 import DestinationPicker from '.'
 import * as Types from '../../../constants/types/fs'
 import * as Constants from '../../../constants/fs'
-import {TypedState} from '../../../constants/reducer'
 import * as FsGen from '../../../actions/fs-gen'
 import {isMobile} from '../../../constants/platform'
 import * as RouteTreeGen from '../../../actions/route-tree-gen'
+import * as React from 'react'
+import {OriginalOrCompressedButton} from '../../../incoming-share'
 
-type OwnProps = {
+type OwnProps = Container.RouteProps<{
   index: number
-}
-type OwnPropsWithSafeNavigation = Container.PropsWithSafeNavigation<OwnProps>
+}>
 
-const mapStateToProps = (state: TypedState) => ({
-  _destinationPicker: state.fs.destinationPicker,
-  _pathItems: state.fs.pathItems,
-})
-
-type StateProps = ReturnType<typeof mapStateToProps>
-
-const getIndex = (ownProps: OwnPropsWithSafeNavigation) => ownProps.getParam('index') || 0
-const getDestinationParentPath = (stateProps: StateProps, ownProps: OwnPropsWithSafeNavigation): Types.Path =>
-  stateProps._destinationPicker.destinationParentPath.get(
-    getIndex(ownProps),
-    stateProps._destinationPicker.source.type === Types.DestinationPickerSource.MoveOrCopy
-      ? Types.getPathParent(stateProps._destinationPicker.source.path)
-      : Types.stringToPath('/keybase')
-  )
-
-const mapDispatchToProps = (dispatch, ownProps: OwnPropsWithSafeNavigation) => ({
-  _onBackUp: (currentPath: Types.Path) =>
-    Constants.makeActionsForDestinationPickerOpen(
-      getIndex(ownProps) + 1,
-      Types.getPathParent(currentPath),
-      ownProps.navigateAppend
-    ).forEach(action => dispatch(action)),
-  _onCopyHere: destinationParentPath => {
-    dispatch(FsGen.createCopy({destinationParentPath}))
-    dispatch(FsGen.createClearRefreshTag({refreshTag: Types.RefreshTag.DestinationPicker}))
-    dispatch(RouteTreeGen.createClearModals())
-  },
-  _onMoveHere: destinationParentPath => {
-    dispatch(FsGen.createMove({destinationParentPath}))
-    dispatch(FsGen.createClearRefreshTag({refreshTag: Types.RefreshTag.DestinationPicker}))
-    dispatch(RouteTreeGen.createClearModals())
-    dispatch(ownProps.navigateAppend({path: [{props: {path: destinationParentPath}, selected: 'main'}]}))
-  },
-  _onNewFolder: destinationParentPath =>
-    dispatch(FsGen.createNewFolderRow({parentPath: destinationParentPath})),
-  onCancel: () => {
-    dispatch(FsGen.createClearRefreshTag({refreshTag: Types.RefreshTag.DestinationPicker}))
-    dispatch(RouteTreeGen.createClearModals())
-  },
-})
-
-type DispatchProps = ReturnType<typeof mapDispatchToProps>
+const getIndex = (ownProps: OwnProps) => Container.getRouteProps(ownProps, 'index', 0)
+const getDestinationParentPath = (dp: Types.DestinationPicker, ownProps: OwnProps): Types.Path =>
+  dp.destinationParentPath[getIndex(ownProps)] ||
+  (dp.source.type === Types.DestinationPickerSource.MoveOrCopy
+    ? Types.getPathParent(dp.source.path)
+    : Types.stringToPath('/keybase'))
 
 const canWrite = memoize(
-  (stateProps: StateProps, ownProps: OwnPropsWithSafeNavigation) =>
-    Types.getPathLevel(getDestinationParentPath(stateProps, ownProps)) > 2 &&
-    stateProps._pathItems.get(getDestinationParentPath(stateProps, ownProps), Constants.unknownPathItem)
-      .writable
+  (dp: Types.DestinationPicker, pathItems: Types.PathItems, ownProps: OwnProps) =>
+    Types.getPathLevel(getDestinationParentPath(dp, ownProps)) > 2 &&
+    Constants.getPathItem(pathItems, getDestinationParentPath(dp, ownProps)).writable
 )
 
-const canCopy = memoize((stateProps: StateProps, ownProps: OwnPropsWithSafeNavigation) => {
-  if (!canWrite(stateProps, ownProps)) {
+const canCopy = memoize((dp: Types.DestinationPicker, pathItems: Types.PathItems, ownProps: OwnProps) => {
+  if (!canWrite(dp, pathItems, ownProps)) {
     return false
   }
-  if (stateProps._destinationPicker.source.type === Types.DestinationPickerSource.IncomingShare) {
+  if (dp.source.type === Types.DestinationPickerSource.IncomingShare) {
     return true
   }
-  if (stateProps._destinationPicker.source.type === Types.DestinationPickerSource.MoveOrCopy) {
-    const source: Types.MoveOrCopySource = stateProps._destinationPicker.source
-    return getDestinationParentPath(stateProps, ownProps) !== Types.getPathParent(source.path)
+  if (dp.source.type === Types.DestinationPickerSource.MoveOrCopy) {
+    const source: Types.MoveOrCopySource = dp.source
+    return getDestinationParentPath(dp, ownProps) !== Types.getPathParent(source.path)
   }
+  return undefined
 })
 
 const canMove = memoize(
-  (stateProps: StateProps, ownProps: OwnPropsWithSafeNavigation) =>
-    canCopy(stateProps, ownProps) &&
-    stateProps._destinationPicker.source.type === Types.DestinationPickerSource.MoveOrCopy &&
-    Constants.pathsInSameTlf(
-      stateProps._destinationPicker.source.path,
-      getDestinationParentPath(stateProps, ownProps)
-    )
+  (dp: Types.DestinationPicker, pathItems: Types.PathItems, ownProps: OwnProps) =>
+    canCopy(dp, pathItems, ownProps) &&
+    dp.source.type === Types.DestinationPickerSource.MoveOrCopy &&
+    Constants.pathsInSameTlf(dp.source.path, getDestinationParentPath(dp, ownProps))
 )
 
 const canBackUp = isMobile
   ? memoize(
-      (stateProps, ownProps: OwnPropsWithSafeNavigation) =>
-        Types.getPathLevel(getDestinationParentPath(stateProps, ownProps)) > 1
+      (dp: Types.DestinationPicker, ownProps: OwnProps) =>
+        Types.getPathLevel(getDestinationParentPath(dp, ownProps)) > 1
     )
-  : (s, o) => false
+  : () => false
 
-const mergeProps = (
-  stateProps: StateProps,
-  dispatchProps: DispatchProps,
-  ownProps: OwnPropsWithSafeNavigation
-) => {
-  const targetName = Constants.getDestinationPickerPathName(stateProps._destinationPicker)
-  return {
-    index: getIndex(ownProps),
-    onBackUp: canBackUp(stateProps, ownProps)
-      ? () => dispatchProps._onBackUp(getDestinationParentPath(stateProps, ownProps))
-      : null,
-    onCancel: dispatchProps.onCancel,
-    onCopyHere: canCopy(stateProps, ownProps)
-      ? () => dispatchProps._onCopyHere(getDestinationParentPath(stateProps, ownProps))
-      : null,
-    onMoveHere: canMove(stateProps, ownProps)
-      ? () => dispatchProps._onMoveHere(getDestinationParentPath(stateProps, ownProps))
-      : null,
-    onNewFolder: canWrite(stateProps, ownProps)
-      ? () => dispatchProps._onNewFolder(getDestinationParentPath(stateProps, ownProps))
-      : null,
-    parentPath: getDestinationParentPath(stateProps, ownProps),
-    routePath: I.List(), // ownProps.routePath,
+const ConnectedDestinationPicker = (ownProps: OwnProps) => {
+  const destPicker = Container.useSelector(state => state.fs.destinationPicker)
+  const isShare = destPicker.source.type === Types.DestinationPickerSource.IncomingShare
+  const pathItems = Container.useSelector(state => state.fs.pathItems)
+  const headerRightButton =
+    destPicker.source.type === Types.DestinationPickerSource.IncomingShare ? (
+      <OriginalOrCompressedButton incomingShareItems={destPicker.source.source} />
+    ) : (
+      undefined
+    )
+
+  const dispatch = Container.useDispatch()
+  const nav = Container.useSafeNavigation()
+
+  const dispatchProps = {
+    _onBackUp: (currentPath: Types.Path) =>
+      Constants.makeActionsForDestinationPickerOpen(
+        getIndex(ownProps) + 1,
+        Types.getPathParent(currentPath),
+        nav.safeNavigateAppendPayload
+      ).forEach(action => dispatch(action)),
+    _onCopyHere: destinationParentPath => {
+      dispatch(FsGen.createCopy({destinationParentPath}))
+      dispatch(RouteTreeGen.createClearModals())
+      dispatch(
+        nav.safeNavigateAppendPayload({
+          path: [{props: {path: destinationParentPath}, selected: 'fsRoot'}],
+        })
+      )
+    },
+    _onMoveHere: destinationParentPath => {
+      dispatch(FsGen.createMove({destinationParentPath}))
+      dispatch(RouteTreeGen.createClearModals())
+      dispatch(
+        nav.safeNavigateAppendPayload({
+          path: [{props: {path: destinationParentPath}, selected: 'fsRoot'}],
+        })
+      )
+    },
+    _onNewFolder: destinationParentPath =>
+      dispatch(FsGen.createNewFolderRow({parentPath: destinationParentPath})),
+    onBack: () => {
+      dispatch(RouteTreeGen.createNavigateUp())
+    },
+    onCancel: () => {
+      dispatch(RouteTreeGen.createClearModals())
+    },
+  }
+
+  const index = getIndex(ownProps)
+  const showHeaderBackInsteadOfCancel = isShare // && index > 0
+  const targetName = Constants.getDestinationPickerPathName(destPicker)
+  const props = {
+    headerRightButton,
+    index,
+    isShare,
+    // If we are are dealing with incoming share, the first view is root,
+    // so rely on the header back button instead of showing a separate row
+    // for going to parent directory.
+    onBack: showHeaderBackInsteadOfCancel ? dispatchProps.onBack : undefined,
+    onBackUp:
+      isShare || !canBackUp(destPicker, ownProps)
+        ? undefined
+        : () => dispatchProps._onBackUp(getDestinationParentPath(destPicker, ownProps)),
+    onCancel: showHeaderBackInsteadOfCancel ? undefined : dispatchProps.onCancel,
+    onCopyHere: canCopy(destPicker, pathItems, ownProps)
+      ? () => dispatchProps._onCopyHere(getDestinationParentPath(destPicker, ownProps))
+      : undefined,
+    onMoveHere: canMove(destPicker, pathItems, ownProps)
+      ? () => dispatchProps._onMoveHere(getDestinationParentPath(destPicker, ownProps))
+      : undefined,
+    onNewFolder:
+      canWrite(destPicker, pathItems, ownProps) && !isShare
+        ? () => dispatchProps._onNewFolder(getDestinationParentPath(destPicker, ownProps))
+        : undefined,
+    parentPath: getDestinationParentPath(destPicker, ownProps),
     targetName,
   }
+
+  return <DestinationPicker {...props} />
 }
 
-const Connected = Container.withSafeNavigation(
-  Container.namedConnect(mapStateToProps, mapDispatchToProps, mergeProps, 'ConnectedDestinationPicker')(
-    DestinationPicker
-  )
-)
-
-export default Connected
+export default ConnectedDestinationPicker

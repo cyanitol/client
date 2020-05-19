@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,7 +20,6 @@ import (
 
 	"github.com/keybase/client/go/kbfs/data"
 	"github.com/keybase/client/go/kbfs/env"
-	"github.com/keybase/client/go/kbfs/kbfscrypto"
 	"github.com/keybase/client/go/kbfs/libfs"
 	"github.com/keybase/client/go/kbfs/libkbfs"
 	"github.com/keybase/client/go/kbfs/test/clocktest"
@@ -34,7 +34,7 @@ import (
 func syncFS(ctx context.Context, t *testing.T, fs *SimpleFS, tlf string) {
 	ctx, err := fs.startOpWrapContext(ctx)
 	require.NoError(t, err)
-	remoteFS, _, err := fs.getFS(ctx, keybase1.NewPathWithKbfs(tlf))
+	remoteFS, _, err := fs.getFS(ctx, keybase1.NewPathWithKbfsPath(tlf))
 	require.NoError(t, err)
 	if fs, ok := remoteFS.(*libfs.FS); ok {
 		err = fs.SyncAll()
@@ -48,19 +48,10 @@ func closeSimpleFS(ctx context.Context, t *testing.T, fs *SimpleFS) {
 	// Sync in-memory data to disk before shutting down and flushing
 	// the journal.
 	syncFS(ctx, t, fs, "/private/jdoe")
-	err := fs.config.Shutdown(ctx)
+	err := fs.Shutdown(ctx)
 	require.NoError(t, err)
-}
-
-func newTempRemotePath() (keybase1.Path, error) {
-	var bs = make([]byte, 8)
-	err := kbfscrypto.RandRead(bs)
-	if err != nil {
-		return keybase1.Path{}, err
-	}
-
-	raw := fmt.Sprintf(`/private/jdoe/%X`, bs)
-	return keybase1.NewPathWithKbfs(raw), nil
+	err = fs.config.Shutdown(ctx)
+	require.NoError(t, err)
 }
 
 func deleteTempLocalPath(path keybase1.Path) {
@@ -182,10 +173,14 @@ func testList(
 func TestStatNonExistent(t *testing.T) {
 	ctx := context.Background()
 	config := libkbfs.MakeTestConfigOrBust(t, "dog", "cat")
+	defer func() {
+		err := config.Shutdown(ctx)
+		require.NoError(t, err)
+	}()
 	sfs := newSimpleFS(env.EmptyAppStateUpdater{}, config)
 
 	t.Logf("/private/dog,cat should be writable for dog")
-	p := keybase1.NewPathWithKbfs("/private/dog,cat")
+	p := keybase1.NewPathWithKbfsPath("/private/dog,cat")
 	de, err := sfs.SimpleFSStat(ctx, keybase1.SimpleFSStatArg{
 		Path: p,
 	})
@@ -193,12 +188,86 @@ func TestStatNonExistent(t *testing.T) {
 	require.True(t, de.Writable)
 
 	t.Logf("/private/cat#dog should not be writable for dog")
-	p = keybase1.NewPathWithKbfs("/private/cat#dog")
+	p = keybase1.NewPathWithKbfsPath("/private/cat#dog")
 	de, err = sfs.SimpleFSStat(ctx, keybase1.SimpleFSStatArg{
 		Path: p,
 	})
 	require.NoError(t, err)
 	require.False(t, de.Writable)
+}
+
+func TestSymlink(t *testing.T) {
+	ctx := context.Background()
+	config := libkbfs.MakeTestConfigOrBust(t, "jdoe")
+	sfs := newSimpleFS(env.EmptyAppStateUpdater{}, config)
+	defer closeSimpleFS(ctx, t, sfs)
+
+	t.Logf("Make a file and then symlink it")
+	p := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
+	target := pathAppend(p, `test1.txt`)
+	writeRemoteFile(ctx, t, sfs, target, []byte(`foo`))
+	linkName := "link"
+	link := pathAppend(p, linkName)
+	targetName := path.Base(target.String())
+	err := sfs.SimpleFSSymlink(ctx, keybase1.SimpleFSSymlinkArg{
+		Target: targetName,
+		Link:   link,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "foo",
+		string(readRemoteFile(ctx, t, sfs, link)))
+
+	t.Log("Make sure the symlink ls entry has a target")
+	opid, err := sfs.SimpleFSMakeOpid(ctx)
+	require.NoError(t, err)
+	err = sfs.SimpleFSList(ctx, keybase1.SimpleFSListArg{
+		OpID:   opid,
+		Path:   p,
+		Filter: keybase1.ListFilter_NO_FILTER,
+	})
+	require.NoError(t, err)
+	checkPendingOp(
+		ctx, t, sfs, opid, keybase1.AsyncOps_LIST, p, keybase1.Path{}, true)
+	err = sfs.SimpleFSWait(ctx, opid)
+	require.NoError(t, err)
+	listResult, err := sfs.SimpleFSReadList(ctx, opid)
+	require.NoError(t, err)
+	require.Len(t, listResult.Entries, 2)
+	found := false
+	for _, e := range listResult.Entries {
+		if e.Name != linkName {
+			continue
+		}
+		require.Equal(t, targetName, e.SymlinkTarget)
+		found = true
+	}
+	require.True(t, found)
+
+	// Regression for HOTPOT-1276
+	t.Log("Make sure a link called . will fail")
+	badLink := pathAppend(p, `.`)
+	err = sfs.SimpleFSSymlink(ctx, keybase1.SimpleFSSymlinkArg{
+		Target: path.Base(target.String()),
+		Link:   badLink,
+	})
+	require.Error(t, err)
+
+	// Regression test for HOTPOT-2007.
+	t.Log("Make sure a symlink can be deleted")
+	opid, err = sfs.SimpleFSMakeOpid(ctx)
+	require.NoError(t, err)
+	err = sfs.SimpleFSRemove(ctx, keybase1.SimpleFSRemoveArg{
+		OpID:      opid,
+		Path:      link,
+		Recursive: true,
+	})
+	require.NoError(t, err)
+	checkPendingOp(
+		ctx, t, sfs, opid, keybase1.AsyncOps_REMOVE, link, keybase1.Path{},
+		true)
+	err = sfs.SimpleFSWait(ctx, opid)
+	require.NoError(t, err)
+	testList(ctx, t, sfs, p, "test1.txt")
 }
 
 func TestList(t *testing.T) {
@@ -210,18 +279,18 @@ func TestList(t *testing.T) {
 	sfs := newSimpleFS(env.EmptyAppStateUpdater{}, config)
 	defer closeSimpleFS(ctx, t, sfs)
 
-	pathRoot := keybase1.NewPathWithKbfs(`/`)
+	pathRoot := keybase1.NewPathWithKbfsPath(`/`)
 	testListWithFilterAndUsername(
 		ctx, t, sfs, pathRoot, keybase1.ListFilter_NO_FILTER, "",
 		"private", "public", "team")
 
-	pathPrivate := keybase1.NewPathWithKbfs(`/private`)
+	pathPrivate := keybase1.NewPathWithKbfsPath(`/private`)
 	testListWithFilterAndUsername(
 		ctx, t, sfs, pathPrivate, keybase1.ListFilter_NO_FILTER, "",
 		"jdoe")
 
 	t.Log("List directory before it's created")
-	path1 := keybase1.NewPathWithKbfs(`/private/jdoe`)
+	path1 := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
 	testList(ctx, t, sfs, path1)
 
 	t.Log("Shouldn't have created the TLF")
@@ -308,7 +377,7 @@ func TestListRecursive(t *testing.T) {
 	defer closeSimpleFS(ctx, t, sfs)
 
 	t.Log("List directory before it's created")
-	pathJDoe := keybase1.NewPathWithKbfs(`/private/jdoe`)
+	pathJDoe := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
 	opid, err := sfs.SimpleFSMakeOpid(ctx)
 	require.NoError(t, err)
 	err = sfs.SimpleFSListRecursive(ctx, keybase1.SimpleFSListRecursiveArg{
@@ -328,13 +397,13 @@ func TestListRecursive(t *testing.T) {
 
 	// make a temp remote directory + files we will clean up later
 	writeRemoteDir(ctx, t, sfs, pathAppend(pathJDoe, `a`))
-	patha := keybase1.NewPathWithKbfs(`/private/jdoe/a`)
+	patha := keybase1.NewPathWithKbfsPath(`/private/jdoe/a`)
 	writeRemoteDir(ctx, t, sfs, pathAppend(patha, `aa`))
-	pathaa := keybase1.NewPathWithKbfs(`/private/jdoe/a/aa`)
+	pathaa := keybase1.NewPathWithKbfsPath(`/private/jdoe/a/aa`)
 	writeRemoteDir(ctx, t, sfs, pathAppend(patha, `ab`))
-	pathab := keybase1.NewPathWithKbfs(`/private/jdoe/a/ab`)
+	pathab := keybase1.NewPathWithKbfsPath(`/private/jdoe/a/ab`)
 	writeRemoteDir(ctx, t, sfs, pathAppend(pathaa, `aaa`))
-	pathaaa := keybase1.NewPathWithKbfs(`/private/jdoe/a/aa/aaa`)
+	pathaaa := keybase1.NewPathWithKbfsPath(`/private/jdoe/a/aa/aaa`)
 	writeRemoteFile(ctx, t, sfs, pathAppend(pathaaa, `test1.txt`), []byte(`foo`))
 	writeRemoteFile(ctx, t, sfs, pathAppend(pathab, `test2.txt`), []byte(`foo`))
 	writeRemoteFile(ctx, t, sfs, pathAppend(patha, `.testfile`), []byte(`foo`))
@@ -405,7 +474,7 @@ func TestCopyToLocal(t *testing.T) {
 	defer closeSimpleFS(ctx, t, sfs)
 
 	// make a temp remote directory + file(s) we will clean up later
-	path1 := keybase1.NewPathWithKbfs(`/private/jdoe`)
+	path1 := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
 	writeRemoteFile(ctx, t, sfs, pathAppend(path1, "test1.txt"), []byte("foo"))
 
 	// make a temp local dest directory + files we will clean up later
@@ -455,7 +524,7 @@ func TestCopyRecursive(t *testing.T) {
 	// shouldn't do anything.
 	testdir := filepath.Join(tempdir, "testdir")
 	pathLocal := keybase1.NewPathWithLocal(filepath.ToSlash(testdir))
-	pathKbfsEmpty := keybase1.NewPathWithKbfs(`/private/jdoe`)
+	pathKbfsEmpty := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
 	opid, err := sfs.SimpleFSMakeOpid(ctx)
 	require.NoError(t, err)
 	err = sfs.SimpleFSCopyRecursive(ctx, keybase1.SimpleFSCopyRecursiveArg{
@@ -487,7 +556,7 @@ func TestCopyRecursive(t *testing.T) {
 	require.NoError(t, err)
 
 	// Copy it into KBFS.
-	pathKbfs := keybase1.NewPathWithKbfs(`/private/jdoe/testdir`)
+	pathKbfs := keybase1.NewPathWithKbfsPath(`/private/jdoe/testdir`)
 	err = sfs.SimpleFSCopyRecursive(ctx, keybase1.SimpleFSCopyRecursiveArg{
 		OpID: opid,
 		Src:  pathLocal,
@@ -571,7 +640,7 @@ func TestCopyToRemote(t *testing.T) {
 	defer closeSimpleFS(ctx, t, sfs)
 
 	// make a temp remote directory + file(s) we will clean up later
-	path2 := keybase1.NewPathWithKbfs(`/private/jdoe`)
+	path2 := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
 
 	// make a temp local dest directory + files we will clean up later
 	tempdir, err := ioutil.TempDir("", "simpleFstest")
@@ -666,7 +735,13 @@ func readRemoteFile(ctx context.Context, t *testing.T, sfs *SimpleFS, path keyba
 		Size:   de.Size * 2, // Check that reading past the end works.
 	})
 	require.NoError(t, err)
-	require.Len(t, data.Data, de.Size)
+
+	// Profile sizes are dynamic.  For now just read something from
+	// it, to test that it's not empty.
+	isProfile := strings.Contains(path.String(), libfs.ProfileListDirName)
+	if de.DirentType != keybase1.DirentType_SYM && !isProfile {
+		require.Len(t, data.Data, de.Size)
+	}
 
 	// Starting the read past the end shouldn't matter either.
 	dataPastEnd, err := sfs.SimpleFSRead(ctx, keybase1.SimpleFSReadArg{
@@ -675,7 +750,9 @@ func readRemoteFile(ctx context.Context, t *testing.T, sfs *SimpleFS, path keyba
 		Size:   de.Size,
 	})
 	require.NoError(t, err)
-	require.Len(t, dataPastEnd.Data, 0)
+	if !isProfile {
+		require.Len(t, dataPastEnd.Data, 0)
+	}
 
 	return data.Data
 }
@@ -783,7 +860,7 @@ func TestCopyProgress(t *testing.T) {
 	require.NoError(t, err)
 	path1 := keybase1.NewPathWithLocal(
 		filepath.ToSlash(filepath.Join(tempdir, "testdir")))
-	path2 := keybase1.NewPathWithKbfs(`/private/jdoe/testdir`)
+	path2 := keybase1.NewPathWithKbfsPath(`/private/jdoe/testdir`)
 
 	opid, err := sfs.SimpleFSMakeOpid(ctx)
 	require.NoError(t, err)
@@ -875,7 +952,7 @@ func TestRemove(t *testing.T) {
 	defer closeSimpleFS(ctx, t, sfs)
 
 	t.Log("Make a file to remove")
-	pathKbfs := keybase1.NewPathWithKbfs("/private/jdoe")
+	pathKbfs := keybase1.NewPathWithKbfsPath("/private/jdoe")
 	writeRemoteFile(
 		ctx, t, sfs, pathAppend(pathKbfs, "test.txt"), []byte("foo"))
 	syncFS(ctx, t, sfs, "/private/jdoe")
@@ -884,7 +961,7 @@ func TestRemove(t *testing.T) {
 	testList(ctx, t, sfs, pathKbfs, "test.txt")
 
 	t.Log("Remove the file")
-	pathFile := keybase1.NewPathWithKbfs("/private/jdoe/test.txt")
+	pathFile := keybase1.NewPathWithKbfsPath("/private/jdoe/test.txt")
 	opid, err := sfs.SimpleFSMakeOpid(ctx)
 	require.NoError(t, err)
 	err = sfs.SimpleFSRemove(ctx, keybase1.SimpleFSRemoveArg{
@@ -909,7 +986,7 @@ func TestRemoveRecursive(t *testing.T) {
 	defer closeSimpleFS(ctx, t, sfs)
 
 	t.Log("Make a directory to remove")
-	pathKbfs := keybase1.NewPathWithKbfs("/private/jdoe")
+	pathKbfs := keybase1.NewPathWithKbfsPath("/private/jdoe")
 	pathDir := pathAppend(pathKbfs, "a")
 	writeRemoteDir(ctx, t, sfs, pathDir)
 	writeRemoteFile(ctx, t, sfs, pathAppend(pathDir, "test1.txt"), []byte("1"))
@@ -962,7 +1039,7 @@ func TestMoveWithinTlf(t *testing.T) {
 	defer closeSimpleFS(ctx, t, sfs)
 
 	t.Log("Make a file to move")
-	pathKbfs := keybase1.NewPathWithKbfs("/private/jdoe")
+	pathKbfs := keybase1.NewPathWithKbfsPath("/private/jdoe")
 	writeRemoteFile(
 		ctx, t, sfs, pathAppend(pathKbfs, "test1.txt"), []byte("foo"))
 	syncFS(ctx, t, sfs, "/private/jdoe")
@@ -1046,7 +1123,7 @@ func TestMoveBetweenTlfs(t *testing.T) {
 	defer closeSimpleFS(ctx, t, sfs)
 
 	t.Log("Make a file to move")
-	pathPrivate := keybase1.NewPathWithKbfs("/private/jdoe")
+	pathPrivate := keybase1.NewPathWithKbfsPath("/private/jdoe")
 	writeRemoteFile(
 		ctx, t, sfs, pathAppend(pathPrivate, "test1.txt"), []byte("foo"))
 	syncFS(ctx, t, sfs, "/private/jdoe")
@@ -1056,7 +1133,7 @@ func TestMoveBetweenTlfs(t *testing.T) {
 
 	t.Log("Move the file")
 	pathFileOld := pathAppend(pathPrivate, "test1.txt")
-	pathPublic := keybase1.NewPathWithKbfs("/public/jdoe")
+	pathPublic := keybase1.NewPathWithKbfsPath("/public/jdoe")
 	pathFileNew := pathAppend(pathPublic, "test2.txt")
 	opid, err := sfs.SimpleFSMakeOpid(ctx)
 	require.NoError(t, err)
@@ -1090,9 +1167,10 @@ func TestMoveBetweenTlfs(t *testing.T) {
 	opid, err = sfs.SimpleFSMakeOpid(ctx)
 	require.NoError(t, err)
 	err = sfs.SimpleFSMove(ctx, keybase1.SimpleFSMoveArg{
-		OpID: opid,
-		Src:  pathDir,
-		Dest: pathPublic,
+		OpID:                   opid,
+		Src:                    pathDir,
+		Dest:                   pathPublic,
+		OverwriteExistingFiles: true,
 	})
 	require.NoError(t, err)
 	checkPendingOp(
@@ -1117,7 +1195,7 @@ func TestTlfEditHistory(t *testing.T) {
 		libkbfs.MakeTestConfigOrBust(t, "jdoe"))
 	defer closeSimpleFS(ctx, t, sfs)
 
-	path := keybase1.NewPathWithKbfs(`/private/jdoe`)
+	path := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
 	writeRemoteFile(ctx, t, sfs, pathAppend(path, `test1.txt`), []byte(`foo`))
 	writeRemoteFile(ctx, t, sfs, pathAppend(path, `test2.txt`), []byte(`foo`))
 	syncFS(ctx, t, sfs, "/private/jdoe")
@@ -1190,7 +1268,7 @@ func TestRefreshSubscription(t *testing.T) {
 
 	// Use a non-canonical (possibly preferred) path to make sure notification
 	// comes back with same path.
-	path1 := keybase1.NewPathWithKbfs(`/private/jdoe,alice`)
+	path1 := keybase1.NewPathWithKbfsPath(`/private/jdoe,alice`)
 
 	t.Log("Writing a file with no subscription")
 	writeRemoteFile(ctx, t, sfs, pathAppend(path1, `test1.txt`), []byte(`foo`))
@@ -1213,10 +1291,10 @@ func TestRefreshSubscription(t *testing.T) {
 	writeRemoteFile(ctx, t, sfs, pathAppend(path1, `test2.txt`), []byte(`foo`))
 	syncFS(ctx, t, sfs, "/private/jdoe,alice")
 	sr.waitForNotification(t)
-	require.Equal(t, "/keybase"+path1.Kbfs(), sr.LastPath())
+	require.Equal(t, "/keybase"+path1.Kbfs().Path, sr.LastPath())
 
 	t.Log("Make a public TLF")
-	path2 := keybase1.NewPathWithKbfs(`/public/jdoe`)
+	path2 := keybase1.NewPathWithKbfsPath(`/public/jdoe`)
 	// Now subscribe to a different one, before the TLF even exists,
 	// and make sure the old subscription goes away.
 	opid2, err := sfs.SimpleFSMakeOpid(ctx)
@@ -1233,13 +1311,13 @@ func TestRefreshSubscription(t *testing.T) {
 	writeRemoteFile(ctx, t, sfs, pathAppend(path2, `test.txt`), []byte(`foo`))
 	syncFS(ctx, t, sfs, "/public/jdoe")
 	sr.waitForNotification(t)
-	require.Equal(t, "/keybase"+path2.Kbfs(), sr.LastPath())
+	require.Equal(t, "/keybase"+path2.Kbfs().Path, sr.LastPath())
 
 	// Make sure notification works with file content change.
 	writeRemoteFile(ctx, t, sfs, pathAppend(path2, `test.txt`), []byte(`poo`))
 	syncFS(ctx, t, sfs, "/public/jdoe")
 	sr.waitForNotification(t)
-	require.Equal(t, "/keybase"+path2.Kbfs(), sr.LastPath())
+	require.Equal(t, "/keybase"+path2.Kbfs().Path, sr.LastPath())
 
 	// We might have more than one notifications in channel here, so deplete
 	// them before attempting more.
@@ -1248,10 +1326,10 @@ func TestRefreshSubscription(t *testing.T) {
 	writeRemoteFile(ctx, t, sfs, pathAppend(path1, `test3.txt`), []byte(`foo`))
 	syncFS(ctx, t, sfs, "/private/jdoe,alice")
 	sr.requireNoNotification(t)
-	require.Equal(t, "/keybase"+path2.Kbfs(), sr.LastPath())
+	require.Equal(t, "/keybase"+path2.Kbfs().Path, sr.LastPath())
 
 	// Now subscribe to the first one again, but using SimpleFSStat.
-	path3 := keybase1.NewPathWithKbfs(`/private/jdoe,alice/test3.txt`)
+	path3 := keybase1.NewPathWithKbfsPath(`/private/jdoe,alice/test3.txt`)
 	_, err = sfs.SimpleFSStat(ctx, keybase1.SimpleFSStatArg{
 		Path:                path3,
 		RefreshSubscription: true,
@@ -1278,7 +1356,7 @@ func TestGetRevisions(t *testing.T) {
 	sfs := newSimpleFS(env.EmptyAppStateUpdater{}, config)
 	defer closeSimpleFS(ctx, t, sfs)
 
-	path := keybase1.NewPathWithKbfs(`/private/jdoe`)
+	path := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
 	filePath := pathAppend(path, `test1.txt`)
 
 	getRevisions := func(
@@ -1343,7 +1421,8 @@ func TestGetRevisions(t *testing.T) {
 	clock.Add(gcJump)
 	fb, _, err := sfs.getFolderBranchFromPath(ctx, path)
 	require.NoError(t, err)
-	libkbfs.ForceQuotaReclamationForTesting(config, fb)
+	err = libkbfs.ForceQuotaReclamationForTesting(config, fb)
+	require.NoError(t, err)
 	err = config.KBFSOps().SyncFromServer(ctx, fb, nil)
 	require.NoError(t, err)
 	syncFS(ctx, t, sfs, "/private/jdoe")
@@ -1366,10 +1445,11 @@ func TestOverallStatusFile(t *testing.T) {
 		env.EmptyAppStateUpdater{}, libkbfs.MakeTestConfigOrBust(t, "jdoe"))
 	defer closeSimpleFS(ctx, t, sfs)
 
-	path := keybase1.NewPathWithKbfs("/" + libfs.StatusFileName)
+	path := keybase1.NewPathWithKbfsPath("/" + libfs.StatusFileName)
 	buf := readRemoteFile(ctx, t, sfs, path)
 	var status libkbfs.KBFSStatus
-	json.Unmarshal(buf, &status)
+	err := json.Unmarshal(buf, &status)
+	require.NoError(t, err)
 	require.Equal(t, "jdoe", status.CurrentUser)
 }
 
@@ -1394,8 +1474,8 @@ func TestFavoriteConflicts(t *testing.T) {
 	err = jManager.EnableAuto(ctx)
 	require.NoError(t, err)
 
-	pathPriv := keybase1.NewPathWithKbfs(`/private/jdoe`)
-	pathPub := keybase1.NewPathWithKbfs(`/public/jdoe`)
+	pathPriv := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
+	pathPub := keybase1.NewPathWithKbfsPath(`/public/jdoe`)
 
 	t.Log("Add one file in each directory")
 	writeRemoteFile(
@@ -1438,6 +1518,11 @@ func TestFavoriteConflicts(t *testing.T) {
 	require.Equal(t, 1, stuck)
 	require.Equal(t, 1, notStuck)
 
+	t.Log("Check for stuck badge state")
+	badge, err := sfs.SimpleFSGetFilesTabBadge(ctx)
+	require.NoError(t, err)
+	require.Equal(t, keybase1.FilesTabBadge_UPLOADING_STUCK, badge)
+
 	t.Log("Resolve the conflict")
 	err = sfs.SimpleFSClearConflictState(ctx, pathPub)
 	require.NoError(t, err)
@@ -1447,7 +1532,8 @@ func TestFavoriteConflicts(t *testing.T) {
 	var pathConflict keybase1.Path
 	var pathLocalView keybase1.Path
 	for _, f := range favs.FavoriteFolders {
-		if tlf.ContainsLocalConflictExtensionPrefix(f.Name) {
+		switch {
+		case tlf.ContainsLocalConflictExtensionPrefix(f.Name):
 			require.NotNil(t, f.ConflictState)
 			ct, err := f.ConflictState.ConflictStateType()
 			require.NoError(t, err)
@@ -1455,8 +1541,8 @@ func TestFavoriteConflicts(t *testing.T) {
 				t, keybase1.ConflictStateType_ManualResolvingLocalView, ct)
 			mrlv := f.ConflictState.Manualresolvinglocalview()
 			require.Equal(t, pathPub.String(), mrlv.NormalView.String())
-			pathConflict = keybase1.NewPathWithKbfs("/public/" + f.Name)
-		} else if f.Name == "jdoe" && f.FolderType == keybase1.FolderType_PUBLIC {
+			pathConflict = keybase1.NewPathWithKbfsPath("/public/" + f.Name)
+		case f.Name == "jdoe" && f.FolderType == keybase1.FolderType_PUBLIC:
 			require.NotNil(t, f.ConflictState)
 			ct, err := f.ConflictState.ConflictStateType()
 			require.NoError(t, err)
@@ -1467,7 +1553,7 @@ func TestFavoriteConflicts(t *testing.T) {
 			require.False(t, sv.StuckInConflict)
 			require.Len(t, sv.LocalViews, 1)
 			pathLocalView = sv.LocalViews[0]
-		} else {
+		default:
 			require.Nil(t, f.ConflictState)
 		}
 	}
@@ -1497,12 +1583,19 @@ func TestFavoriteConflicts(t *testing.T) {
 	for _, f := range favs.FavoriteFolders {
 		require.Nil(t, f.ConflictState)
 	}
+
+	t.Log("Try stat'ing the old local view, should get an error")
+	_, err = sfs.SimpleFSStat(ctx, keybase1.SimpleFSStatArg{
+		Path: pathLocalView,
+	})
+	require.Error(t, err)
 }
 
 func TestSyncConfigFavorites(t *testing.T) {
 	ctx := context.Background()
 	config := libkbfs.MakeTestConfigOrBust(t, "jdoe")
 	tempdir, err := ioutil.TempDir(os.TempDir(), "journal_for_simplefs_favs")
+	require.NoError(t, err)
 	defer os.RemoveAll(tempdir)
 	err = config.EnableDiskLimiter(tempdir)
 	require.NoError(t, err)
@@ -1512,8 +1605,8 @@ func TestSyncConfigFavorites(t *testing.T) {
 	sfs := newSimpleFS(env.EmptyAppStateUpdater{}, config)
 	defer closeSimpleFS(ctx, t, sfs)
 
-	pathPriv := keybase1.NewPathWithKbfs(`/private/jdoe`)
-	pathPub := keybase1.NewPathWithKbfs(`/public/jdoe`)
+	pathPriv := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
+	pathPub := keybase1.NewPathWithKbfsPath(`/public/jdoe`)
 
 	t.Log("Add one file in each directory")
 	writeRemoteFile(
@@ -1555,4 +1648,154 @@ func TestSyncConfigFavorites(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, numSyncing)
+}
+
+func TestRemoveFavorite(t *testing.T) {
+	ctx := context.Background()
+	config := libkbfs.MakeTestConfigOrBust(t, "jdoe", "alice")
+	sfs := newSimpleFS(env.EmptyAppStateUpdater{}, config)
+	defer closeSimpleFS(ctx, t, sfs)
+
+	t.Log("Write a file in the shared directory")
+	pathPriv := keybase1.NewPathWithKbfsPath(`/private/alice,jdoe`)
+	writeRemoteFile(
+		ctx, t, sfs, pathAppend(pathPriv, `test.txt`), []byte(`foo`))
+	syncFS(ctx, t, sfs, "/private/alice,jdoe")
+
+	t.Log("Make sure it's in the favorites list")
+	favs, err := sfs.SimpleFSListFavorites(ctx)
+	require.NoError(t, err)
+	require.Len(t, favs.FavoriteFolders, 3)
+	find := func() bool {
+		for _, f := range favs.FavoriteFolders {
+			t.Logf("NAME=%s", f.Name)
+			if f.FolderType == keybase1.FolderType_PRIVATE &&
+				f.Name == "alice,jdoe" {
+				return true
+			}
+		}
+		return false
+	}
+	found := find()
+	require.True(t, found)
+
+	t.Log("Remove the favorite")
+	opid, err := sfs.SimpleFSMakeOpid(ctx)
+	require.NoError(t, err)
+	err = sfs.SimpleFSRemove(ctx, keybase1.SimpleFSRemoveArg{
+		OpID: opid,
+		Path: pathPriv,
+	})
+	require.NoError(t, err)
+	checkPendingOp(
+		ctx, t, sfs, opid, keybase1.AsyncOps_REMOVE, pathPriv, keybase1.Path{},
+		true)
+	err = sfs.SimpleFSWait(ctx, opid)
+	require.NoError(t, err)
+
+	t.Log("Check that it's gone")
+	favs, err = sfs.SimpleFSListFavorites(ctx)
+	require.NoError(t, err)
+	require.Len(t, favs.FavoriteFolders, 2)
+	found = find()
+	require.False(t, found)
+}
+
+func TestBadgeState(t *testing.T) {
+	ctx := context.Background()
+	tempdir, err := ioutil.TempDir(os.TempDir(), "journal_for_simplefs_badge")
+	defer os.RemoveAll(tempdir)
+	require.NoError(t, err)
+	sfs := newSimpleFS(
+		env.EmptyAppStateUpdater{}, libkbfs.MakeTestConfigOrBust(t, "jdoe"))
+	defer closeSimpleFS(ctx, t, sfs)
+	config := sfs.config.(*libkbfs.ConfigLocal)
+
+	t.Log("Enable journaling")
+	err = config.EnableDiskLimiter(tempdir)
+	require.NoError(t, err)
+	err = config.EnableJournaling(
+		ctx, tempdir, libkbfs.TLFJournalBackgroundWorkEnabled)
+	require.NoError(t, err)
+	jManager, err := libkbfs.GetJournalManager(config)
+	require.NoError(t, err)
+	err = jManager.EnableAuto(ctx)
+	require.NoError(t, err)
+
+	t.Log("No badge yet")
+	badge, err := sfs.SimpleFSGetFilesTabBadge(ctx)
+	require.NoError(t, err)
+	require.Equal(t, keybase1.FilesTabBadge_NONE, badge)
+
+	pathPriv := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
+	pathPub := keybase1.NewPathWithKbfsPath(`/public/jdoe`)
+
+	t.Log("Add one private file.")
+	writeRemoteFile(
+		ctx, t, sfs, pathAppend(pathPriv, `test.txt`), []byte(`foo`))
+	syncFS(ctx, t, sfs, "/private/jdoe")
+	_, tlfIDs := jManager.Status(ctx)
+	require.Len(t, tlfIDs, 1)
+	tlfID := tlfIDs[0]
+	err = jManager.Wait(ctx, tlfID)
+	require.NoError(t, err)
+
+	t.Log("Still no badge yet")
+	badge, err = sfs.SimpleFSGetFilesTabBadge(ctx)
+	require.NoError(t, err)
+	require.Equal(t, keybase1.FilesTabBadge_NONE, badge)
+
+	t.Log("Pause the journal and add another file")
+	jManager.PauseBackgroundWork(ctx, tlfID)
+	writeRemoteFile(
+		ctx, t, sfs, pathAppend(pathPriv, `test2.txt`), []byte(`foo2`))
+	syncFS(ctx, t, sfs, "/private/jdoe")
+	// Wait shouldn't do anything unless there's a bug with pausing,
+	// so do it just in case.
+	err = jManager.Wait(ctx, tlfID)
+	require.NoError(t, err)
+	badge, err = sfs.SimpleFSGetFilesTabBadge(ctx)
+	require.NoError(t, err)
+	require.Equal(t, keybase1.FilesTabBadge_UPLOADING, badge)
+
+	t.Log("Get a different TLF stuck, badge state should update")
+	writeRemoteFile(
+		ctx, t, sfs, pathAppend(pathPub, `test3.txt`), []byte(`foo3`))
+	syncFS(ctx, t, sfs, "/public/jdoe")
+	err = sfs.SimpleFSForceStuckConflict(ctx, pathPub)
+	require.NoError(t, err)
+	badge, err = sfs.SimpleFSGetFilesTabBadge(ctx)
+	require.NoError(t, err)
+	require.Equal(t, keybase1.FilesTabBadge_UPLOADING_STUCK, badge)
+
+	jManager.ResumeBackgroundWork(ctx, tlfID)
+}
+
+func TestProfiles(t *testing.T) {
+	ctx := context.Background()
+	sfs := newSimpleFS(
+		env.EmptyAppStateUpdater{}, libkbfs.MakeTestConfigOrBust(t, "jdoe"))
+	defer closeSimpleFS(ctx, t, sfs)
+	libfs.AddRootWrapper(sfs.config)
+
+	t.Log("Root-level profiles")
+	path := keybase1.NewPathWithKbfsPath("/" + libfs.ProfileListDirName)
+	testListWithFilterAndUsername(
+		ctx, t, sfs, path, keybase1.ListFilter_NO_FILTER, "",
+		libfs.ListProfileNames()...)
+	buf := readRemoteFile(ctx, t, sfs, pathAppend(path, "goroutine"))
+	require.NotEmpty(t, buf)
+
+	t.Log("In-TLF profiles")
+	// Create TLF first.
+	pathPriv := keybase1.NewPathWithKbfsPath(`/private/jdoe`)
+	writeRemoteFile(
+		ctx, t, sfs, pathAppend(pathPriv, `test.txt`), []byte(`foo`))
+	syncFS(ctx, t, sfs, "/private/jdoe")
+	path = pathAppend(pathPriv, libfs.ProfileListDirName)
+	testListWithFilterAndUsername(
+		ctx, t, sfs, path, keybase1.ListFilter_NO_FILTER, "",
+		libfs.ListProfileNames()...)
+	buf = readRemoteFile(ctx, t, sfs, pathAppend(path, "goroutine"))
+	require.NotEmpty(t, buf)
 }

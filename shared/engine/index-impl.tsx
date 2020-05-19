@@ -9,10 +9,19 @@ import {printOutstandingRPCs, isTesting} from '../local-debug'
 import {resetClient, createClient, rpcLog, createClientType} from './index.platform'
 import {createBatchChangeWaiting} from '../actions/waiting-gen'
 import engineSaga from './saga'
-import {throttle} from 'lodash-es'
+import throttle from 'lodash/throttle'
 import {CustomResponseIncomingCallMapType, IncomingCallMapType} from '.'
 import {SessionID, SessionIDKey, WaitingHandlerType, MethodKey} from './types'
 import {TypedState, Dispatch} from '../util/container'
+
+const {env} = KB.process
+
+// delay incoming to stop react from queueing too many setState calls and stopping rendering
+// only while debugging for now
+const DEFER_INCOMING_DURING_DEBUG = __DEV__ && false
+if (DEFER_INCOMING_DURING_DEBUG) {
+  console.log(new Array(1000).fill('DEFER_INCOMING_DURING_DEBUG is On!!!!!!!!!!!!!!!!!!!!!').join('\n'))
+}
 
 type WaitingKey = string | Array<string>
 
@@ -35,8 +44,9 @@ class Engine {
   _hasConnected: boolean = isMobile // mobile is always connected
   // App tells us when the sagas are done loading so we can start emitting events
   _sagasAreReady: boolean = false
-  // So we can dispatch actions
+
   static _dispatch: Dispatch
+
   // Temporary helper for incoming call maps
   static _getState: () => TypedState
 
@@ -62,8 +72,14 @@ class Engine {
   }
 
   constructor(dispatch: Dispatch, getState: () => TypedState) {
+    KB.kb.setEngine(this)
+
     // setup some static vars
-    Engine._dispatch = dispatch
+    if (DEFER_INCOMING_DURING_DEBUG) {
+      Engine._dispatch = a => setTimeout(() => dispatch(a), 1)
+    } else {
+      Engine._dispatch = dispatch
+    }
     Engine._getState = getState
     this._rpcClient = createClient(
       payload => this._rpcIncoming(payload),
@@ -110,6 +126,7 @@ class Engine {
       // dispatch the action version
       Engine._dispatch({payload: undefined, type: 'engine-gen:connected'})
     }
+    Engine._dispatch({payload: {phase: 'initialStartupAsEarlyAsPossible'}, type: 'config:loadOnStart'})
   }
 
   // Called when we reconnect to the server
@@ -205,10 +222,7 @@ class Engine {
       incomingCallMap: p.incomingCallMap,
       waitingKey: p.waitingKey,
     })
-    // Don't make outgoing calls immediately since components can do this when they mount
-    setImmediate(() => {
-      session.start(p.method, p.params, p.callback)
-    })
+    session.start(p.method, p.params, p.callback)
     return session.getId()
   }
 
@@ -285,12 +299,6 @@ class Engine {
 
     this._customResponseAction[method] = true
   }
-
-  // Register a named callback when we fail to connect. Call if we're already disconnected
-  hasEverConnected() {
-    // If we've actually failed to connect already let's call this immediately
-    return this._hasConnected
-  }
 }
 
 // Dummy engine for snapshotting
@@ -305,7 +313,6 @@ class FakeEngine {
   cancelSession(_: SessionID) {}
   rpc() {}
   setFailOnError() {}
-  hasEverConnected() {}
   setIncomingActionCreator(
     _: MethodKey,
     __: (arg0: {param: Object; response: Object | null; state: any}) => any | null
@@ -349,7 +356,7 @@ const makeEngine = (dispatch: Dispatch, getState: () => TypedState) => {
 
   if (!engine) {
     engine =
-      process.env.KEYBASE_NO_ENGINE || isTesting
+      env.KEYBASE_NO_ENGINE || isTesting
         ? ((new FakeEngine() as unknown) as Engine)
         : new Engine(dispatch, getState)
     if (__DEV__) {

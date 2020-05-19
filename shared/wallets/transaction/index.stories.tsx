@@ -1,20 +1,14 @@
 import * as React from 'react'
 import * as Sb from '../../stories/storybook'
-import moment from 'moment'
 import {Box2} from '../../common-adapters'
 import {platformStyles, styleSheetCreate} from '../../styles'
 import {Transaction} from '.'
+import * as dateFns from 'date-fns'
 
 const now = new Date()
-const yesterday = moment(now)
-  .subtract(1, 'days')
-  .toDate()
-const lastWeek = moment(now)
-  .subtract(6, 'days')
-  .toDate()
-const beforeLastWeek = moment(now)
-  .subtract(8, 'days')
-  .toDate()
+const yesterday = dateFns.sub(now, {days: 1})
+const lastWeek = dateFns.sub(now, {days: 6})
+const beforeLastWeek = dateFns.sub(now, {days: 8})
 
 const singleEmojiMemo = '🎁'
 const shortMemo = 'Short memo.'
@@ -87,7 +81,7 @@ const addConfigs = (stories, namePrefix, storyFn) => {
   })
 }
 
-const styles = styleSheetCreate({
+const styles = styleSheetCreate(() => ({
   container: platformStyles({
     isElectron: {
       maxWidth: 520,
@@ -96,7 +90,7 @@ const styles = styleSheetCreate({
       width: '100%',
     },
   }),
-})
+}))
 
 const load = () => {
   const stories = Sb.storiesOf('Wallets/Transaction', module)
@@ -116,7 +110,7 @@ const load = () => {
         fromAirdrop={true}
         isAdvanced={false}
         issuerDescription=""
-        memo=""
+        memo="1 XLM (Stellar Lumens) divided across 2 Keybase users."
         onCancelPayment={undefined}
         onCancelPaymentWaitingKey=""
         onSelectTransaction={Sb.action('onSelectTransaction')}

@@ -1,49 +1,32 @@
 import * as ProvisionGen from '../../actions/provision-gen'
+import * as RouteTreeGen from '../../actions/route-tree-gen'
 import * as Constants from '../../constants/provision'
+import * as Platform from '../../constants/platform'
+import * as Devices from '../../constants/devices'
 import SetPublicName from '.'
-import {connect, withStateHandlers, compose, safeSubmit} from '../../util/container'
-import {RouteProps} from '../../route-tree/render-route'
+import * as Container from '../../util/container'
 
-type OwnProps = {
-  deviceName: string
-  onChange: (text: string) => void
-} & RouteProps
-
-const mapStateToProps = state => ({
-  _existingDevices: state.provision.existingDevices,
-  error: state.provision.error.stringValue(),
-})
-
-const mapDispatchToProps = (dispatch, ownProps: OwnProps) => ({
-  _onSubmit: (name: string) => dispatch(ProvisionGen.createSubmitDeviceName({name})),
-  // TODO remove
-  onBack: () => {},
-})
-
-const mergeProps = (stateProps, dispatchProps, ownProps) => {
-  const submitEnabled = !!(ownProps.deviceName.length >= 3 && ownProps.deviceName.length <= 64)
-  const onSubmit = submitEnabled ? () => dispatchProps._onSubmit(ownProps.deviceName) : null
-  return {
-    deviceName: ownProps.deviceName,
-    error: stateProps.error,
-    onBack: dispatchProps.onBack,
-    onChange: ownProps.onChange,
-    onSubmit,
-  }
-}
-
-export default compose(
-  withStateHandlers<any, any, any>(
-    {deviceName: ''},
-    {
-      onChange: () => (deviceName: string) => ({deviceName: Constants.cleanDeviceName(deviceName)}),
+export default Container.connect(
+  (state: Container.TypedState) => ({
+    devices: state.provision.devices,
+    error: state.provision.error.stringValue(),
+    waiting: Container.anyWaiting(state, Constants.waitingKey),
+  }),
+  (dispatch: Container.TypedDispatch) => ({
+    onBack: () => dispatch(RouteTreeGen.createNavigateUp()),
+    onSubmit: (name: string) => dispatch(ProvisionGen.createSubmitDeviceName({name})),
+  }),
+  (stateProps, dispatchProps) => {
+    const deviceNumbers = stateProps.devices
+      .filter(d => d.type === (Platform.isMobile ? 'mobile' : 'desktop'))
+      .map(d => d.deviceNumberOfType)
+    const maxDeviceNumber = deviceNumbers.length > 0 ? Math.max(...deviceNumbers) : -1
+    return {
+      deviceIconNumber: ((maxDeviceNumber + 1) % Devices.numBackgrounds) + 1,
+      error: stateProps.error,
+      onBack: dispatchProps.onBack,
+      onSubmit: (name: string) => !stateProps.waiting && dispatchProps.onSubmit(name),
+      waiting: stateProps.waiting,
     }
-  ),
-  connect(
-    mapStateToProps,
-    mapDispatchToProps,
-    mergeProps
-  ),
-  safeSubmit(['onSubmit', 'onBack'], ['deviceName', 'error'])
-  // @ts-ignore
-)(SetPublicName)
+  }
+)(Container.safeSubmit(['onSubmit', 'onBack'], ['error'])(SetPublicName))

@@ -1,23 +1,13 @@
 import * as React from 'react'
 import * as Storybook from '../stories/storybook'
 import * as Kb from '../common-adapters'
-import * as ConfigConstants from '../constants/config'
 import * as Types from '../constants/types/fs'
-import * as Constants from '../constants/fs'
 import Menubar from './index.desktop'
 import OutOfDate from './out-of-date'
 import {FileUpdate} from './files.desktop'
 import SpaceWarning from './space-warning'
 
 const props = {
-  badgeInfo: {
-    'tabs.chatTab': 0,
-    'tabs.folderTab': 0,
-    'tabs.fsTab': 0,
-    'tabs.gitTab': 0,
-    'tabs.peopleTab': 0,
-    'tabs.teamsTab': 0,
-  },
   config: {
     avatars: {},
     followers: {},
@@ -27,15 +17,27 @@ const props = {
     // TODO: fill in a few.
   ],
   daemonHandshakeState: 'done' as 'done',
+  darkMode: false,
 
   diskSpaceStatus: Types.DiskSpaceStatus.Ok,
   fileName: null,
   files: 0,
   folderProps: null,
-  kbfsDaemonStatus: Constants.makeKbfsDaemonStatus({rpcStatus: Types.KbfsDaemonRpcStatus.Connected}),
+  kbfsDaemonStatus: {
+    onlineStatus: Types.KbfsDaemonOnlineStatus.Online,
+    rpcStatus: Types.KbfsDaemonRpcStatus.Connected,
+  },
   kbfsEnabled: true,
   logIn: Storybook.action('logIn'),
   loggedIn: true,
+  navBadges: new Map([
+    ['tabs.chatTab', 0],
+    ['tabs.folderTab', 0],
+    ['tabs.fsTab', 0],
+    ['tabs.gitTab', 0],
+    ['tabs.peopleTab', 0],
+    ['tabs.teamsTab', 0],
+  ]),
   onFolderClick: Storybook.action('onFolderClick'),
   onHideDiskSpaceBanner: Storybook.action('hideDiskSpaceBanner'),
   onRekey: Storybook.action('onRekey'),
@@ -52,7 +54,6 @@ const props = {
   totalSyncingBytes: 0,
   updateNow: Storybook.action('updateNow'),
   username: 'nathunsmitty',
-  waitForKbfsDaemon: Storybook.action('waitForKbfsDaemon'),
   windowComponent: 'menubar',
   windowParam: '',
 }
@@ -72,48 +73,24 @@ const load = () => {
   Storybook.storiesOf('Menubar', module)
     .addDecorator(providers)
     .add('Normal', () => <Menubar {...props} />)
-    .add('Starting up', () => <Menubar {...props} daemonHandshakeState={'starting'} />)
-    .add('Waiting on bootstrap', () => <Menubar {...props} daemonHandshakeState={'waitingForWaiters'} />)
+    .add('Starting up', () => <Menubar {...props} daemonHandshakeState="starting" />)
+    .add('Waiting on bootstrap', () => <Menubar {...props} daemonHandshakeState="waitingForWaiters" />)
     .add('Not logged in', () => <Menubar {...props} loggedIn={false} />)
     .add('With a file notification', () => (
-      <Menubar
-        {...props}
-        badgeInfo={{
-          ...props.badgeInfo,
-          'tabs.fsTab': 2,
-        }}
-      />
+      <Menubar {...props} navBadges={new Map([...props.navBadges.entries(), ['tabs.fsTab', 2]])} />
     ))
     .add('With a people notification', () => (
-      <Menubar
-        {...props}
-        badgeInfo={{
-          ...props.badgeInfo,
-          'tabs.peopleTab': 3,
-        }}
-      />
+      <Menubar {...props} navBadges={new Map([...props.navBadges.entries(), ['tabs.peopleTab', 3]])} />
     ))
     .add('With a chat notification', () => (
-      <Menubar
-        {...props}
-        badgeInfo={{
-          ...props.badgeInfo,
-          'tabs.chatTab': 6,
-        }}
-      />
+      <Menubar {...props} navBadges={new Map([...props.navBadges.entries(), ['tabs.chatTab', 6]])} />
     ))
     .add('Out of date banner', () => (
       <Kb.Box2 fullWidth={true} direction="vertical" gap="small">
+        <OutOfDate outOfDate={{critical: false, updating: false}} updateNow={Storybook.action('updateNow')} />
+        <OutOfDate outOfDate={{critical: true, updating: false}} updateNow={Storybook.action('updateNow')} />
         <OutOfDate
-          outOfDate={ConfigConstants.makeOutOfDate({critical: false})}
-          updateNow={Storybook.action('updateNow')}
-        />
-        <OutOfDate
-          outOfDate={ConfigConstants.makeOutOfDate({critical: true})}
-          updateNow={Storybook.action('updateNow')}
-        />
-        <OutOfDate
-          outOfDate={ConfigConstants.makeOutOfDate({critical: true, message: 'This is a critical message.'})}
+          outOfDate={{critical: true, message: 'This is a critical message.', updating: false}}
           updateNow={Storybook.action('updateNow')}
         />
       </Kb.Box2>

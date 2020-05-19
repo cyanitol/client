@@ -6,6 +6,7 @@ protocol login {
 
   record ConfiguredAccount {
     string username;
+    FullName fullname;
     boolean hasStoredSecret;
     boolean isCurrent;
   }
@@ -18,13 +19,13 @@ protocol login {
   array<ConfiguredAccount> getConfiguredAccounts(int sessionID);
 
   /**
-    Performs login.  deviceType should be libkb.DeviceTypeDesktop
-    or libkb.DeviceTypeMobile. username is optional. If the current
+    Performs login.  deviceType should be keybase1.DeviceTypeV2_DESKTOP
+    or keybase1.DeviceTypeV2_MOBILE. username is optional. If the current
     device isn't provisioned, this function will provision it.
     */
   void login(
     int sessionID,
-    string deviceType,
+    DeviceTypeV2 deviceType,
     string username,
     ClientType clientType,
     boolean doUserSwitch=false,
@@ -46,13 +47,7 @@ protocol login {
     */
   void loginWithPaperKey(int sessionID, string username);
 
-  /**
-    Removes any existing stored secret for the given username.
-    loginWithStoredSecret(_, username) will fail after this is called.
-    */
-  void clearStoredSecret(int sessionID, string username);
-
-  void logout(int sessionID);
+  void logout(int sessionID, boolean force, boolean keepSecrets);
   void deprovision(int sessionID, string username, boolean doRevoke);
 
   void recoverAccountFromEmailAddress(string email);
@@ -82,9 +77,9 @@ protocol login {
   void unlockWithPassphrase(int sessionID, string passphrase);
 
   /**
-    accountDelete is for devel/testing to delete the current user's account.
+    accountDelete deletes the current user's account.
     */
-  void accountDelete(int sessionID);
+  void accountDelete(int sessionID, union { null, string } passphrase);
 
   /**
    loginOneshot allows a service to have a "onetime login", without
@@ -92,4 +87,10 @@ protocol login {
    paperkey
    */
   void loginOneshot(int sessionID, string username, string paperKey);
+
+  /**
+   isOnline returns whether the device is able to open a connection to keybase.io.
+   Used for determining whether to offer proxy settings on the login screen.
+   */
+  bool isOnline();
 }

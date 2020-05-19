@@ -37,6 +37,10 @@
             "User"
           ],
           "name": "user"
+        },
+        {
+          "type": "string",
+          "name": "deviceName"
         }
       ]
     },
@@ -359,6 +363,10 @@
         {
           "type": "string",
           "name": "ekLog"
+        },
+        {
+          "type": "string",
+          "name": "perfLog"
         }
       ]
     },
@@ -385,6 +393,10 @@
         {
           "type": "string",
           "name": "log"
+        },
+        {
+          "type": "string",
+          "name": "perfLog"
         },
         {
           "type": "string",
@@ -437,6 +449,10 @@
         {
           "type": "string",
           "name": "log"
+        },
+        {
+          "type": "string",
+          "name": "perfLog"
         }
       ]
     },
@@ -615,6 +631,13 @@
         {
           "type": [
             null,
+            "double"
+          ],
+          "name": "f"
+        },
+        {
+          "type": [
+            null,
             "string"
           ],
           "name": "s"
@@ -708,6 +731,13 @@
         {
           "type": "UserReacjis",
           "name": "userReacjis"
+        },
+        {
+          "type": [
+            null,
+            "HttpSrvInfo"
+          ],
+          "name": "httpSrvInfo"
         }
       ]
     },
@@ -822,6 +852,40 @@
         null,
         "FullStatus"
       ]
+    },
+    "isServiceRunning": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        }
+      ],
+      "response": "boolean"
+    },
+    "isKBFSRunning": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        }
+      ],
+      "response": "boolean"
+    },
+    "getNetworkStats": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "networkSrc",
+          "type": "NetworkSource"
+        }
+      ],
+      "response": {
+        "type": "array",
+        "items": "InstrumentationStat"
+      }
     },
     "logSend": {
       "request": [
@@ -941,6 +1005,37 @@
       ],
       "response": "ConfigValue"
     },
+    "guiSetValue": {
+      "request": [
+        {
+          "name": "path",
+          "type": "string"
+        },
+        {
+          "name": "value",
+          "type": "ConfigValue"
+        }
+      ],
+      "response": null
+    },
+    "guiClearValue": {
+      "request": [
+        {
+          "name": "path",
+          "type": "string"
+        }
+      ],
+      "response": null
+    },
+    "guiGetValue": {
+      "request": [
+        {
+          "name": "path",
+          "type": "string"
+        }
+      ],
+      "response": "ConfigValue"
+    },
     "checkAPIServerOutOfDateWarning": {
       "request": [],
       "response": "OutOfDateInfo",
@@ -977,11 +1072,11 @@
       ],
       "response": "BootstrapStatus"
     },
-    "requestFollowerInfo": {
+    "requestFollowingAndUnverifiedFollowers": {
       "request": [
         {
-          "name": "uid",
-          "type": "UID"
+          "name": "sessionID",
+          "type": "int"
         }
       ],
       "response": null
@@ -1043,6 +1138,28 @@
     },
     "toggleRuntimeStats": {
       "request": [],
+      "response": null
+    },
+    "appendGUILogs": {
+      "request": [
+        {
+          "name": "content",
+          "type": "string"
+        }
+      ],
+      "response": null
+    },
+    "generateWebAuthToken": {
+      "request": [],
+      "response": "string"
+    },
+    "updateLastLoggedInAndServerConfig": {
+      "request": [
+        {
+          "name": "serverConfigPath",
+          "type": "string"
+        }
+      ],
       "response": null
     }
   },

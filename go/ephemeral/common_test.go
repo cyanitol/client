@@ -19,6 +19,8 @@ func ephemeralKeyTestSetup(t *testing.T) (libkb.TestContext, libkb.MetaContext, 
 
 	user, err := kbtest.CreateAndSignupFakeUser("t", tc.G)
 	require.NoError(t, err)
+	err = mctx.G().GetEKLib().KeygenIfNeeded(mctx)
+	require.NoError(t, err)
 
 	return tc, mctx, user
 }
@@ -68,7 +70,7 @@ func TestEphemeralCloneError(t *testing.T) {
 	allDevicEKs, err := s.GetAll(mctx)
 	require.NoError(t, err)
 	for _, dek := range allDevicEKs {
-		err = s.Delete(mctx, dek.Metadata.Generation)
+		err = s.Delete(mctx, dek.Metadata.Generation, "")
 		require.NoError(t, err)
 	}
 	_, err = g.GetTeamEKBoxStorage().Get(mctx, teamID, teamEK1.Generation(), nil)
@@ -95,7 +97,7 @@ func TestEphemeralDeviceProvisionedAfterContent(t *testing.T) {
 	allDevicEKs, err := s.GetAll(mctx)
 	require.NoError(t, err)
 	for _, dek := range allDevicEKs {
-		err = s.Delete(mctx, dek.Metadata.Generation)
+		err = s.Delete(mctx, dek.Metadata.Generation, "")
 		require.NoError(t, err)
 	}
 
@@ -104,7 +106,7 @@ func TestEphemeralDeviceProvisionedAfterContent(t *testing.T) {
 	require.Error(t, err)
 	require.IsType(t, EphemeralKeyError{}, err)
 	ekErr := err.(EphemeralKeyError)
-	require.Contains(t, ekErr.HumanError(), DeviceProvisionedAfterContentCreationErrMsg)
+	require.Contains(t, ekErr.HumanError(), DeviceAfterEKErrMsg)
 
 	// clear out cached error messages
 	g.GetEKLib().ClearCaches(mctx)
@@ -117,4 +119,20 @@ func TestEphemeralDeviceProvisionedAfterContent(t *testing.T) {
 	require.IsType(t, EphemeralKeyError{}, err)
 	ekErr = err.(EphemeralKeyError)
 	require.Equal(t, DefaultHumanErrMsg, ekErr.HumanError())
+}
+
+func TestEphemeralPluralization(t *testing.T) {
+	humanMsg := humanMsgWithPrefix(DeviceAfterEKErrMsg)
+
+	pluralized := PluralizeErrorMessage(humanMsg, 0)
+	require.Equal(t, humanMsg, pluralized)
+
+	pluralized = PluralizeErrorMessage(humanMsg, 1)
+	require.Equal(t, humanMsg, pluralized)
+
+	pluralized = PluralizeErrorMessage(humanMsg, 2)
+	require.Equal(t, "2 exploding messages are not available, because this device was created after it was sent", pluralized)
+
+	pluralized = PluralizeErrorMessage(DefaultHumanErrMsg, 2)
+	require.Equal(t, "2 exploding messages are not available", pluralized)
 }

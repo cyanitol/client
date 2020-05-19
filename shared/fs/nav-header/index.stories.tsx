@@ -14,7 +14,6 @@ export const headerProvider = {
     hasSoftError: false,
   }),
   MainBanner: (p: any) => ({
-    // Auto generated from flowToTs. Please clean me!
     bannerType: (p.storyProps && p.storyProps.bannerType) || Types.MainBannerType.None,
     onRetry: Sb.action('onRetry'),
   }),
@@ -33,7 +32,7 @@ const provider = Sb.createPropProviderWithCommon({
   ...headerProvider,
 })
 
-const TestWrapper = ({path, offline}: {path: Types.Path; offline?: boolean | null}) =>
+const TestWrapper = ({path}: {path: Types.Path}) =>
   isMobile ? (
     <MobileHeader path={path} onBack={Sb.action('onBack')} />
   ) : (
@@ -41,12 +40,9 @@ const TestWrapper = ({path, offline}: {path: Types.Path; offline?: boolean | nul
       allowBack={true}
       loggedIn={true}
       onPop={Sb.action('onPop')}
-      options={
-        // @ts-ignore
-        FilesContainer.navigationOptions({
-          navigation: {getParam: key => (key === 'path' ? path : null)},
-        })
-      }
+      options={FilesContainer.navigationOptions({
+        navigation: {getParam: key => (key === 'path' ? path : null)},
+      } as any)}
     />
   )
 
@@ -65,6 +61,9 @@ export default () => {
 
   Sb.storiesOf('Files/Banners', module)
     .addDecorator(provider)
+    .add('Trying to connect', () => (
+      <MainBanner {...Sb.propOverridesForStory({bannerType: Types.MainBannerType.TryingToConnect})} />
+    ))
     .add('Out of space', () => (
       <MainBanner {...Sb.propOverridesForStory({bannerType: Types.MainBannerType.OutOfSpace})} />
     ))

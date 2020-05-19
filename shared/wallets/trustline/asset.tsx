@@ -53,22 +53,19 @@ const bodyExpanded = (props: Props) => (
   <Kb.Box2 direction="vertical" style={styles.bodyExpanded} fullHeight={true}>
     {getCode(props)}
     {getIssuerVerifiedDomain(props)}
-    <Kb.Text type="BodySmall" style={styles.marginTopXtiny}>
-      Issuer:
-    </Kb.Text>
     <Kb.Text type="BodySmall" lineClamp={2} ellipsizeMode="middle">
       {props.issuerAccountID}
     </Kb.Text>
-    <Kb.Box style={{...Styles.globalStyles.flexBoxRow, flex: 1}} />
-    <Kb.Button
-      mode="Secondary"
-      type="Default"
-      small={true}
-      disabled={!props.onOpenInfoUrl}
-      label={props.infoUrlText}
-      style={Styles.collapseStyles([styles.marginTopXtiny, styles.viewDetails])}
-      onClick={stopPropagation(props.onOpenInfoUrl)}
-    />
+    <Kb.ButtonBar direction="row" align="flex-start" small={true}>
+      <Kb.Button
+        mode="Secondary"
+        type="Wallet"
+        small={true}
+        disabled={!props.onOpenInfoUrl}
+        label={props.infoUrlText}
+        onClick={stopPropagation(props.onOpenInfoUrl)}
+      />
+    </Kb.ButtonBar>
   </Kb.Box2>
 )
 
@@ -107,7 +104,7 @@ const Asset = (props: Props) => {
           {props.expanded ? bodyExpanded(props) : bodyCollapsed(props)}
           <Kb.Box2 direction="vertical" style={styles.actions} centerChildren={true}>
             {props.thisDeviceIsLockedOut ? (
-              <Kb.WithTooltip text="You can only send from a mobile device more than 7 days old.">
+              <Kb.WithTooltip tooltip="You can only send from a mobile device more than 7 days old.">
                 {button}
               </Kb.WithTooltip>
             ) : (
@@ -126,7 +123,7 @@ const expandedHeight = Styles.isMobile ? 160 : 140
 
 export const getHeight = (props: Props): number => (props.expanded ? expandedHeight : nonExpandedHeight)
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   actions: Styles.platformStyles({
     common: {
       position: 'absolute',
@@ -155,16 +152,7 @@ const styles = Styles.styleSheetCreate({
       paddingBottom: Styles.globalMargins.small,
     },
   }),
-  marginTopXtiny: {marginTop: Styles.globalMargins.xtiny},
   textUnknown: {color: Styles.globalColors.redDark},
-  viewDetails: Styles.platformStyles({
-    isElectron: {
-      width: 107,
-    },
-    isMobile: {
-      width: 120,
-    },
-  }),
-})
+}))
 
 export default Asset

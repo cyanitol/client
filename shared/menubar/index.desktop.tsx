@@ -1,31 +1,33 @@
 import * as React from 'react'
+import * as Electron from 'electron'
 import * as Kb from '../common-adapters'
 import * as ConfigTypes from '../constants/types/config'
 import * as FsTypes from '../constants/types/fs'
 import * as Tabs from '../constants/tabs'
 import * as Styles from '../styles'
+import {_setDarkModePreference} from '../styles/dark-mode'
 import ChatContainer from './chat-container.desktop'
 import FilesPreview from './files-container.desktop'
 import {isDarwin} from '../constants/platform'
-import * as SafeElectron from '../util/safe-electron.desktop'
 import OutOfDate from './out-of-date'
 import Upload from '../fs/footer/upload'
-import UploadCountdownHOC, {UploadCountdownHOCProps} from '../fs/footer/upload-countdown-hoc'
+import UploadCountdownHOC from '../fs/footer/upload-countdown-hoc'
 import {Loading} from '../fs/simple-screens'
 import SpaceWarning from './space-warning'
 
 export type Props = {
   daemonHandshakeState: ConfigTypes.DaemonHandshakeState
+  darkMode: boolean
   diskSpaceStatus: FsTypes.DiskSpaceStatus
   logIn: () => void
   loggedIn: boolean
   kbfsDaemonStatus: FsTypes.KbfsDaemonStatus
   kbfsEnabled: boolean
-  updateNow: () => void
+  updateNow?: () => void
   onHideDiskSpaceBanner: () => void
   onRekey: (path: string) => void
   onRetrySync: () => void
-  openApp: (tab?: string) => void
+  openApp: (tab?: Tabs.AppTab) => void
   outOfDate?: ConfigTypes.OutOfDate
   showInFinder: () => void
   quit: () => void
@@ -35,9 +37,14 @@ export type Props = {
   showUser: (username?: string) => void
   showingDiskSpaceBanner: boolean
   username: string | null
-  waitForKbfsDaemon: () => void
-  badgeInfo: {[K in string]: number}
-} & UploadCountdownHOCProps
+  navBadges: Map<string, number>
+
+  // UploadCountdownHOCProps
+  endEstimate?: number
+  files: number
+  fileName: string | null
+  totalSyncingBytes: number
+}
 
 type State = {
   showingMenu: boolean
@@ -50,26 +57,17 @@ class MenubarRender extends React.Component<Props, State> {
   state: State = {showingMenu: false}
   attachmentRef = React.createRef<Kb.Icon>()
 
-  _refreshUserFileEditsOrWaitForKbfsDaemon = () =>
-    this.props.loggedIn &&
-    (this.props.kbfsDaemonStatus.rpcStatus === FsTypes.KbfsDaemonRpcStatus.Connected
-      ? this.props.refreshUserFileEdits()
-      : this.props.waitForKbfsDaemon())
-
   componentDidMount() {
-    this._refreshUserFileEditsOrWaitForKbfsDaemon()
-    SafeElectron.getRemote()
-      .getCurrentWindow()
-      .on('show', this._refreshUserFileEditsOrWaitForKbfsDaemon)
+    this.props.refreshUserFileEdits()
+    Electron.remote.getCurrentWindow().on('show', this.props.refreshUserFileEdits)
   }
 
   componentWillUnmount() {
-    SafeElectron.getRemote()
-      .getCurrentWindow()
-      .removeListener('show', this._refreshUserFileEditsOrWaitForKbfsDaemon)
+    Electron.remote.getCurrentWindow().removeListener('show', this.props.refreshUserFileEdits)
   }
 
   render() {
+    _setDarkModePreference(this.props.darkMode ? 'alwaysDark' : 'alwaysLight')
     // TODO: refactor all this duplicated code!
     if (this.props.daemonHandshakeState !== 'done') {
       return this._renderDaemonHandshakeWait()
@@ -79,7 +77,11 @@ class MenubarRender extends React.Component<Props, State> {
 
   _renderLoggedOut() {
     return (
-      <Kb.Box style={styles.widgetContainer}>
+      <Kb.Box
+        className={this.props.darkMode ? 'darkMode' : 'lightMode'}
+        key={this.props.darkMode ? 'darkMode' : 'light'}
+        style={styles.widgetContainer}
+      >
         {isDarwin && <style>{_realCSS}</style>}
         {isDarwin && <ArrowTick />}
         <Kb.Box
@@ -90,7 +92,7 @@ class MenubarRender extends React.Component<Props, State> {
           ])}
         >
           <Kb.Icon
-            color={Styles.globalColors.blueDarker}
+            color={Styles.isDarkMode() ? 'rgba(255, 255, 255, 0.85)' : Styles.globalColors.blueDarker}
             hoverColor={Styles.globalColors.white}
             type="iconfont-nav-2-hamburger"
             sizeType="Big"
@@ -123,7 +125,7 @@ class MenubarRender extends React.Component<Props, State> {
         >
           <Kb.Icon
             type="icon-keybase-logo-logged-out-64"
-            style={Kb.iconCastPlatformStyles(styles.logo)}
+            style={styles.logo}
             color={Styles.globalColors.yellow}
           />
           <Kb.Text type="Body" style={{alignSelf: 'center', marginTop: 6}}>
@@ -144,7 +146,11 @@ class MenubarRender extends React.Component<Props, State> {
         : `Starting up Keybase...`
 
     return (
-      <Kb.Box style={styles.widgetContainer}>
+      <Kb.Box
+        style={styles.widgetContainer}
+        className={this.props.darkMode ? 'darkMode' : 'lightMode'}
+        key={this.props.darkMode ? 'darkMode' : 'light'}
+      >
         {isDarwin && <style>{_realCSS}</style>}
         {isDarwin && <ArrowTick />}
         <Kb.Box
@@ -182,7 +188,7 @@ class MenubarRender extends React.Component<Props, State> {
         >
           <Kb.Icon
             type="icon-keybase-logo-logged-out-64"
-            style={Kb.iconCastPlatformStyles(styles.logo)}
+            style={styles.logo}
             color={Styles.globalColors.yellow}
           />
           <Kb.Text
@@ -206,9 +212,7 @@ class MenubarRender extends React.Component<Props, State> {
       <Kb.Box2 direction="horizontal" fullWidth={true} style={{alignItems: 'center'}}>
         <Kb.Box style={{marginRight: Styles.globalMargins.tiny, position: 'relative'}}>
           <Kb.Icon type={iconType} color={Styles.globalColors.blue} sizeType="Big" />
-          {!!count && (
-            <Kb.Badge badgeNumber={count || 0} badgeStyle={{left: 14, position: 'absolute', top: -2}} />
-          )}
+          {!!count && <Kb.Badge badgeNumber={count || 0} badgeStyle={styles.badge} />}
         </Kb.Box>
         <Kb.Text className="title" type="BodySemibold" style={Styles.collapseStyles([{color: undefined}])}>
           {title}
@@ -218,7 +222,7 @@ class MenubarRender extends React.Component<Props, State> {
   }
 
   _menuItems(): Kb.MenuItems {
-    const countMap = this.props.badgeInfo || {}
+    const countMap = this.props.navBadges
     const startingUp = this.props.daemonHandshakeState !== 'done'
     const loggedOut = !this.props.username
 
@@ -229,22 +233,22 @@ class MenubarRender extends React.Component<Props, State> {
             {
               onClick: () => this.props.openApp(Tabs.walletsTab),
               title: 'Wallet',
-              view: this._menuView('Wallet', 'iconfont-nav-2-wallets', countMap[Tabs.walletsTab]),
+              view: this._menuView('Wallet', 'iconfont-nav-2-wallets', countMap.get(Tabs.walletsTab)),
             },
             {
               onClick: () => this.props.openApp(Tabs.gitTab),
               title: 'Git',
-              view: this._menuView('Git', 'iconfont-nav-2-git', countMap[Tabs.gitTab]),
+              view: this._menuView('Git', 'iconfont-nav-2-git', countMap.get(Tabs.gitTab)),
             },
             {
               onClick: () => this.props.openApp(Tabs.devicesTab),
               title: 'Devices',
-              view: this._menuView('Devices', 'iconfont-nav-2-devices', countMap[Tabs.devicesTab]),
+              view: this._menuView('Devices', 'iconfont-nav-2-devices', countMap.get(Tabs.devicesTab)),
             },
             {
               onClick: () => this.props.openApp(Tabs.settingsTab),
               title: 'Settings',
-              view: this._menuView('Settings', 'iconfont-nav-2-settings', countMap[Tabs.settingsTab]),
+              view: this._menuView('Settings', 'iconfont-nav-2-settings', countMap.get(Tabs.settingsTab)),
             },
             'Divider',
           ] as const)
@@ -277,19 +281,20 @@ class MenubarRender extends React.Component<Props, State> {
     const badgeTypesInHeader = [Tabs.peopleTab, Tabs.chatTab, Tabs.fsTab, Tabs.teamsTab]
     const badgesInMenu = [Tabs.walletsTab, Tabs.gitTab, Tabs.devicesTab, Tabs.settingsTab]
     // TODO move this into container
-    const badgeCountInMenu = badgesInMenu.reduce(
-      (acc, val) => (this.props.badgeInfo[val] ? acc + this.props.badgeInfo[val] : acc),
-      0
-    )
+    const badgeCountInMenu = badgesInMenu.reduce((acc, val) => this.props.navBadges.get(val) ?? 0 + acc, 0)
 
     return (
-      <Kb.Box style={styles.widgetContainer}>
+      <Kb.Box
+        style={styles.widgetContainer}
+        className={this.props.darkMode ? 'darkMode' : 'lightMode'}
+        key={this.props.darkMode ? 'darkMode' : 'light'}
+      >
         {isDarwin && <style>{_realCSS}</style>}
         {isDarwin && <ArrowTick />}
         <Kb.Box style={styles.topRow}>
           <Kb.Box style={styles.headerBadgesContainer}>
             {badgeTypesInHeader.map(tab => (
-              <BadgeIcon key={tab} tab={tab} countMap={this.props.badgeInfo} openApp={this.props.openApp} />
+              <BadgeIcon key={tab} tab={tab} countMap={this.props.navBadges} openApp={this.props.openApp} />
             ))}
           </Kb.Box>
           <Kb.Box
@@ -302,19 +307,16 @@ class MenubarRender extends React.Component<Props, State> {
             ])}
           >
             <Kb.Icon
-              color={Styles.globalColors.blueDarker}
-              hoverColor={Styles.globalColors.white}
+              color={
+                Styles.isDarkMode() ? Styles.globalColors.black_50OrBlack_60 : Styles.globalColors.blueDarker
+              }
+              hoverColor={Styles.globalColors.whiteOrWhite}
               onClick={() => this.setState(prevState => ({showingMenu: !prevState.showingMenu}))}
               type="iconfont-nav-2-hamburger"
               sizeType="Big"
               ref={this.attachmentRef}
             />
-            {!!badgeCountInMenu && (
-              <Kb.Badge
-                badgeNumber={badgeCountInMenu}
-                badgeStyle={{left: 14, position: 'absolute', top: -2}}
-              />
-            )}
+            {!!badgeCountInMenu && <Kb.Badge badgeNumber={badgeCountInMenu} badgeStyle={styles.badge} />}
           </Kb.Box>
           <Kb.FloatingMenu
             closeOnSelect={true}
@@ -331,7 +333,7 @@ class MenubarRender extends React.Component<Props, State> {
         </Kb.Box>
         <OutOfDate outOfDate={this.props.outOfDate} updateNow={this.props.updateNow} />
         <Kb.ScrollView>
-          <ChatContainer convLimit={3} />
+          <ChatContainer convLimit={5} />
           {this.props.kbfsDaemonStatus.rpcStatus === FsTypes.KbfsDaemonRpcStatus.Connected ? (
             <FilesPreview />
           ) : (
@@ -343,6 +345,7 @@ class MenubarRender extends React.Component<Props, State> {
         <Kb.Box style={styles.footer}>
           <UploadWithCountdown
             endEstimate={this.props.endEstimate}
+            isOnline={this.props.kbfsDaemonStatus.onlineStatus !== FsTypes.KbfsDaemonOnlineStatus.Offline}
             files={this.props.files}
             fileName={this.props.fileName}
             totalSyncingBytes={this.props.totalSyncingBytes}
@@ -367,7 +370,7 @@ const iconMap = {
   [Tabs.teamsTab]: 'iconfont-nav-2-teams',
 } as const
 const BadgeIcon = ({tab, countMap, openApp}) => {
-  const count = countMap[tab]
+  const count = countMap.get(tab)
   const iconType = iconMap[tab]
 
   if ((tab === Tabs.devicesTab && !count) || !iconType) {
@@ -377,21 +380,21 @@ const BadgeIcon = ({tab, countMap, openApp}) => {
   return (
     <Kb.Box style={{...Styles.desktopStyles.clickable, position: 'relative'}}>
       <Kb.Icon
-        color={Styles.globalColors.blueDarker}
-        hoverColor={Styles.globalColors.white}
+        color={Styles.isDarkMode() ? Styles.globalColors.black_50OrBlack_60 : Styles.globalColors.blueDarker}
+        hoverColor={Styles.globalColors.whiteOrWhite}
         onClick={() => openApp(tab)}
         sizeType="Big"
         style={styles.navIcons}
         type={iconType}
       />
-      {!!count && <Kb.Badge badgeNumber={count} badgeStyle={{position: 'absolute', right: -8, top: -6}} />}
+      {!!count && <Kb.Badge badgeNumber={count} badgeStyle={styles.badge} />}
     </Kb.Box>
   )
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   arrowTick: {
-    borderBottomColor: Styles.globalColors.blueDark,
+    borderBottomColor: Styles.isDarkMode() ? '#2d2d2d' : Styles.globalColors.blueDark,
     borderBottomWidth: 6,
     borderLeftColor: 'transparent',
     borderLeftWidth: 6,
@@ -406,6 +409,11 @@ const styles = Styles.styleSheetCreate({
     right: 0,
     top: -6,
     width: 0,
+  },
+  badge: {
+    position: 'absolute',
+    right: -2,
+    top: -4,
   },
   footer: {width: 360},
   hamburgerIcon: {
@@ -426,7 +434,7 @@ const styles = Styles.styleSheetCreate({
   topRow: {
     ...Styles.globalStyles.flexBoxRow,
     alignItems: 'center',
-    backgroundColor: Styles.globalColors.blueDark,
+    backgroundColor: Styles.isDarkMode() ? '#2d2d2d' : Styles.globalColors.blueDark,
     borderTopLeftRadius: Styles.globalMargins.xtiny,
     borderTopRightRadius: Styles.globalMargins.xtiny,
     flex: 1,
@@ -441,9 +449,11 @@ const styles = Styles.styleSheetCreate({
     borderTopLeftRadius: Styles.globalMargins.xtiny,
     borderTopRightRadius: Styles.globalMargins.xtiny,
     flex: 1,
+    height: '100%',
     marginTop: isDarwin ? 13 : 0,
     position: 'relative',
+    width: '100%',
   },
-})
+}))
 
 export default MenubarRender

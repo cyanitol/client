@@ -5,7 +5,7 @@ import * as Styles from '../styles'
 import {useVideoSizer, CheckURL} from './video.shared'
 import RNVideo from 'react-native-video'
 import {StatusBar} from 'react-native'
-import logger from '../logger'
+import useFixStatusbar from './use-fix-statusbar.native'
 
 const Kb = {
   Box,
@@ -25,11 +25,7 @@ const DelayMount = ({children}) => {
 
 const Video = (props: Props) => {
   const [videoSize, setContainerSize, setVideoNaturalSize] = useVideoSizer()
-  // Somehow onFullscreenPlayerDidDismiss doesn't trigger, and RNVideo doesn't
-  // automatically bring back the status bar either. As a workaround, call it
-  // on unmount so at least we get the status bar back when user leaves the
-  // screen.
-  React.useEffect(() => () => StatusBar.setHidden(false), [])
+  useFixStatusbar()
   return (
     <CheckURL url={props.url}>
       <DelayMount>
@@ -45,13 +41,10 @@ const Video = (props: Props) => {
           <RNVideo
             source={{uri: props.url}}
             onError={e => {
-              logger.error(`Error loading vid: ${JSON.stringify(e)}`)
+              props.onUrlError && props.onUrlError(JSON.stringify(e))
             }}
-            muted={true}
             controls={true}
-            onFullscreenPlayerWillPresent={() => console.log({songgao: 'onFullscreenPlayerWillPresent'})}
             onFullscreenPlayerDidDismiss={() => {
-              console.log({songgao: 'onFullscreenPlayerDidDismiss'})
               StatusBar.setHidden(false)
             }}
             onLoad={loaded =>
@@ -68,7 +61,7 @@ const Video = (props: Props) => {
 }
 export default Video
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   container: {
     ...Styles.globalStyles.flexBoxRow,
     alignItems: 'center',
@@ -76,4 +69,4 @@ const styles = Styles.styleSheetCreate({
     justifyContent: 'center',
     width: '100%',
   },
-})
+}))

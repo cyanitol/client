@@ -2,6 +2,7 @@ import React from 'react'
 import Text from '../../../common-adapters/text'
 import Button from '../../../common-adapters/button'
 import {Box2} from '../../../common-adapters/box'
+import {MenuItems} from '../../../common-adapters/floating-menu/menu-layout'
 import FloatingMenu from '../../../common-adapters/floating-menu'
 import * as Styles from '../../../styles'
 
@@ -15,21 +16,18 @@ type PopupProps = {
   visible: boolean
 }
 
-const items = []
+const items: MenuItems = []
 
 const UnknownMentionPopup = (props: PopupProps) => {
-  const header = {
-    title: 'header',
-    view: (
-      <Kb.Box2 direction="vertical" gap="tiny" style={styles.popupContainer} gapStart={true}>
-        <Kb.Text type="BodySemibold">User or Team</Kb.Text>
-        <Kb.Text type="BodySmall">
-          {props.text} could be either a user or team. You can find out with a quick request to Keybase.
-        </Kb.Text>
-        <Kb.Button label="Lookup" onClick={props.onResolve} />
-      </Kb.Box2>
-    ),
-  }
+  const header = (
+    <Kb.Box2 direction="vertical" gap="tiny" style={styles.popupContainer} gapStart={true}>
+      <Kb.Text type="BodySemibold">User or team?</Kb.Text>
+      <Kb.Text type="BodySmall">
+        {props.text} could be either a user or team. You can find out with a quick request to Keybase.
+      </Kb.Text>
+      <Kb.Button label="Lookup" onClick={props.onResolve} />
+    </Kb.Box2>
+  )
   return (
     <Kb.FloatingMenu
       attachTo={props.attachTo}
@@ -74,15 +72,19 @@ class UnknownMention extends React.Component<Props, State> {
     const content = (
       <Kb.Text
         ref={this._mentionRef}
-        type="Body"
+        type="BodySemibold"
         className={Styles.classNames({'hover-underline': !Styles.isMobile})}
         allowFontScaling={this.props.allowFontScaling}
         style={Styles.collapseStyles([this.props.style, styles.text])}
         onClick={this._onMouseOver}
       >
-        {Styles.isMobile && ' '}
-        {text}
-        {Styles.isMobile && ' '}
+        <Kb.Text
+          type="BodySemibold"
+          allowFontScaling={this.props.allowFontScaling}
+          style={Styles.collapseStyles([this.props.style, styles.text])}
+        >
+          {text}
+        </Kb.Text>
       </Kb.Text>
     )
     const popups = (
@@ -113,36 +115,39 @@ class UnknownMention extends React.Component<Props, State> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  container: Styles.platformStyles({
-    isElectron: {
-      display: 'inline-block',
-    },
-  }),
-  popupContainer: Styles.platformStyles({
-    common: {
-      padding: Styles.globalMargins.tiny,
-      textAlign: 'center',
-    },
-    isElectron: {
-      width: 200,
-    },
-  }),
-  text: Styles.platformStyles({
-    common: {
-      backgroundColor: Styles.globalColors.greyLight,
-      borderRadius: 2,
-      letterSpacing: 0.3,
-      paddingLeft: 2,
-      paddingRight: 2,
-    },
-    isElectron: {
-      display: 'inline-block',
-    },
-  }),
-  warning: {
-    color: Styles.globalColors.redDark,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: Styles.platformStyles({
+        isElectron: {
+          display: 'inline-block',
+        },
+      }),
+      popupContainer: Styles.platformStyles({
+        common: {
+          padding: Styles.globalMargins.tiny,
+          textAlign: 'center',
+        },
+        isElectron: {
+          width: 200,
+        },
+      }),
+      text: Styles.platformStyles({
+        common: {
+          backgroundColor: Styles.globalColors.greyLight,
+          borderRadius: 2,
+          letterSpacing: 0.3,
+          paddingLeft: 2,
+          paddingRight: 2,
+        },
+        isElectron: {
+          display: 'inline-block',
+        },
+      }),
+      warning: {
+        color: Styles.globalColors.redDark,
+      },
+    } as const)
+)
 
 export default UnknownMention

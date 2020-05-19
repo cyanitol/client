@@ -1,6 +1,6 @@
 import * as React from 'react'
 import Box from './box'
-import {globalStyles, isMobile, collapseStyles} from '../styles'
+import {globalStyles, isMobile, collapseStyles, isTablet} from '../styles'
 
 type Props = {
   direction: 'row' | 'column'
@@ -54,6 +54,7 @@ class ButtonBar extends React.PureComponent<Props> {
       {
         alignItems: this.props.fullWidth ? 'stretch' : 'center',
         width: '100%',
+        ...(isTablet ? {maxWidth: 460} : {}),
         ...(this.props.direction === 'column'
           ? {...globalStyles.flexBoxColumn}
           : {

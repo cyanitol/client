@@ -49,12 +49,19 @@ const (
 // TODO: Move more common code here.
 func newConfigForTest(modeType InitModeType, loggerFn func(module string) logger.Logger) *ConfigLocal {
 	mode := modeTest{NewInitModeFromType(modeType)}
-	config := NewConfigLocal(mode, loggerFn, "", DiskCacheModeOff, &env.KBFSContext{})
+	g := &libkb.GlobalContext{
+		// Env is needed by simplefs.
+		Env: libkb.NewEnv(nil, nil, func() logger.Logger {
+			return loggerFn("G")
+		}),
+	}
+	g.MobileAppState = libkb.NewMobileAppState(g)
+	config := NewConfigLocal(mode, loggerFn, "", DiskCacheModeOff, env.NewContextFromGlobalContext(g))
 	config.SetVLogLevel(libkb.VLog1String)
 
 	bops := NewBlockOpsStandard(
 		config, testBlockRetrievalWorkerQueueSize, testPrefetchWorkerQueueSize,
-		0)
+		0, env.EmptyAppStateUpdater{})
 	config.SetBlockOps(bops)
 
 	bsplit, err := data.NewBlockSplitterSimpleExact(
@@ -137,7 +144,10 @@ func MakeTestConfigOrBustLoggedInWithMode(
 		return log
 	})
 
-	kbfsOps := NewKBFSOpsStandard(env.EmptyAppStateUpdater{}, config)
+	initDoneCh := make(chan struct{})
+	kbfsOps := NewKBFSOpsStandard(
+		env.EmptyAppStateUpdater{}, config, initDoneCh)
+	defer close(initDoneCh)
 	config.SetKBFSOps(kbfsOps)
 	config.SetNotifier(kbfsOps)
 
@@ -249,7 +259,9 @@ func ConfigAsUserWithMode(config *ConfigLocal,
 	c.SetMetadataVersion(config.MetadataVersion())
 	c.SetRekeyWithPromptWaitTime(config.RekeyWithPromptWaitTime())
 
-	kbfsOps := NewKBFSOpsStandard(env.EmptyAppStateUpdater{}, c)
+	initDoneCh := make(chan struct{})
+	kbfsOps := NewKBFSOpsStandard(env.EmptyAppStateUpdater{}, c, initDoneCh)
+	defer close(initDoneCh)
 	c.SetKBFSOps(kbfsOps)
 	c.SetNotifier(kbfsOps)
 
@@ -347,14 +359,14 @@ func ConfigAsUser(config *ConfigLocal,
 // NewEmptyTLFWriterKeyBundle creates a new empty kbfsmd.TLFWriterKeyBundleV2
 func NewEmptyTLFWriterKeyBundle() kbfsmd.TLFWriterKeyBundleV2 {
 	return kbfsmd.TLFWriterKeyBundleV2{
-		WKeys: make(kbfsmd.UserDeviceKeyInfoMapV2, 0),
+		WKeys: make(kbfsmd.UserDeviceKeyInfoMapV2),
 	}
 }
 
 // NewEmptyTLFReaderKeyBundle creates a new empty kbfsmd.TLFReaderKeyBundleV2
 func NewEmptyTLFReaderKeyBundle() kbfsmd.TLFReaderKeyBundleV2 {
 	return kbfsmd.TLFReaderKeyBundleV2{
-		RKeys: make(kbfsmd.UserDeviceKeyInfoMapV2, 0),
+		RKeys: make(kbfsmd.UserDeviceKeyInfoMapV2),
 	}
 }
 

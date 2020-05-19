@@ -1,7 +1,11 @@
 import * as React from 'react'
 import * as Kb from '../../common-adapters'
+import * as Constants from '../../constants/provision'
 import * as Styles from '../../styles'
-import {SignupScreen, errorBanner} from '../common'
+import * as Platform from '../../constants/platform'
+import {SignupScreen, errorBanner, InfoIcon} from '../common'
+import debounce from 'lodash/debounce'
+import flags from '../../util/feature-flags'
 
 type Props = {
   error: string
@@ -12,15 +16,35 @@ type Props = {
 }
 
 const EnterDevicename = (props: Props) => {
-  const [devicename, onChangeDevicename] = React.useState(props.initialDevicename || '')
-  const disabled = !devicename
-  const onContinue = () => (disabled ? {} : props.onContinue(devicename))
+  const [deviceName, setDeviceName] = React.useState(props.initialDevicename || '')
+  const [readyToShowError, setReadyToShowError] = React.useState(false)
+  const debouncedSetReadyToShowError = debounce(ready => setReadyToShowError(ready), 1000)
+  const cleanDeviceName = Constants.cleanDeviceName(deviceName)
+  const normalized = cleanDeviceName.replace(Constants.normalizeDeviceRE, '')
+  const disabled =
+    normalized.length < 3 ||
+    normalized.length > 64 ||
+    !Constants.goodDeviceRE.test(cleanDeviceName) ||
+    Constants.badDeviceRE.test(cleanDeviceName)
+  const showDisabled = disabled && !!cleanDeviceName && readyToShowError
+  const _setDeviceName = (deviceName: string) => {
+    setReadyToShowError(false)
+    setDeviceName(deviceName.replace(Constants.badDeviceChars, ''))
+    debouncedSetReadyToShowError(true)
+  }
+  const onContinue = () => (disabled ? {} : props.onContinue(cleanDeviceName))
   return (
     <SignupScreen
       banners={errorBanner(props.error)}
       buttons={[{disabled, label: 'Continue', onClick: onContinue, type: 'Success', waiting: props.waiting}]}
       onBack={props.onBack}
-      title={Styles.isMobile ? 'Name this phone' : 'Name this computer'}
+      title={
+        Styles.isMobile
+          ? flags.tabletSupport
+            ? 'Name this device'
+            : 'Name this phone'
+          : 'Name this computer'
+      }
     >
       <Kb.Box2
         alignItems="center"
@@ -29,47 +53,63 @@ const EnterDevicename = (props: Props) => {
         fullWidth={true}
         style={Styles.globalStyles.flexOne}
       >
-        <Kb.Icon type={Styles.isMobile ? 'icon-phone-96' : 'icon-computer-96'} />
-        <Kb.Box2 direction="vertical" gap="tiny" style={styles.inputBox}>
-          <Kb.NewInput
+        <Kb.Icon
+          type={
+            Styles.isMobile
+              ? Platform.isLargeScreen
+                ? 'icon-phone-background-1-96'
+                : 'icon-phone-background-1-64'
+              : 'icon-computer-background-1-96'
+          }
+        />
+        <Kb.Box2 direction="vertical" fullWidth={Styles.isPhone} gap="tiny">
+          <Kb.LabeledInput
             autoFocus={true}
             containerStyle={styles.input}
+            error={showDisabled}
+            maxLength={64}
             placeholder={Styles.isMobile ? 'Phone 1' : 'Computer 1'}
-            onChangeText={onChangeDevicename}
+            onChangeText={_setDeviceName}
             onEnterKeyDown={onContinue}
-            value={devicename}
+            value={cleanDeviceName}
           />
-          <Kb.Text type="BodySmall" style={styles.inputSub}>
-            Your device name will be public and can not be changed in the future.
-          </Kb.Text>
+          {showDisabled && readyToShowError ? (
+            <Kb.Text type="BodySmall" style={styles.deviceNameError}>
+              {Constants.deviceNameInstructions}
+            </Kb.Text>
+          ) : (
+            <Kb.Text type="BodySmall">
+              Your device name will be public and can not be changed in the future.
+            </Kb.Text>
+          )}
         </Kb.Box2>
       </Kb.Box2>
     </SignupScreen>
   )
 }
+EnterDevicename.navigationOptions = {
+  header: null,
+  headerBottomStyle: {height: undefined},
+  headerLeft: null, // no back button
+  headerRightActions: () => (
+    <Kb.Box2
+      direction="horizontal"
+      style={Styles.padding(Styles.globalMargins.tiny, Styles.globalMargins.tiny, 0)}
+    >
+      <InfoIcon />
+    </Kb.Box2>
+  ),
+}
 
-const styles = Styles.styleSheetCreate({
-  input: Styles.platformStyles({
-    common: {},
-    isElectron: {
-      ...Styles.padding(0, Styles.globalMargins.xsmall),
-      height: 38,
-      width: 368,
-    },
-    isMobile: {
-      ...Styles.padding(0, Styles.globalMargins.small),
-      height: 48,
-    },
-  }),
-  inputBox: Styles.platformStyles({
-    isElectron: {
-      // need to set width so subtext will wrap
-      width: 368,
-    },
-  }),
-  inputSub: {
+const styles = Styles.styleSheetCreate(() => ({
+  deviceNameError: {
+    color: Styles.globalColors.redDark,
     marginLeft: 2,
   },
-})
+  input: Styles.platformStyles({
+    isElectron: {width: 368},
+    isTablet: {width: 368},
+  }),
+}))
 
 export default EnterDevicename

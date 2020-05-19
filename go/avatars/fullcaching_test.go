@@ -23,7 +23,7 @@ func TestAvatarsFullCaching(t *testing.T) {
 	clock := clockwork.NewFakeClock()
 	tc.G.SetClock(clock)
 
-	testSrv := kbhttp.NewSrv(tc.G.GetLog(), kbhttp.NewPortRangeListenerSource(7000, 8000))
+	testSrv := kbhttp.NewSrv(tc.G.GetLog(), kbhttp.NewRandomPortRangeListenerSource(7000, 8000))
 	require.NoError(t, testSrv.Start())
 	testSrv.HandleFunc("/p", func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprintf(w, "hi")
@@ -40,7 +40,7 @@ func TestAvatarsFullCaching(t *testing.T) {
 	testSrvAddr := fmt.Sprintf("http://%s/p", a)
 	tc.G.API = newAvatarMockAPI(makeHandler(testSrvAddr, cb))
 	m := libkb.NewMetaContextForTest(tc)
-	source := NewFullCachingSource(time.Hour, 1)
+	source := NewFullCachingSource(tc.G, time.Hour, 1)
 	source.populateSuccessCh = make(chan struct{}, 5)
 	source.tempDir = os.TempDir()
 	source.StartBackgroundTasks(m)

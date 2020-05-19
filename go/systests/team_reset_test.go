@@ -24,8 +24,7 @@ func pollForMembershipUpdate(team smuTeam, ann *smuUser, bob *smuUser, cam *smuU
 	// to happen
 	poller := func(d keybase1.TeamDetails) bool {
 		for _, member := range d.Members.Writers {
-			switch member.Username {
-			case bob.username:
+			if member.Username == bob.username {
 				return member.Status.IsReset()
 			}
 		}
@@ -444,14 +443,14 @@ func TestTeamRemoveAfterReset(t *testing.T) {
 
 	cli := ann.getTeamsClient()
 	err := cli.TeamRemoveMember(context.TODO(), keybase1.TeamRemoveMemberArg{
-		Name:     team.name,
-		Username: bob.username,
+		TeamID: team.ID,
+		Member: keybase1.NewTeamMemberToRemoveWithAssertion(keybase1.AssertionTeamMemberToRemove{Assertion: bob.username}),
 	})
 	require.NoError(t, err)
 
 	err = cli.TeamRemoveMember(context.TODO(), keybase1.TeamRemoveMemberArg{
-		Name:     team.name,
-		Username: joe.username,
+		TeamID: team.ID,
+		Member: keybase1.NewTeamMemberToRemoveWithAssertion(keybase1.AssertionTeamMemberToRemove{Assertion: joe.username}),
 	})
 	require.NoError(t, err)
 
@@ -495,8 +494,8 @@ func TestTeamRemoveMemberAfterDelete(t *testing.T) {
 
 	cli := ann.getTeamsClient()
 	err = cli.TeamRemoveMember(context.Background(), keybase1.TeamRemoveMemberArg{
-		Name:     team.name,
-		Username: bob.username,
+		TeamID: team.ID,
+		Member: keybase1.NewTeamMemberToRemoveWithAssertion(keybase1.AssertionTeamMemberToRemove{Assertion: bob.username}),
 	})
 	require.NoError(t, err)
 
@@ -513,6 +512,7 @@ func TestTeamRemoveMemberAfterDelete(t *testing.T) {
 	require.Equal(t, 0, len(details.Members.Writers))
 	require.Equal(t, 0, len(details.Members.Readers))
 	require.Equal(t, 0, len(details.Members.Bots))
+	require.Equal(t, 0, len(details.Members.RestrictedBots))
 }
 
 func TestTeamTryAddDeletedUser(t *testing.T) {
@@ -534,7 +534,7 @@ func TestTeamTryAddDeletedUser(t *testing.T) {
 	divDebug(ctx, "team created (%s)", team.name)
 
 	_, err := cli.TeamAddMember(context.Background(), keybase1.TeamAddMemberArg{
-		Name:     team.name,
+		TeamID:   team.ID,
 		Username: bob.username,
 		Role:     keybase1.TeamRole_READER,
 	})
@@ -570,7 +570,7 @@ func TestTeamAddAfterReset(t *testing.T) {
 
 	cli := ann.getTeamsClient()
 	_, err := cli.TeamAddMember(context.TODO(), keybase1.TeamAddMemberArg{
-		Name:     team.name,
+		TeamID:   team.ID,
 		Username: bob.username,
 		// Note: any role would do! Does not have to be the same as before
 		// reset. This does not apply to imp-teams though, it requires the
@@ -661,8 +661,8 @@ func testTeamReAddAfterReset(t *testing.T, pukful, adminOwner, removeAfterReset 
 
 	if removeAfterReset {
 		err := ann.getTeamsClient().TeamRemoveMember(context.TODO(), keybase1.TeamRemoveMemberArg{
-			Name:     team.name,
-			Username: bob.username,
+			TeamID: team.ID,
+			Member: keybase1.NewTeamMemberToRemoveWithAssertion(keybase1.AssertionTeamMemberToRemove{Assertion: bob.username}),
 		})
 		require.NoError(t, err)
 		return
@@ -709,9 +709,7 @@ func testTeamReAddAfterReset(t *testing.T, pukful, adminOwner, removeAfterReset 
 	bob.readChats(team, 1)
 }
 
-func testTeamResetOpen(t *testing.T, openSweep bool) {
-	t.Logf(":: testTeamResetOpen(openSweep=%t)", openSweep)
-
+func TestResetInOpenTeam(t *testing.T) {
 	ctx := newSMUContext(t)
 	defer ctx.cleanup()
 
@@ -727,31 +725,22 @@ func testTeamResetOpen(t *testing.T, openSweep bool) {
 	ann.openTeam(team, keybase1.TeamRole_WRITER)
 	ann.assertMemberActive(team, bob)
 
-	if openSweep {
-		enableOpenSweepForTeam(ann.getPrimaryGlobalContext(), t, team.ID)
-	}
+	enableOpenSweepForTeam(ann.getPrimaryGlobalContext(), t, team.ID)
 
 	kickTeamRekeyd(ann.getPrimaryGlobalContext(), t)
 	bob.reset()
 	divDebug(ctx, "Reset bob (%s)", bob.username)
 
-	if openSweep {
-		// Wait for OPENSWEEP which will remove bob from the team posting link 4.
-		ann.pollForTeamSeqnoLink(team, keybase1.Seqno(4))
-	} else {
-		// Expecting that CLKR handler will remove bob from the team.
-		details := ann.pollForMembershipUpdate(team, keybase1.PerTeamKeyGeneration(2), nil)
-		t.Logf("details from poll: %+v", details)
-	}
+	// Wait for OPENSWEEP which will remove bob from the team posting link 4.
+	ann.pollForTeamSeqnoLink(team, keybase1.Seqno(4))
+
 	teamObj := ann.loadTeam(team.name, false)
 	_, err := teamObj.UserVersionByUID(context.Background(), bob.uid())
 	require.Error(t, err, "expecting reset user to be removed from the team")
 	require.Contains(t, err.Error(), "did not find user")
 	require.EqualValues(t, 4, teamObj.CurrentSeqno())
-	if openSweep {
-		// Generation shouldn't change during OPENSWEEPing.
-		require.Equal(t, keybase1.PerTeamKeyGeneration(1), teamObj.Generation())
-	}
+	// Generation shouldn't change during OPENSWEEPing.
+	require.Equal(t, keybase1.PerTeamKeyGeneration(1), teamObj.Generation())
 
 	bob.loginAfterReset(10)
 	divDebug(ctx, "Bob logged in after reset")
@@ -763,18 +752,7 @@ func testTeamResetOpen(t *testing.T, openSweep bool) {
 	ann.assertMemberActive(team, bob)
 
 	teamObj = ann.loadTeam(team.name, false)
-	if openSweep {
-		require.Equal(t, keybase1.PerTeamKeyGeneration(1), teamObj.Generation())
-	} else {
-		// Generation should still be 2 - expecting just one rotate when bob is
-		// kicked out, and after he requests access again, he is just added in.
-		require.Equal(t, keybase1.PerTeamKeyGeneration(2), teamObj.Generation())
-	}
-}
-
-func TestResetInOpenTeam(t *testing.T) {
-	testTeamResetOpen(t, true /* openSweep */)
-	testTeamResetOpen(t, false /* openSweep */)
+	require.Equal(t, keybase1.PerTeamKeyGeneration(1), teamObj.Generation())
 }
 
 func TestTeamListAfterReset(t *testing.T) {
@@ -931,8 +909,6 @@ func TestTeamResetAfterReset(t *testing.T) {
 	bob.reset()
 	bob.loginAfterReset()
 	alice.addTeamMember(tn, bob.username, keybase1.TeamRole_OWNER)
-	bob.changeTeamMember(tn, alice.username, keybase1.TeamRole_READER)
-	alice.loadTeam(tn, false)
 	bob.leave(tn)
 	alice.loadTeam(tn, false)
 }

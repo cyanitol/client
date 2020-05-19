@@ -11,54 +11,62 @@ import (
 	"github.com/pkg/errors"
 )
 
+type fileBlockMapMemoryInfo struct {
+	pps   data.PathPartString
+	block *data.FileBlock
+}
+
 // fileBlockMapMemory is an internal structure to track file block
 // data in memory when putting blocks.
 type fileBlockMapMemory struct {
-	blocks map[data.BlockPointer]map[string]*data.FileBlock
+	blocks map[data.BlockPointer]map[string]fileBlockMapMemoryInfo
 }
 
 var _ fileBlockMap = (*fileBlockMapMemory)(nil)
 
 func newFileBlockMapMemory() *fileBlockMapMemory {
-	return &fileBlockMapMemory{make(map[data.BlockPointer]map[string]*data.FileBlock)}
+	return &fileBlockMapMemory{
+		blocks: make(map[data.BlockPointer]map[string]fileBlockMapMemoryInfo),
+	}
 }
 
 func (fbmm *fileBlockMapMemory) putTopBlock(
-	_ context.Context, parentPtr data.BlockPointer, childName string,
-	topBlock *data.FileBlock) error {
+	_ context.Context, parentPtr data.BlockPointer,
+	childName data.PathPartString, topBlock *data.FileBlock) error {
 	nameMap, ok := fbmm.blocks[parentPtr]
 	if !ok {
-		nameMap = make(map[string]*data.FileBlock)
+		nameMap = make(map[string]fileBlockMapMemoryInfo)
 		fbmm.blocks[parentPtr] = nameMap
 	}
-	nameMap[childName] = topBlock
+	nameMap[childName.Plaintext()] = fileBlockMapMemoryInfo{childName, topBlock}
 	return nil
 }
 
 func (fbmm *fileBlockMapMemory) GetTopBlock(
-	_ context.Context, parentPtr data.BlockPointer, childName string) (
-	*data.FileBlock, error) {
+	_ context.Context, parentPtr data.BlockPointer,
+	childName data.PathPartString) (*data.FileBlock, error) {
 	nameMap, ok := fbmm.blocks[parentPtr]
 	if !ok {
 		return nil, errors.Errorf("No such parent %s", parentPtr)
 	}
-	block, ok := nameMap[childName]
+	info, ok := nameMap[childName.Plaintext()]
 	if !ok {
 		return nil, errors.Errorf(
 			"No such name %s in parent %s", childName, parentPtr)
 	}
-	return block, nil
+	return info.block, nil
 }
 
 func (fbmm *fileBlockMapMemory) getFilenames(
-	_ context.Context, parentPtr data.BlockPointer) (names []string, err error) {
+	_ context.Context, parentPtr data.BlockPointer) (
+	names []data.PathPartString, err error) {
 	nameMap, ok := fbmm.blocks[parentPtr]
 	if !ok {
 		return nil, nil
 	}
-	names = make([]string, 0, len(nameMap))
-	for name := range nameMap {
-		names = append(names, name)
+	names = make([]data.PathPartString, 0, len(nameMap))
+	for _, info := range nameMap {
+		names = append(names, info.pps)
 	}
 	return names, nil
 }

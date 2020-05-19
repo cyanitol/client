@@ -10,6 +10,7 @@ export const topBarProvider = {
   SyncToggle: () => ({
     disableSync: Sb.action('disableSync'),
     enableSync: Sb.action('enableSyncisableSync'),
+    hideSyncToggle: false,
     syncConfig: Constants.tlfSyncEnabled,
     waiting: false,
   }),
@@ -50,10 +51,13 @@ const load = () =>
 
 export default load
 
-const styles = Styles.styleSheetCreate({
-  container: {
-    backgroundColor: Styles.globalColors.blue,
-    padding: Styles.globalMargins.medium,
-  },
-  flex: {flex: 1},
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: {
+        backgroundColor: Styles.globalColors.blue,
+        padding: Styles.globalMargins.medium,
+      },
+      flex: {flex: 1},
+    } as const)
+)

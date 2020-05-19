@@ -27,23 +27,23 @@ const KeyEventHandlerWrapper = (props: Props) => (
 )
 
 class KeyEventHandler extends React.Component<Props & HandlerProps> {
-  componentDidMount = () => {
+  componentDidMount() {
     this.props.add(this)
   }
 
-  componentWillUnmount = () => {
+  componentWillUnmount() {
     this.props.remove(this)
   }
 
-  onKeyDown = ev => {
+  onKeyDown = (ev: KeyboardEvent) => {
     this.props.onKeyDown && this.props.onKeyDown(ev)
   }
 
-  onKeyPress = ev => {
+  onKeyPress = (ev: KeyboardEvent) => {
     this.props.onKeyPress && this.props.onKeyPress(ev)
   }
 
-  render = () => {
+  render() {
     return this.props.children
   }
 }
@@ -51,7 +51,7 @@ class KeyEventHandler extends React.Component<Props & HandlerProps> {
 class GlobalKeyEventHandler extends React.Component<GlobalProps> {
   _stack: Array<KeyEventHandler> = []
 
-  componentDidMount = () => {
+  componentDidMount() {
     const body = document.body
     if (!body) {
       return
@@ -60,7 +60,7 @@ class GlobalKeyEventHandler extends React.Component<GlobalProps> {
     body.addEventListener('keypress', this._handleKeyPress)
   }
 
-  componentWillUnmount = () => {
+  componentWillUnmount() {
     const body = document.body
     if (!body) {
       return
@@ -97,11 +97,13 @@ class GlobalKeyEventHandler extends React.Component<GlobalProps> {
     }
   }
 
-  render = () => (
-    <KeyEventContext.Provider value={{add: this.add, remove: this.remove}}>
-      {this.props.children}
-    </KeyEventContext.Provider>
-  )
+  render() {
+    return (
+      <KeyEventContext.Provider value={{add: this.add, remove: this.remove}}>
+        {this.props.children}
+      </KeyEventContext.Provider>
+    )
+  }
 }
 
 type EscapeHandlerProps = {

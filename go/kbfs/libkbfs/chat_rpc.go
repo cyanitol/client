@@ -44,7 +44,7 @@ type ChatRPC struct {
 	client   chat1.LocalInterface
 
 	convLock          sync.RWMutex
-	convCBs           map[string][]ChatChannelNewMessageCB
+	convCBs           map[chat1.ConvIDStr][]ChatChannelNewMessageCB
 	selfConvID        chat1.ConversationID
 	lastWrittenConvID chat1.ConversationID
 }
@@ -60,7 +60,7 @@ func NewChatRPC(config Config, kbCtx Context) *ChatRPC {
 		vlog:     config.MakeVLogger(log),
 		deferLog: deferLog,
 		config:   config,
-		convCBs:  make(map[string][]ChatChannelNewMessageCB),
+		convCBs:  make(map[chat1.ConvIDStr][]ChatChannelNewMessageCB),
 	}
 	conn := NewSharedKeybaseConnection(kbCtx, config, c)
 	c.client = chat1.LocalClient{Cli: conn.GetClient()}
@@ -280,6 +280,9 @@ func (c *ChatRPC) SendTextMessage(
 		ConversationID: convID,
 		Msg: chat1.MessagePlaintext{
 			ClientHeader: chat1.MessageClientHeader{
+				Conv: chat1.ConversationIDTriple{
+					TopicType: chat1.TopicType_KBFSFILEEDIT,
+				},
 				TlfName:     string(tlfName),
 				TlfPublic:   tlfType == tlf.Public,
 				MessageType: chat1.MessageType_TEXT,
@@ -338,6 +341,9 @@ func (c *ChatRPC) SendTextMessage(
 		ConversationID: selfConvID,
 		Msg: chat1.MessagePlaintext{
 			ClientHeader: chat1.MessageClientHeader{
+				Conv: chat1.ConversationIDTriple{
+					TopicType: chat1.TopicType_KBFSFILEEDIT,
+				},
 				TlfName:     string(session.Name),
 				TlfPublic:   false,
 				MessageType: chat1.MessageType_TEXT,
@@ -382,6 +388,21 @@ func (c *ChatRPC) getLastSelfWrittenHandles(
 
 			tlfName := selfMessage.Folder.Name
 			tlfType := tlf.TypeFromFolderType(selfMessage.Folder.FolderType)
+
+			// Before doing the work of creating a full TLF handle, do
+			// a quick check to see if we've parsed it already (since
+			// the same conversation can show up multiple times in the
+			// self-write list if they are interspersed with writes to
+			// other conversations).  Most of the time `tlfName`
+			// should already be canonicalized, so this shouldn't
+			// result in too many false negatives (and won't result in
+			// any false positives).
+			quickPath := tlfhandle.BuildCanonicalPathForTlfName(
+				tlfType, tlf.CanonicalName(tlfName))
+			if seen[quickPath] {
+				continue
+			}
+
 			h, err := GetHandleFromFolderNameAndType(
 				ctx, c.config.KBPKI(), c.config.MDOps(), c.config,
 				tlfName, tlfType)
@@ -430,6 +451,8 @@ func (c *ChatRPC) GetGroupedInbox(
 		return nil, err
 	}
 
+	c.config.GetPerfLog().CDebugf(
+		ctx, "GetFavorites GetGroupedInbox")
 	favs, err := c.config.KBFSOps().GetFavorites(ctx)
 	if err != nil {
 		c.log.CWarningf(ctx,
@@ -461,6 +484,19 @@ func (c *ChatRPC) GetGroupedInbox(
 
 		tlfIsFavorite := favMap[favorites.Folder{Name: info.TlfName, Type: tlfType}]
 		if !tlfIsFavorite {
+			continue
+		}
+
+		// Before doing the work of creating a full TLF handle, do a
+		// quick check to see if we've parsed it already (since
+		// multiple conversations can belong to the same TLF due to
+		// multiple writers in that TLF).  Most of the time
+		// `info.TlfName` should already be canonicalized, so this
+		// shouldn't result in too many false negatives (and won't
+		// result in any false positives).
+		quickPath := tlfhandle.BuildCanonicalPathForTlfName(
+			tlfType, tlf.CanonicalName(info.TlfName))
+		if seen[quickPath] {
 			continue
 		}
 
@@ -585,7 +621,7 @@ func (c *ChatRPC) ReadChannel(
 // RegisterForMessages implements the Chat interface.
 func (c *ChatRPC) RegisterForMessages(
 	convID chat1.ConversationID, cb ChatChannelNewMessageCB) {
-	str := convID.String()
+	str := convID.ConvIDStr()
 	c.convLock.Lock()
 	defer c.convLock.Unlock()
 	c.convCBs[str] = append(c.convCBs[str], cb)
@@ -619,6 +655,8 @@ func (c *ChatRPC) newNotificationChannel(
 		tlfType = tlf.SingleTeam
 	}
 
+	c.config.GetPerfLog().CDebugf(
+		ctx, "GetFavorites newNotificationChannel")
 	favorites, err := c.config.KBFSOps().GetFavorites(ctx)
 	if err != nil {
 		c.log.CWarningf(ctx,
@@ -702,7 +740,7 @@ func (c *ChatRPC) NewChatActivity(
 		body := validMsg.MessageBody.Text().Body
 
 		c.convLock.RLock()
-		cbs := c.convCBs[msg.ConvID.String()]
+		cbs := c.convCBs[msg.ConvID.ConvIDStr()]
 		c.convLock.RUnlock()
 
 		// If this is on the self-write channel, cache it and we're
@@ -854,6 +892,20 @@ func (c *ChatRPC) ChatAttachmentUploadProgress(
 	return nil
 }
 
+// ChatAttachmentDownloadProgress implements the chat1.NotifyChatInterface
+// for ChatRPC.
+func (c *ChatRPC) ChatAttachmentDownloadProgress(
+	_ context.Context, _ chat1.ChatAttachmentDownloadProgressArg) error {
+	return nil
+}
+
+// ChatAttachmentDownloadComplete implements the chat1.NotifyChatInterface
+// for ChatRPC.
+func (c *ChatRPC) ChatAttachmentDownloadComplete(
+	_ context.Context, _ chat1.ChatAttachmentDownloadCompleteArg) error {
+	return nil
+}
+
 // ChatPaymentInfo implements the chat1.NotifyChatInterface
 // for ChatRPC.
 func (c *ChatRPC) ChatPaymentInfo(
@@ -871,5 +923,24 @@ func (c *ChatRPC) ChatRequestInfo(
 // ChatPromptUnfurl implements the chat1.NotifyChatInterface
 // for ChatRPC.
 func (c *ChatRPC) ChatPromptUnfurl(_ context.Context, _ chat1.ChatPromptUnfurlArg) error {
+	return nil
+}
+
+// ChatConvUpdate implements the chat1.NotifyChatInterface for
+// ChatRPC.
+func (c *ChatRPC) ChatConvUpdate(
+	_ context.Context, _ chat1.ChatConvUpdateArg) error {
+	return nil
+}
+
+// ChatWelcomeMessageLoaded implements the chat1.NotifyChatInterface for
+// ChatRPC.
+func (c *ChatRPC) ChatWelcomeMessageLoaded(
+	_ context.Context, _ chat1.ChatWelcomeMessageLoadedArg) error {
+	return nil
+}
+
+// ChatParticipantsInfo is the greatest function ever written
+func (c *ChatRPC) ChatParticipantsInfo(context.Context, map[chat1.ConvIDStr][]chat1.UIParticipant) error {
 	return nil
 }

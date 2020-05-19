@@ -1,114 +1,84 @@
+import * as React from 'react'
 import * as Constants from '../../constants/teams'
+import * as ChatConstants from '../../constants/chat2'
 import * as TeamsGen from '../../actions/teams-gen'
 import * as Types from '../../constants/types/chat2'
+import * as TeamsTypes from '../../constants/types/teams'
 import * as RouteTreeGen from '../../actions/route-tree-gen'
-import EditChannel, {Props} from './edit-channel'
-import {connect, getRouteProps, RouteProps} from '../../util/container'
-import {upperFirst} from 'lodash-es'
-import {anyWaiting} from '../../constants/waiting'
+import EditChannel from './edit-channel'
+import * as Container from '../../util/container'
+import upperFirst from 'lodash/upperFirst'
+import {useChannelMeta} from '../../teams/common/channel-hooks'
 
-type OwnProps = RouteProps< { conversationIDKey: Types.ConversationIDKey; teamname: string } >
+type OwnProps = Container.RouteProps<{conversationIDKey: Types.ConversationIDKey; teamID: TeamsTypes.TeamID}>
 
-const mapStateToProps = (state, ownProps) => {
-  const conversationIDKey = getRouteProps(ownProps, 'conversationIDKey')
+const EditChannelWrapper = (props: OwnProps) => {
+  const conversationIDKey = Container.getRouteProps(
+    props,
+    'conversationIDKey',
+    ChatConstants.noConversationIDKey
+  )
   if (!conversationIDKey) {
     throw new Error('conversationIDKey unexpectedly empty')
   }
 
-  const teamname = getRouteProps(ownProps, 'teamname')
-  if (!teamname) {
-    throw new Error('teamname unexpectedly empty')
+  const teamID = Container.getRouteProps(props, 'teamID', TeamsTypes.noTeamID)
+  if (!teamID) {
+    throw new Error('teamID unexpectedly empty')
   }
+  const teamname = Container.useSelector(state => Constants.getTeamNameFromID(state, teamID) || '')
 
-  // We can arrive at this dialog in two ways -- from the manage
-  // channels dialog, or from the chat info panel.
-  //
-  // If from the manage channels, _loadChannels should have already
-  // been called, and channelInfo should be non-empty and reasonably
-  // up to date.
-  //
-  // Otherwise, even though we have the info for this channel from
-  // chat, it's tricky to keep the team and chat data in sync, (see
-  // https://github.com/keybase/client/pull/11891 ) so we just call
-  // _loadChannelInfo if channelInfo is empty. Although even if
-  // channelInfo is non-empty, it might not be updated; that hasn't
-  // been a problem yet, though.
+  const conversationMeta = useChannelMeta(teamID, conversationIDKey)
 
-  const channelInfo = Constants.getChannelInfoFromConvID(state, teamname, conversationIDKey)
+  const channelName = conversationMeta ? conversationMeta.channelname : ''
+  const topic = conversationMeta ? conversationMeta.description : ''
 
-  const channelName = channelInfo ? channelInfo.channelname : ''
-  const topic = channelInfo ? channelInfo.description : ''
-  const yourRole = Constants.getRole(state, teamname)
+  const yourRole = Container.useSelector(state => Constants.getRole(state, teamID))
   const canDelete = Constants.isAdmin(yourRole) || Constants.isOwner(yourRole)
-  const errorText = state.teams.channelCreationError
-  const waitingOnSave = anyWaiting(state, Constants.teamWaitingKey(teamname))
-  return {
-    canDelete,
-    channelName,
-    conversationIDKey,
-    errorText,
-    teamname,
-    topic,
-    waitingForGetInfo: !channelInfo,
-    waitingOnSave,
-  }
-}
+  const errorText = Container.useSelector(state => state.teams.errorInChannelCreation)
+  const waitingOnSave = Container.useAnyWaiting(Constants.updateChannelNameWaitingKey(teamID))
 
-const mapDispatchToProps = dispatch => {
-  return {
-    _loadChannelInfo: (teamname: string, conversationIDKey: Types.ConversationIDKey) =>
-      dispatch(TeamsGen.createGetChannelInfo({conversationIDKey, teamname})),
+  const dispatch = Container.useDispatch()
+
+  const dispatchProps = {
     _navigateUp: () => dispatch(RouteTreeGen.createNavigateUp()),
-    _onConfirmedDelete: (teamname: string, conversationIDKey: Types.ConversationIDKey) =>
-      dispatch(TeamsGen.createDeleteChannelConfirmed({conversationIDKey, teamname})),
-    _onSetChannelCreationError: error => dispatch(TeamsGen.createSetChannelCreationError({error})),
+    _onConfirmedDelete: (teamID: TeamsTypes.TeamID, conversationIDKey: Types.ConversationIDKey) =>
+      dispatch(TeamsGen.createDeleteChannelConfirmed({conversationIDKey, teamID})),
+    _onSetChannelCreationError: (error: string) => dispatch(TeamsGen.createSetChannelCreationError({error})),
     _updateChannelName: (
-      teamname: string,
+      teamID: TeamsTypes.TeamID,
       conversationIDKey: Types.ConversationIDKey,
       newChannelName: string
-    ) => dispatch(TeamsGen.createUpdateChannelName({conversationIDKey, newChannelName, teamname})),
-    _updateTopic: (teamname: string, conversationIDKey: Types.ConversationIDKey, newTopic: string) =>
-      dispatch(TeamsGen.createUpdateTopic({conversationIDKey, newTopic, teamname})),
+    ) => dispatch(TeamsGen.createUpdateChannelName({conversationIDKey, newChannelName, teamID})),
+    _updateTopic: (teamID: TeamsTypes.TeamID, conversationIDKey: Types.ConversationIDKey, newTopic: string) =>
+      dispatch(TeamsGen.createUpdateTopic({conversationIDKey, newTopic, teamID})),
   }
-}
-
-const mergeProps = (stateProps, dispatchProps): Props => {
-  const {teamname, conversationIDKey, channelName, topic, errorText, waitingOnSave} = stateProps
   const deleteRenameDisabled = channelName === 'general'
-  return {
+  const childProps: React.ComponentProps<typeof EditChannel> = {
     channelName,
     deleteRenameDisabled,
-    errorText: upperFirst(stateProps.errorText),
-    loadChannelInfo: () => dispatchProps._loadChannelInfo(teamname, conversationIDKey),
+    errorText: upperFirst(errorText),
     onCancel: dispatchProps._navigateUp,
-    onConfirmedDelete: () => {
-      dispatchProps._onConfirmedDelete(teamname, conversationIDKey)
-      dispatchProps._navigateUp()
-    },
+    onConfirmedDelete: () => dispatchProps._onConfirmedDelete(teamID, conversationIDKey),
     onSave: (newChannelName: string, newTopic: string) => {
       if (!deleteRenameDisabled && newChannelName !== channelName) {
         dispatchProps._onSetChannelCreationError('')
-        dispatchProps._updateChannelName(teamname, conversationIDKey, newChannelName)
+        dispatchProps._updateChannelName(teamID, conversationIDKey, newChannelName)
       }
 
       if (newTopic !== topic) {
-        dispatchProps._updateTopic(teamname, conversationIDKey, newTopic)
+        dispatchProps._updateTopic(teamID, conversationIDKey, newTopic)
       }
     },
     onSaveSuccess: dispatchProps._navigateUp,
     onSetChannelCreationError: dispatchProps._onSetChannelCreationError,
-    showDelete: stateProps.canDelete,
+    showDelete: canDelete,
     teamname,
     title: `Edit #${channelName}`,
     topic,
-    waitingForGetInfo: stateProps.waitingForGetInfo,
+    waitingForGetInfo: conversationMeta === null,
     waitingOnSave,
   }
+  return <EditChannel {...childProps} />
 }
-
-const ConnectedEditChannel = connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  mergeProps
-)(EditChannel)
-export default ConnectedEditChannel
+export default EditChannelWrapper

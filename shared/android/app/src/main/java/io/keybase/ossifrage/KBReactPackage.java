@@ -11,7 +11,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import io.keybase.ossifrage.components.KBTextInputManager;
-import io.keybase.ossifrage.modules.IntentHandler;
+import io.keybase.ossifrage.modules.AppearanceModule;
 import io.keybase.ossifrage.modules.KeybaseEngine;
 import io.keybase.ossifrage.modules.KillableModule;
 import io.keybase.ossifrage.modules.LogSend;
@@ -39,8 +39,8 @@ public class KBReactPackage implements com.facebook.react.ReactPackage {
         final NativeSettings nativeSettings = new NativeSettings(reactApplicationContext);
         final NativeLogger nativeLogger = new NativeLogger(reactApplicationContext);
         final ShareFiles shareFiles = new ShareFiles(reactApplicationContext);
-        final IntentHandler intentHandler = new IntentHandler(reactApplicationContext);
         final Utils utils = new Utils(reactApplicationContext);
+        final AppearanceModule appearance = new AppearanceModule(reactApplicationContext);
 
         killableModules.add(kbEngine);
 
@@ -51,8 +51,8 @@ public class KBReactPackage implements com.facebook.react.ReactPackage {
         modules.add(nativeSettings);
         modules.add(nativeLogger);
         modules.add(shareFiles);
-        modules.add(intentHandler);
         modules.add(utils);
+        modules.add(appearance);
 
         return modules;
     }

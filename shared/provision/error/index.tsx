@@ -1,13 +1,15 @@
 // TODO remove Container
 import Container from '../../login/forms/container'
+import * as Kb from '../../common-adapters'
 import * as React from 'react'
+import * as Styles from '../../styles'
 import {RPCError} from '../../util/errors'
 import {StatusCode} from '../../constants/types/rpc-gen'
-import {Box2, Text, Markdown} from '../../common-adapters'
+import {Box2, Button, Icon, Text, Markdown} from '../../common-adapters'
 import {styleSheetCreate, globalStyles, globalMargins, isMobile} from '../../styles'
 
 type Props = {
-  error: RPCError | null
+  error?: RPCError
   onAccountReset: () => void
   onBack: () => void
   onKBHome: () => void
@@ -22,18 +24,20 @@ const List = p => (
 
 const Wrapper = (p: {onBack: () => void; children: React.ReactNode}) => (
   <Container onBack={p.onBack}>
+    <Icon type="icon-illustration-zen-240-180" style={styles.icon} />
     <Text type="Header" style={styles.header}>
-      There was an error provisioning
+      Oops, something went wrong.
     </Text>
     <Box2 direction="vertical" gap="small" gapStart={true} gapEnd={true} style={styles.container}>
       {p.children}
     </Box2>
+    {Styles.isMobile && <Button label="Close" onClick={p.onBack} />}
   </Container>
 )
 
 const rewriteErrorDesc = {
   'Provisioner is a different user than we wanted.':
-    'Is the other device using the username you expect? It seems to be different. Please try again!',
+    'Is the other device using the username you expect? It seems to be different.',
 }
 
 // Normally this would be a component but I want the children to be flat so i can use a Box2 as the parent and have nice gaps
@@ -41,7 +45,9 @@ const Render = ({error, onBack, onAccountReset, onPasswordReset, onKBHome}: Prop
   if (!error) {
     return (
       <Wrapper onBack={onBack}>
-        <Text type="Body">Unknown error: Please report this to us</Text>
+        <Text center={true} type="Body">
+          Unknown error: Please report this to us.
+        </Text>
       </Wrapper>
     )
   }
@@ -55,8 +61,12 @@ const Render = ({error, onBack, onAccountReset, onPasswordReset, onKBHome}: Prop
     case StatusCode.scapinetworkerror:
       return (
         <Wrapper onBack={onBack}>
-          <Text type="Body">Device provisioning failed because this device went offline.</Text>
-          <Text type="Body">Please check your network connection and try again.</Text>
+          <Text center={true} type="Body">
+            The device authorization failed because this device went offline.
+          </Text>
+          <Text center={true} type="Body">
+            Please check your network connection and try again.
+          </Text>
         </Wrapper>
       )
     case StatusCode.scdevicenoprovision:
@@ -77,26 +87,38 @@ const Render = ({error, onBack, onAccountReset, onPasswordReset, onKBHome}: Prop
     case StatusCode.scdeviceprevprovisioned:
       return (
         <Wrapper onBack={onBack}>
-          <Text type="Body">You have already provisioned this device. </Text>
-          <Text type="Body">Please use 'keybase login [username]' to log in. </Text>
+          <Text center={true} type="Body">
+            You have already authorized this device.{' '}
+          </Text>
+          <Text center={true} type="Body">
+            Please use 'keybase login [username]' to log in.{' '}
+          </Text>
         </Wrapper>
       )
     case StatusCode.sckeynomatchinggpg:
       if (fields.has_active_device) {
         return (
           <Wrapper onBack={onBack}>
-            <Text type="Body">
-              You can't provision using solely a password, since you have active device keys.
+            <Text center={true} type="Body">
+              You can't authorize using solely a password, since you have active device keys.
             </Text>
-            <Text type="BodySemibold">You have options:</Text>
+            <Text center={true} type="BodySemibold">
+              You have options:
+            </Text>
             <List>
-              <Text type="Body"> - Go back and select a device or paper key</Text>
-              <Text type="Body"> - Install Keybase on a machine that has your PGP private key in it</Text>
-              <Text type="Body">
+              <Text center={true} type="Body">
+                {' '}
+                - Go back and select a device or paper key
+              </Text>
+              <Text center={true} type="Body">
+                {' '}
+                - Install Keybase on a machine that has your PGP private key in it
+              </Text>
+              <Text center={true} type="Body">
                 {' '}
                 - Login to the website and host an encrypted copy of your PGP private key
               </Text>
-              <Text type="Body">
+              <Text center={true} type="Body">
                 {' '}
                 - or,{' '}
                 <Text type="BodyPrimaryLink" onClick={onAccountReset}>
@@ -110,27 +132,32 @@ const Render = ({error, onBack, onAccountReset, onPasswordReset, onKBHome}: Prop
       } else {
         return (
           <Wrapper onBack={onBack}>
-            <Text type="Body">You can't provision using a password, since you've established a PGP key.</Text>
-            <Text type="BodySemibold" style={{textAlign: 'left'}}>
+            <Text center={true} type="Body">
+              You can't authorize using a password, since you've established a PGP key.
+            </Text>
+            <Text center={true} type="BodySemibold" style={{textAlign: 'left'}}>
               You have options:
             </Text>
             <List>
-              <Text type="Body">
+              <Text center={true} type="Body">
                 {' '}
                 - Use <Text type="TerminalInline">keybase login</Text> on the command line to log in
               </Text>
               {!isMobile && (
-                <Text type="Body">
+                <Text center={true} type="Body">
                   {' '}
                   - Install GPG on this machine and import your PGP private key into it
                 </Text>
               )}
-              <Text type="Body"> - Install Keybase on a different machine that has your PGP key</Text>
-              <Text type="Body">
+              <Text center={true} type="Body">
+                {' '}
+                - Install Keybase on a different machine that has your PGP key
+              </Text>
+              <Text center={true} type="Body">
                 {' '}
                 - Login to the website and host an encrypted copy of your PGP private key
               </Text>
-              <Text type="Body">
+              <Text center={true} type="Body">
                 {' '}
                 - Or,{' '}
                 <Text type="BodyPrimaryLink" onClick={onAccountReset}>
@@ -150,18 +177,20 @@ const Render = ({error, onBack, onAccountReset, onPasswordReset, onKBHome}: Prop
       ) : (
         <Wrapper onBack={onBack}>
           <Text center={true} type="Body">
-            Your PGP keychain has multiple keys installed, and we're not sure which one to use to provision
-            your account. continue.
+            Your PGP keychain has multiple keys installed, and we're not sure which one to use to authorize
+            your account.
           </Text>
           <Text center={true} type="Body">
-            Please run <Text type="TerminalInline">keybase login</Text> on the command line to
+            Please run <Text type="TerminalInline">keybase login</Text> on the command line to continue.
           </Text>
         </Wrapper>
       )
     case StatusCode.scbadloginpassword:
       return (
         <Wrapper onBack={onBack}>
-          <Text type="Body">Looks like that's a bad password.</Text>
+          <Text center={true} type="Body">
+            Looks like that's a bad password.
+          </Text>
           <Text center={true} type="BodyPrimaryLink" onClick={onPasswordReset}>
             Reset your password?
           </Text>
@@ -176,20 +205,26 @@ const Render = ({error, onBack, onAccountReset, onPasswordReset, onKBHome}: Prop
             Sorry, your account is already established with a PGP public key, but we can't access the
             corresponding private key.
           </Text>
-          <Text type="BodySemibold" style={{textAlign: 'left'}}>
+          <Text center={true} type="BodySemibold">
             You have options:
           </Text>
           <List>
-            <Text type="Body">
+            <Text center={true} type="Body">
               {' '}
               - Run <Text type="TerminalInline">keybase login</Text> on the device with the corresponding PGP
               private key
             </Text>
             {!isMobile && (
-              <Text type="Body"> - Install GPG, put your PGP private key on this machine and try again</Text>
+              <Text center={true} type="Body">
+                {' '}
+                - Install GPG, put your PGP private key on this machine and try again
+              </Text>
             )}
-            <Text type="Body"> - Go back and provision with another device or paper key</Text>
-            <Text type="Body">
+            <Text center={true} type="Body">
+              {' '}
+              - Go back and authorize with another device or paper key
+            </Text>
+            <Text center={true} type="Body">
               {' '}
               - Or, if none of the above are possible,{' '}
               <Text type="BodyPrimaryLink" onClick={onAccountReset}>
@@ -202,16 +237,22 @@ const Render = ({error, onBack, onAccountReset, onPasswordReset, onKBHome}: Prop
     case StatusCode.scinputcanceled:
       return (
         <Wrapper onBack={onBack}>
-          <Text type="Body">Login Cancelled</Text>
+          <Text center={true} type="Body">
+            Login cancelled.
+          </Text>
         </Wrapper>
       )
     case StatusCode.sckeycorrupted:
       return (
         <Wrapper onBack={onBack}>
-          <Text type="Body">{error.message}</Text>
-          <Text type="Body">We were able to generate a PGP signature but it was rejected by the server.</Text>
+          <Text center={true} type="Body">
+            {error.message}
+          </Text>
+          <Text center={true} type="Body">
+            We were able to generate a PGP signature but it was rejected by the server.
+          </Text>
           <Text type="Body">This often means that this PGP key is expired or unusable.</Text>
-          <Text type="Body">
+          <Text center={true} type="Body">
             You can update your key on{' '}
             <Text type="BodyPrimaryLink" onClick={onKBHome}>
               keybase.io
@@ -223,41 +264,55 @@ const Render = ({error, onBack, onAccountReset, onPasswordReset, onKBHome}: Prop
     case StatusCode.scdeleted:
       return (
         <Wrapper onBack={onBack}>
-          <Text type="Body">User has been deleted.</Text>
+          <Text center={true} type="Body">
+            This user has been deleted.
+          </Text>
         </Wrapper>
       )
     default:
       return (
         <Wrapper onBack={onBack}>
-          <Text type="Body">
-            <Text type="Body" selectable={true}>
+          <Kb.Box2 direction="vertical">
+            <Text center={true} type="Body" selectable={true}>
               {rewriteErrorDesc[error.desc] || error.desc}
             </Text>
-            <Text type="BodySmall" selectable={true}>
+            <Text center={true} type="BodySmall" selectable={true}>
               {' '}
               {error.details}
             </Text>
-          </Text>
+          </Kb.Box2>
         </Wrapper>
       )
   }
 }
 
-const styles = styleSheetCreate({
-  container: {
-    maxWidth: 550,
-  },
-  header: {
-    alignSelf: 'center',
-    marginBottom: 20,
-    marginTop: 46,
-  },
-  list: {
-    marginBottom: 10,
-    marginLeft: globalMargins.tiny,
-    ...globalStyles.flexBoxColumn,
-    maxWidth: 460,
-  },
-})
+Render.navigationOptions = {
+  modal2: true,
+}
+
+const styles = styleSheetCreate(
+  () =>
+    ({
+      container: {
+        maxWidth: 550,
+      },
+      header: {
+        alignSelf: 'center',
+        marginBottom: 20,
+        marginTop: 46,
+      },
+      icon: {
+        alignSelf: 'center',
+        height: 180,
+        width: 240,
+      },
+      list: {
+        marginBottom: 10,
+        marginLeft: globalMargins.tiny,
+        ...globalStyles.flexBoxColumn,
+        maxWidth: 460,
+      },
+    } as const)
+)
 
 export default Render

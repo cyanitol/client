@@ -18,8 +18,38 @@
     },
     {
       "type": "record",
-      "name": "RuntimeStats",
+      "name": "DbStats",
       "fields": [
+        {
+          "type": "DbType",
+          "name": "type"
+        },
+        {
+          "type": "boolean",
+          "name": "memCompActive"
+        },
+        {
+          "type": "boolean",
+          "name": "tableCompActive"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "ProcessType",
+      "symbols": [
+        "MAIN_0",
+        "KBFS_1"
+      ]
+    },
+    {
+      "type": "record",
+      "name": "ProcessRuntimeStats",
+      "fields": [
+        {
+          "type": "ProcessType",
+          "name": "type"
+        },
         {
           "type": "string",
           "name": "cpu"
@@ -55,6 +85,65 @@
         {
           "type": "StatsSeverityLevel",
           "name": "residentSeverity"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "PerfEventType",
+      "symbols": [
+        "NETWORK_0",
+        "TEAMBOXAUDIT_1",
+        "TEAMAUDIT_2",
+        "USERCHAIN_3",
+        "TEAMCHAIN_4",
+        "CLEARCONV_5",
+        "CLEARINBOX_6",
+        "TEAMTREELOAD_7"
+      ]
+    },
+    {
+      "type": "record",
+      "name": "PerfEvent",
+      "fields": [
+        {
+          "type": "string",
+          "name": "message"
+        },
+        {
+          "type": "Time",
+          "name": "ctime"
+        },
+        {
+          "type": "PerfEventType",
+          "name": "eventType"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "RuntimeStats",
+      "fields": [
+        {
+          "type": {
+            "type": "array",
+            "items": "ProcessRuntimeStats"
+          },
+          "name": "processStats"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "DbStats"
+          },
+          "name": "dbStats"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "PerfEvent"
+          },
+          "name": "perfEvents"
         },
         {
           "type": "boolean",

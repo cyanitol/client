@@ -14,7 +14,6 @@ import (
 	"github.com/keybase/client/go/chat/types"
 	"github.com/keybase/client/go/chat/utils"
 	"github.com/keybase/client/go/kbtest"
-	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/chat1"
 	"github.com/keybase/client/go/protocol/gregor1"
 	"github.com/keybase/client/go/protocol/keybase1"
@@ -23,7 +22,7 @@ import (
 )
 
 type mockChatUI struct {
-	libkb.ChatUI
+	utils.NullChatUI
 	watchID chat1.LocationWatchID
 	watchCh chan chat1.LocationWatchID
 	clearCh chan chat1.LocationWatchID
@@ -36,7 +35,7 @@ func newMockChatUI() *mockChatUI {
 	}
 }
 
-func (m *mockChatUI) ChatWatchPosition(context.Context, chat1.ConversationID) (chat1.LocationWatchID, error) {
+func (m *mockChatUI) ChatWatchPosition(context.Context, chat1.ConversationID, chat1.UIWatchPositionPerm) (chat1.LocationWatchID, error) {
 	m.watchID++
 	m.watchCh <- m.watchID
 	return m.watchID, nil
@@ -59,10 +58,12 @@ type unfurlData struct {
 
 type mockUnfurler struct {
 	globals.Contextified
-	types.Unfurler
+	types.DummyUnfurler
 	t        *testing.T
 	unfurlCh chan unfurlData
 }
+
+var _ types.Unfurler = (*mockUnfurler)(nil)
 
 func newMockUnfurler(g *globals.Context, t *testing.T) *mockUnfurler {
 	return &mockUnfurler{
@@ -107,7 +108,7 @@ func (m *mockUnfurler) UnfurlAndSend(ctx context.Context, uid gregor1.UID, convI
 		m.unfurlCh <- unfurlData{
 			done: true,
 			coords: []chat1.Coordinate{
-				chat1.Coordinate{
+				{
 					Lat: lat,
 					Lon: lon,
 				},
@@ -125,7 +126,7 @@ func (m *mockUnfurler) UnfurlAndSend(ctx context.Context, uid gregor1.UID, convI
 		ConvID:  convID,
 	})
 	m.G().NotifyRouter.HandleNewChatActivity(ctx, keybase1.UID(uid.String()), chat1.TopicType_CHAT,
-		&activity, chat1.ChatActivitySource_LOCAL)
+		&activity, chat1.ChatActivitySource_LOCAL, false)
 }
 
 func checkCoords(t *testing.T, unfurler *mockUnfurler, refcoords []chat1.Coordinate, timeout time.Duration) bool {
@@ -190,28 +191,19 @@ func TestChatSrvLiveLocationCurrent(t *testing.T) {
 	}
 
 	coords := []chat1.Coordinate{
-		chat1.Coordinate{
+		{
 			Lat: 40.800348,
 			Lon: -73.968784,
 		},
-		chat1.Coordinate{
-			Lat: 40.798688,
-			Lon: -73.973716,
-		},
-		chat1.Coordinate{
-			Lat: 40.795234,
-			Lon: -73.976237,
-		},
 	}
 	updateCoords(t, livelocation, coords, nil, coordsCh)
-	// no new map yet
+	checkCoords(t, unfurler, []chat1.Coordinate{coords[0]}, timeout)
+	clock.Advance(10 * time.Second)
 	select {
 	case <-unfurler.unfurlCh:
 		require.Fail(t, "should not have updated yet")
 	default:
 	}
-	clock.Advance(10 * time.Second)
-	checkCoords(t, unfurler, []chat1.Coordinate{coords[2]}, timeout)
 	select {
 	case <-chatUI.clearCh:
 	case <-time.After(timeout):
@@ -255,7 +247,7 @@ func TestChatSrvLiveLocation(t *testing.T) {
 	}
 	// First update always comes through
 	var allCoords []chat1.Coordinate
-	coords := []chat1.Coordinate{chat1.Coordinate{
+	coords := []chat1.Coordinate{{
 		Lat: 40.800348,
 		Lon: -73.968784,
 	}}
@@ -264,11 +256,11 @@ func TestChatSrvLiveLocation(t *testing.T) {
 
 	// Throw some updates in
 	coords = []chat1.Coordinate{
-		chat1.Coordinate{
+		{
 			Lat: 40.798688,
 			Lon: -73.973716,
 		},
-		chat1.Coordinate{
+		{
 			Lat: 40.795234,
 			Lon: -73.976237,
 		},
@@ -338,7 +330,7 @@ func TestChatSrvLiveLocationMultiple(t *testing.T) {
 	}
 
 	var allCoords []chat1.Coordinate
-	coords := []chat1.Coordinate{chat1.Coordinate{
+	coords := []chat1.Coordinate{{
 		Lat: 40.800348,
 		Lon: -73.968784,
 	}}
@@ -359,9 +351,8 @@ func TestChatSrvLiveLocationMultiple(t *testing.T) {
 	default:
 	}
 	// trackers fire after time moves up
-	done1 := checkCoords(t, unfurler, coords, timeout)
-	done2 := checkCoords(t, unfurler, coords, timeout)
-	if !(done1 || done2) {
+	done := checkCoords(t, unfurler, coords, timeout)
+	if !done {
 		checkCoords(t, unfurler, coords, timeout) // tracker 1 expires and posts again
 	}
 	select {
@@ -371,11 +362,11 @@ func TestChatSrvLiveLocationMultiple(t *testing.T) {
 	}
 
 	coords = []chat1.Coordinate{
-		chat1.Coordinate{
+		{
 			Lat: 40.798688,
 			Lon: -73.973716,
 		},
-		chat1.Coordinate{
+		{
 			Lat: 40.795234,
 			Lon: -73.976237,
 		},
@@ -428,7 +419,7 @@ func TestChatSrvLiveLocationStopTracking(t *testing.T) {
 	mustPostLocalForTest(t, ctc, users[0], conv, chat1.NewMessageBodyWithText(chat1.MessageText{
 		Body: "/location live 1h",
 	}))
-	coords := []chat1.Coordinate{chat1.Coordinate{
+	coords := []chat1.Coordinate{{
 		Lat: 40.800348,
 		Lon: -73.968784,
 	}}

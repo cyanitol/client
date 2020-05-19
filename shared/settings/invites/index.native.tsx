@@ -1,5 +1,5 @@
-import {Props} from './index'
-
-function Invites(props: Props) {}
+function Invites() {
+  return null
+}
 
 export default Invites

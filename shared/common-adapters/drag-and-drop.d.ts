@@ -1,9 +1,16 @@
 import * as React from 'react'
+import * as Styles from '../styles'
 
 export type Props = {
   allowFolders?: boolean
   children: React.ReactNode
-  onAttach: ((array: Array<string>) => void )| null
+  containerStyle?: Styles.StylesCrossPlatform
+  disabled?: boolean
+  fullHeight?: boolean
+  fullWidth?: boolean
+  onAttach: ((array: Array<string>) => void) | null
+  prompt?: string
+  rejectReason?: string
 }
 
 export default class DragAndDrop extends React.Component<Props> {}

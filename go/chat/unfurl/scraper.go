@@ -8,6 +8,7 @@ import (
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/chat1"
 	"github.com/keybase/colly"
+	"github.com/keybase/go-framed-msgpack-rpc/rpc"
 )
 
 const userAgent = "Mozilla/5.0 (compatible; Keybase; +https://keybase.io)"
@@ -22,7 +23,7 @@ type Scraper struct {
 func NewScraper(g *globals.Context) *Scraper {
 	return &Scraper{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "Scraper", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "Scraper", false),
 		cache:        newUnfurlCache(),
 		giphyProxy:   true,
 	}
@@ -32,18 +33,28 @@ func (s *Scraper) makeCollector() *colly.Collector {
 	c := colly.NewCollector(
 		colly.UserAgent(userAgent),
 	)
+	var record *rpc.NetworkInstrumenter
 	c.OnRequest(func(r *colly.Request) {
 		r.Headers.Set("connection", "keep-alive")
 		r.Headers.Set("upgrade-insecure-requests", "1")
+		record = rpc.NewNetworkInstrumenter(s.G().ExternalG().RemoteNetworkInstrumenterStorage, "UnfurlScraper")
+	})
+	c.OnResponse(func(r *colly.Response) {
+		if err := record.RecordAndFinish(context.TODO(), int64(len(r.Body))); err != nil {
+			s.Debug(context.TODO(), "colly OnResponse: unable to instrument network request %s, %s", record, err)
+		}
 	})
 	if s.G().Env.GetProxyType() != libkb.NoProxy {
-		c.SetProxy(libkb.BuildProxyAddressWithProtocol(s.G().Env.GetProxyType(), s.G().Env.GetProxy()))
+		err := c.SetProxy(libkb.BuildProxyAddressWithProtocol(s.G().Env.GetProxyType(), s.G().Env.GetProxy()))
+		if err != nil {
+			s.Debug(context.TODO(), "makeCollector: error setting proxy: %+v", err)
+		}
 	}
 	return c
 }
 
 func (s *Scraper) Scrape(ctx context.Context, uri string, forceTyp *chat1.UnfurlType) (res chat1.UnfurlRaw, err error) {
-	defer s.Trace(ctx, func() error { return err }, "Scrape")()
+	defer s.Trace(ctx, &err, "Scrape")()
 	// Check if we have a cached valued
 	if item, valid := s.cache.get(uri); valid {
 		s.Debug(ctx, "Scape: using cached value")

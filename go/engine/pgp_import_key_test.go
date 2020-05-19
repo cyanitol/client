@@ -9,8 +9,11 @@ import (
 
 	"github.com/keybase/client/go/libkb"
 	keybase1 "github.com/keybase/client/go/protocol/keybase1"
-	"github.com/keybase/go-crypto/openpgp/armor"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/context"
+
+	"github.com/keybase/go-crypto/openpgp"
+	"github.com/keybase/go-crypto/openpgp/armor"
 )
 
 // TestPGPSavePublicPush runs the PGPSave engine, pushing the
@@ -385,11 +388,11 @@ func TestPGPImportPushSecretWithoutPassword(t *testing.T) {
 
 func numPrivateGPGKeys(g *libkb.GlobalContext) (int, error) {
 	gpg := g.GetGpgClient()
-	if err := gpg.Configure(); err != nil {
+	if err := gpg.Configure(libkb.NewMetaContext(context.Background(), g)); err != nil {
 		return 0, err
 	}
 
-	index, _, err := gpg.Index(true, "")
+	index, _, err := gpg.Index(libkb.NewMetaContext(context.Background(), g), true, "")
 	if err != nil {
 		return 0, err
 	}
@@ -397,25 +400,30 @@ func numPrivateGPGKeys(g *libkb.GlobalContext) (int, error) {
 	return index.Len(), nil
 }
 
+func encodeArmoredPrivatePGP(entity *openpgp.Entity) (buf bytes.Buffer, err error) {
+	writer, err := armor.Encode(&buf, "PGP PRIVATE KEY BLOCK", nil)
+	if err != nil {
+		return buf, err
+	}
+	if err := entity.SerializePrivate(writer, nil); err != nil {
+		return buf, err
+	}
+	if err := writer.Close(); err != nil {
+		return buf, err
+	}
+	return buf, nil
+}
+
 func genPGPKeyAndArmor(t *testing.T, tc libkb.TestContext, email string) (libkb.PGPFingerprint, keybase1.KID, string) {
 	bundle, err := tc.MakePGPKey(email)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var buf bytes.Buffer
-	writer, err := armor.Encode(&buf, "PGP PRIVATE KEY BLOCK", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := bundle.Entity.SerializePrivate(writer, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
+	buf, err := encodeArmoredPrivatePGP(bundle.Entity)
+	require.NoError(t, err)
 	fp := *bundle.GetFingerprintP()
 	kid := bundle.GetKID()
-	return fp, kid, string(buf.Bytes())
+	return fp, kid, buf.String()
 }
 
 const pubkeyIssue325 = `-----BEGIN PGP PUBLIC KEY BLOCK-----

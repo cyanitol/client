@@ -17,6 +17,7 @@ import (
 	"github.com/keybase/client/go/kbfs/kbfscrypto"
 	"github.com/keybase/client/go/kbfs/kbfsedits"
 	"github.com/keybase/client/go/kbfs/kbfsmd"
+	"github.com/keybase/client/go/kbfs/ldbutils"
 	"github.com/keybase/client/go/kbfs/libkey"
 	"github.com/keybase/client/go/kbfs/tlf"
 	"github.com/keybase/client/go/kbfs/tlfhandle"
@@ -31,6 +32,7 @@ import (
 type logMaker interface {
 	MakeLogger(module string) logger.Logger
 	MakeVLogger(logger.Logger) *libkb.VDebugLog
+	GetPerfLog() logger.Logger
 }
 
 type blockCacher interface {
@@ -143,6 +145,36 @@ type settingsDBGetter interface {
 	GetSettingsDB() *SettingsDB
 }
 
+// SubscriptionManagerClientID identifies a subscriptionManager client.
+type SubscriptionManagerClientID string
+
+type subscriptionManagerGetter interface {
+	// SubscriptionManager returns a subscription manager that can be used to
+	// subscribe to events.
+	//
+	// clientID identifies a subscriptionManager client. Each user of the
+	// subscription manager should specify a unique clientID. When a
+	// notification happens, the client ID is provided.
+	//
+	// This is helpful for caller to filter out notifications that other clients
+	// subscribe.
+	//
+	// If purgeable is true, the client is marked as purgeable. We keep a
+	// maximum of 3 purgeable clients (FIFO). This is useful as a way to purge
+	// old, likely dead, clients, which happens a lot with electron refreshes.
+	//
+	// notifier specifies how a notification should be delivered when things
+	// change. If different notifiers are used across multiple calls to get the
+	// subscription manager for the same clientID, only the first one is
+	// effective.
+	SubscriptionManager(clientID SubscriptionManagerClientID, purgeable bool,
+		notifier SubscriptionNotifier) SubscriptionManager
+}
+
+type subscriptionManagerPublisherGetter interface {
+	SubscriptionManagerPublisher() SubscriptionManagerPublisher
+}
+
 // NodeID is a unique but transient ID for a Node. That is, two Node
 // objects in memory at the same time represent the same file or
 // directory if and only if their NodeIDs are equal (by pointer).
@@ -150,6 +182,29 @@ type NodeID interface {
 	// ParentID returns the NodeID of the directory containing the
 	// pointed-to file or directory, or nil if none exists.
 	ParentID() NodeID
+}
+
+// NodeFSReadOnly is the subset of billy.Filesystem that is actually
+// used by libkbfs.  The method comments are copied from go-billy.
+type NodeFSReadOnly interface {
+	// ReadDir reads the directory named by dirname and returns a list of
+	// directory entries sorted by filename.
+	ReadDir(path string) ([]os.FileInfo, error)
+	// Lstat returns a FileInfo describing the named file. If the file is a
+	// symbolic link, the returned FileInfo describes the symbolic link. Lstat
+	// makes no attempt to follow the link.
+	Lstat(filename string) (os.FileInfo, error)
+	// Readlink returns the target path of link.
+	Readlink(link string) (string, error)
+	// Open opens the named file for reading. If successful, methods on the
+	// returned file can be used for reading; the associated file descriptor has
+	// mode O_RDONLY.
+	Open(filename string) (billy.File, error)
+	// OpenFile is the generalized open call; most users will use Open or Create
+	// instead. It opens the named file with specified flag (O_RDONLY etc.) and
+	// perm, (0666 etc.) if applicable. If successful, methods on the returned
+	// File can be used for I/O.
+	OpenFile(filename string, flags int, mode os.FileMode) (billy.File, error)
 }
 
 // Node represents a direct pointer to a file or directory in KBFS.
@@ -165,6 +220,9 @@ type Node interface {
 	// GetBasename returns the current basename of the node, or ""
 	// if the node has been unlinked.
 	GetBasename() data.PathPartString
+	// GetPathPlaintextSansTlf returns the cleaned path of the node in
+	// plaintext.
+	GetPathPlaintextSansTlf() (string, bool)
 	// Readonly returns true if KBFS should outright reject any write
 	// attempts on data or directory structures of this node.  Though
 	// note that even if it returns false, KBFS can reject writes to
@@ -184,13 +242,15 @@ type Node interface {
 	// to indicate that the caller should pretend the entry exists,
 	// even if it really does not.  In the case of fake files, a
 	// non-nil `fi` can be returned and used by the caller to
-	// construct the dir entry for the file.  An implementation that
-	// wraps another `Node` (`inner`) must return
+	// construct the dir entry for the file.  It can also return the
+	// type `RealDir`, along with a non-zero `ptr`, to indicate a real
+	// directory corresponding to that pointer should be used.  An
+	// implementation that wraps another `Node` (`inner`) must return
 	// `inner.ShouldCreateMissedLookup()` if it decides not to return
 	// `true` on its own.
 	ShouldCreateMissedLookup(ctx context.Context, name data.PathPartString) (
 		shouldCreate bool, newCtx context.Context, et data.EntryType,
-		fi os.FileInfo, sympath data.PathPartString)
+		fi os.FileInfo, sympath data.PathPartString, ptr data.BlockPointer)
 	// ShouldRetryOnDirRead is called for Nodes representing
 	// directories, whenever a `Lookup` or `GetDirChildren` is done on
 	// them.  It should return true to instruct the caller that it
@@ -218,7 +278,7 @@ type Node interface {
 	// instead of the standard, block-based method of acessing data.
 	// The provided context will be used, if possible, for any
 	// subsequent calls on the file system.
-	GetFS(ctx context.Context) billy.Filesystem
+	GetFS(ctx context.Context) NodeFSReadOnly
 	// GetFile returns a file interface that, if non-nil, should be
 	// used to satisfy any file-related calls on this Node, instead of
 	// the standard, block-based method of accessing data.  The
@@ -239,6 +299,12 @@ type Node interface {
 	// ChildName returns an obfuscatable version of the given name of
 	// a child entry of this node.
 	ChildName(name string) data.PathPartString
+}
+
+// SyncedTlfMD contains the node metadata and handle for a given synced TLF.
+type SyncedTlfMD struct {
+	MD     NodeMetadata
+	Handle *tlfhandle.Handle
 }
 
 // KBFSOps handles all file system operations.  Expands all indirect
@@ -284,10 +350,17 @@ type KBFSOps interface {
 	// top-level folders.  This is a remote-access operation when the cache
 	// is empty or expired.
 	GetFavorites(ctx context.Context) ([]favorites.Folder, error)
+	// GetFolderWithFavFlags returns a keybase1.FolderWithFavFlags for given
+	// handle.
+	GetFolderWithFavFlags(ctx context.Context,
+		handle *tlfhandle.Handle) (keybase1.FolderWithFavFlags, error)
 	// GetFavoritesAll returns the logged-in user's lists of favorite, ignored,
 	// and new top-level folders.  This is a remote-access operation when the
 	// cache is empty or expired.
 	GetFavoritesAll(ctx context.Context) (keybase1.FavoritesResult, error)
+	// GetBadge returns the overall KBFS badge state for this device.
+	// It's cheaper than the other favorites methods.
+	GetBadge(ctx context.Context) (keybase1.FilesTabBadge, error)
 	// RefreshCachedFavorites tells the instances to forget any cached
 	// favorites list and fetch a new list from the server.  The
 	// effects are asychronous; if there's an error refreshing the
@@ -488,9 +561,12 @@ type KBFSOps interface {
 	// suitable for encoding directly into JSON.  This is an expensive
 	// operation, and should only be used for ocassional debugging.
 	// Note that the history does not include any unmerged changes or
-	// outstanding writes from the local device.
-	GetUpdateHistory(ctx context.Context, folderBranch data.FolderBranch) (
-		history TLFUpdateHistory, err error)
+	// outstanding writes from the local device.  To get all the
+	// revisions after `start`, use `kbfsmd.RevisionUninitialized` for
+	// the `end` parameter.
+	GetUpdateHistory(
+		ctx context.Context, folderBranch data.FolderBranch,
+		start, end kbfsmd.Revision) (history TLFUpdateHistory, err error)
 	// GetEditHistory returns the edit history of the TLF, clustered
 	// by writer.
 	GetEditHistory(ctx context.Context, folderBranch data.FolderBranch) (
@@ -533,6 +609,9 @@ type KBFSOps interface {
 	// TeamAbandoned indicates that a team has been abandoned, and
 	// shouldn't be referred to by its previous name anymore.
 	TeamAbandoned(ctx context.Context, tid keybase1.TeamID)
+	// CheckMigrationPerms returns an error if this device cannot
+	// perform implicit team migration for the given TLF.
+	CheckMigrationPerms(ctx context.Context, id tlf.ID) (err error)
 	// MigrateToImplicitTeam migrates the given folder from a private-
 	// or public-keyed folder, to a team-keyed folder.  If it's
 	// already a private/public team-keyed folder, nil is returned.
@@ -556,10 +635,19 @@ type KBFSOps interface {
 	// TLF into a stuck conflict view, in order to test the above
 	// `ClearConflictView` method and related state changes.
 	ForceStuckConflictForTesting(ctx context.Context, tlfID tlf.ID) error
+	// CancelUploads stops journal uploads for the given TLF, reverts
+	// the local view of the TLF to the server's view, and clears the
+	// journal from the disk.  Note that this could result in
+	// partially-uploaded changes, and may leak blocks on the bserver.
+	CancelUploads(ctx context.Context, fb data.FolderBranch) error
 	// Reset completely resets the given folder.  Should only be
 	// called after explicit user confirmation.  After the call,
-	// `handle` has the new TLF ID.
-	Reset(ctx context.Context, handle *tlfhandle.Handle) error
+	// `handle` has the new TLF ID.  If `*newTlfID` is non-nil, that
+	// will be the new TLF ID of the reset TLF, if it already points
+	// to a MD object that matches the same handle as the original TLF
+	// (see HOTPOT-685 for an example of how this can happen -- it
+	// should be very rare).
+	Reset(ctx context.Context, handle *tlfhandle.Handle, newTlfID *tlf.ID) error
 
 	// GetSyncConfig returns the sync state configuration for the
 	// given TLF.
@@ -575,11 +663,19 @@ type KBFSOps interface {
 	SetSyncConfig(
 		ctx context.Context, tlfID tlf.ID, config keybase1.FolderSyncConfig) (
 		<-chan error, error)
+	// GetAllSyncedTlfMDs returns the synced TLF metadata (and
+	// handle), only for those synced TLFs to which the current
+	// logged-in user has access.
+	GetAllSyncedTlfMDs(ctx context.Context) map[tlf.ID]SyncedTlfMD
 
 	// AddRootNodeWrapper adds a new root node wrapper for every
 	// existing TLF.  Any Nodes that have already been returned by
 	// `KBFSOps` won't use these wrappers.
 	AddRootNodeWrapper(func(Node) Node)
+
+	// StatusOfServices returns the current status of various connected
+	// services.
+	StatusOfServices() (map[string]error, chan StatusUpdate)
 }
 
 type gitMetadataPutter interface {
@@ -592,6 +688,7 @@ type gitMetadataPutter interface {
 type KeybaseService interface {
 	idutil.KeybaseService
 	gitMetadataPutter
+	SubscriptionNotifier
 
 	// FavoriteAdd adds the given folder to the list of favorites.
 	FavoriteAdd(ctx context.Context, folder keybase1.FolderHandle) error
@@ -648,6 +745,9 @@ type KeybaseService interface {
 	// EstablishMountDir asks the service for the current mount path
 	// and sets it if not established.
 	EstablishMountDir(ctx context.Context) (string, error)
+
+	// GetKVStoreClient returns a client for accessing the KVStore service.
+	GetKVStoreClient() keybase1.KvstoreInterface
 
 	// Shutdown frees any resources associated with this
 	// instance. No other methods may be called after this is
@@ -808,6 +908,10 @@ type KBPKI interface {
 
 	// NotifyPathUpdated sends a path updated notification.
 	NotifyPathUpdated(ctx context.Context, path string) error
+
+	// InvalidateTeamCacheForID instructs KBPKI to discard any cached
+	// information about the given team ID.
+	InvalidateTeamCacheForID(tid keybase1.TeamID)
 }
 
 // KeyMetadataWithRootDirEntry is like KeyMetadata, but can also
@@ -1081,7 +1185,7 @@ type DiskBlockCache interface {
 	// waits for all caches to start.
 	WaitUntilStarted(cacheType DiskBlockCacheType) error
 	// Shutdown cleanly shuts down the disk block cache.
-	Shutdown(ctx context.Context)
+	Shutdown(ctx context.Context) <-chan struct{}
 }
 
 // DiskMDCache caches encrypted MD objects to the disk.
@@ -1320,9 +1424,10 @@ type MDOps interface {
 	// that journalMDOps doesn't support any priority other than
 	// MDPriorityNormal for now. If journaling is enabled, use FinishSinbleOp
 	// to override priority.
-	Put(ctx context.Context, rmd *RootMetadata,
-		verifyingKey kbfscrypto.VerifyingKey,
-		lockContext *keybase1.LockContext, priority keybase1.MDPriority) (
+	Put(
+		ctx context.Context, rmd *RootMetadata,
+		verifyingKey kbfscrypto.VerifyingKey, lockContext *keybase1.LockContext,
+		priority keybase1.MDPriority, bps data.BlockPutState) (
 		ImmutableRootMetadata, error)
 
 	// PutUnmerged is the same as the above but for unmerged metadata
@@ -1332,8 +1437,10 @@ type MDOps interface {
 	// the verifying key, which might not be the same as the local
 	// user's verifying key if the MD has been copied from a previous
 	// update.
-	PutUnmerged(ctx context.Context, rmd *RootMetadata,
-		verifyingKey kbfscrypto.VerifyingKey) (ImmutableRootMetadata, error)
+	PutUnmerged(
+		ctx context.Context, rmd *RootMetadata,
+		verifyingKey kbfscrypto.VerifyingKey, bps data.BlockPutState) (
+		ImmutableRootMetadata, error)
 
 	// PruneBranch prunes all unmerged history for the given TLF
 	// branch.
@@ -1348,9 +1455,11 @@ type MDOps interface {
 	// ImmutableRootMetadata requires knowing the verifying key, which
 	// might not be the same as the local user's verifying key if the
 	// MD has been copied from a previous update.
-	ResolveBranch(ctx context.Context, id tlf.ID, bid kbfsmd.BranchID,
+	ResolveBranch(
+		ctx context.Context, id tlf.ID, bid kbfsmd.BranchID,
 		blocksToDelete []kbfsblock.ID, rmd *RootMetadata,
-		verifyingKey kbfscrypto.VerifyingKey) (ImmutableRootMetadata, error)
+		verifyingKey kbfscrypto.VerifyingKey, bps data.BlockPutState) (
+		ImmutableRootMetadata, error)
 
 	// GetLatestHandleForTLF returns the server's idea of the latest
 	// handle for the TLF, which may not yet be reflected in the MD if
@@ -1405,14 +1514,21 @@ type BlockOps interface {
 	// object with its contents, if the logged-in user has read
 	// permission for that block. cacheLifetime controls the behavior of the
 	// write-through cache once a Get completes.
+	//
+	// TODO: Make a `BlockRequestParameters` object to encapsulate the
+	// cache lifetime and branch name, to avoid future plumbing.  Or
+	// maybe just get rid of the `Get()` method entirely and have
+	// everyone use the block retrieval queue directly.
 	Get(ctx context.Context, kmd libkey.KeyMetadata, blockPtr data.BlockPointer,
-		block data.Block, cacheLifetime data.BlockCacheLifetime) error
+		block data.Block, cacheLifetime data.BlockCacheLifetime,
+		branch data.BranchName) error
 
-	// GetEncodedSize gets the encoded size of the block associated
-	// with the given block pointer (which belongs to the TLF with the
-	// given key metadata).
-	GetEncodedSize(ctx context.Context, kmd libkey.KeyMetadata,
-		blockPtr data.BlockPointer) (uint32, keybase1.BlockStatus, error)
+	// GetEncodedSizes gets the encoded sizes and statuses of the
+	// block associated with the given block pointers (which belongs
+	// to the TLF with the given key metadata).  If a block is not
+	// found, it gets a size of 0 and an UNKNOWN status.
+	GetEncodedSizes(ctx context.Context, kmd libkey.KeyMetadata,
+		blockPtrs []data.BlockPointer) ([]uint32, []keybase1.BlockStatus, error)
 
 	// Delete instructs the server to delete the given block references.
 	// It returns the number of not-yet deleted references to
@@ -1612,8 +1728,8 @@ type MDServer interface {
 	CheckReachability(ctx context.Context)
 
 	// FastForwardBackoff fast forwards any existing backoff timer for
-	// reconnects. If MD server is connected at the time this is called, it's
-	// essentially a no-op.
+	// connecting to the mdserver. If mdserver is connected at the time this
+	// is called, it's essentially a no-op.
 	FastForwardBackoff()
 
 	// FindNextMD finds the serialized (and possibly encrypted) root
@@ -1652,6 +1768,11 @@ type mdServerLocal interface {
 type BlockServer interface {
 	authTokenRefreshHandler
 
+	// FastForwardBackoff fast forwards any existing backoff timer for
+	// connecting to bserver. If bserver is connected at the time this is
+	// called, it's essentially a no-op.
+	FastForwardBackoff()
+
 	// Get gets the (encrypted) block data associated with the given
 	// block ID and context, uses the provided block key to decrypt
 	// the block, and fills in the provided block object with its
@@ -1661,12 +1782,13 @@ type BlockServer interface {
 		context kbfsblock.Context, cacheType DiskBlockCacheType) (
 		[]byte, kbfscrypto.BlockCryptKeyServerHalf, error)
 
-	// GetEncodedSize gets the encoded size of the block associated
-	// with the given block pointer (which belongs to the TLF with the
-	// given key metadata).
-	GetEncodedSize(
-		ctx context.Context, tlfID tlf.ID, id kbfsblock.ID,
-		context kbfsblock.Context) (uint32, keybase1.BlockStatus, error)
+	// GetEncodedSizes gets the encoded sizes and statuses of the
+	// blocks associated with the given block IDs (which belong to the
+	// TLF with the given key metadata).  If a block is not found, it
+	// gets a size of 0 and an UNKNOWN status.
+	GetEncodedSizes(
+		ctx context.Context, tlfID tlf.ID, ids []kbfsblock.ID,
+		contexts []kbfsblock.Context) ([]uint32, []keybase1.BlockStatus, error)
 
 	// Put stores the (encrypted) block data under the given ID
 	// and context on the server, along with the server half of
@@ -1806,6 +1928,23 @@ type Observer interface {
 	TlfHandleChange(ctx context.Context, newHandle *tlfhandle.Handle)
 }
 
+// SyncedTlfObserver can be notified when a sync has started for a
+// synced TLF, or when a TLF becomes unsynced.  The notification
+// callbacks should not block, or make any calls to the Notifier
+// interface.
+type SyncedTlfObserver interface {
+	// FullSyncStarted announces that a new full sync has begun for
+	// the given tlf ID.  The provided `waitCh` will be completed (or
+	// canceled) once `waitCh` is closed.
+	FullSyncStarted(
+		ctx context.Context, tlfID tlf.ID, rev kbfsmd.Revision,
+		waitCh <-chan struct{})
+	// SyncModeChanged announces that the sync mode has changed for
+	// the given tlf ID.
+	SyncModeChanged(
+		ctx context.Context, tlfID tlf.ID, newMode keybase1.FolderSyncMode)
+}
+
 // Notifier notifies registrants of directory changes
 type Notifier interface {
 	// RegisterForChanges declares that the given Observer wants to
@@ -1815,6 +1954,14 @@ type Notifier interface {
 	// longer wants to subscribe to updates for the given top-level
 	// folders.
 	UnregisterFromChanges(folderBranches []data.FolderBranch, obs Observer) error
+	// RegisterForSyncedTlfs declares that the given
+	// `SyncedTlfObserver` wants to subscribe to updates about synced
+	// TLFs.
+	RegisterForSyncedTlfs(obs SyncedTlfObserver) error
+	// UnregisterFromChanges declares that the given
+	// `SyncedTlfObserver` no longer wants to subscribe to updates
+	// about synced TLFs.
+	UnregisterFromSyncedTlfs(obs SyncedTlfObserver) error
 }
 
 // Clock is an interface for getting the current time
@@ -1848,6 +1995,9 @@ type InitMode interface {
 	Type() InitModeType
 	// IsTestMode returns whether we are running a test.
 	IsTestMode() bool
+	// IsSingleOp returns whether this is a single-op mode (only one
+	// write is expected at a time).
+	IsSingleOp() bool
 	// BlockWorkers returns the number of block workers to run.
 	BlockWorkers() int
 	// PrefetchWorkers returns the number of prefetch workers to run.
@@ -1935,6 +2085,10 @@ type InitMode interface {
 	// DoLogObfuscation indicates whether senstive data like filenames
 	// should be obfuscated in log messages.
 	DoLogObfuscation() bool
+	// BlockTLFEditHistoryIntialization indicates where we should
+	// delay initializing the edit histories of the most recent TLFs
+	// until the first request that uses them is made.
+	BlockTLFEditHistoryIntialization() bool
 	// InitialDelayForBackgroundWork indicates how long non-critical
 	// work that happens in the background on startup should wait
 	// before it begins.
@@ -1942,10 +2096,20 @@ type InitMode interface {
 	// BackgroundWorkPeriod indicates how long to wait between
 	// non-critical background work tasks.
 	BackgroundWorkPeriod() time.Duration
-	// DiskCacheWriteBufferSize indicates how large the write buffer
-	// should be on disk caches -- this also controls how big the
-	// on-disk tables are before compaction.
-	DiskCacheWriteBufferSize() int
+	// IndexingEnabled indicates whether or not synced TLFs are
+	// indexed and searchable.
+	IndexingEnabled() bool
+	// DelayInitialConnect indicates whether the initial connection to KBFS
+	// servers should be delayed.
+	DelayInitialConnect() bool
+	// DiskCacheCompactionEnabled indicates whether the local disk
+	// block cache should trigger compaction automatically.
+	DiskCacheCompactionEnabled() bool
+	// EditHistoryPrefetchingEnabled indicates whether we should
+	// auto-prefetch the most recently-edited files.
+	EditHistoryPrefetchingEnabled() bool
+
+	ldbutils.DbWriteBufferSizeGetter
 }
 
 type initModeGetter interface {
@@ -1960,6 +2124,79 @@ type blockCryptVersioner interface {
 	// BlockCryptVersion returns the block encryption version to be used for
 	// new blocks.
 	BlockCryptVersion() kbfscrypto.EncryptionVer
+}
+
+// SubscriptionID identifies a subscription.
+type SubscriptionID string
+
+// SubscriptionNotifier defines a group of methods for notifying about changes
+// on subscribed topics.
+type SubscriptionNotifier interface {
+	// OnPathChange notifies about a change that's related to a specific path.
+	// Multiple subscriptionIDs may be sent because a client can subscribe on
+	// the same path multiple times. In the future topics will become a single
+	// topic but we don't differeciate between the two topics for now so they
+	// are just sent together if both topics are subscribed.
+	OnPathChange(
+		clientID SubscriptionManagerClientID, subscriptionIDs []SubscriptionID,
+		path string, topics []keybase1.PathSubscriptionTopic)
+	// OnNonPathChange notifies about a change that's not related to a specific
+	// path.
+	OnNonPathChange(
+		clientID SubscriptionManagerClientID, subscriptionIDs []SubscriptionID,
+		topic keybase1.SubscriptionTopic)
+}
+
+// OnlineStatusTracker tracks the online status for the GUI.
+type OnlineStatusTracker interface {
+	GetOnlineStatus() keybase1.KbfsOnlineStatus
+	UserIn(ctx context.Context, clientKey string)
+	UserOut(ctx context.Context, clientKey string)
+}
+
+// SubscriptionManager manages subscriptions associated with one clientID.
+// Multiple subscribers can be used with the same SubscriptionManager.
+// If multiple subscriptions exist on the same topic (and for the same path, if
+// applicable), notifications are deduplicated.
+//
+// The two Subscribe methods are for path and non-path subscriptions
+// respectively. Notes on some common arguments:
+// 1) subscriptionID needs to be unique among all subscriptions that happens
+//    with this process. A UUID or even just a timestamp might work. If
+//    duplicate subscriptionIDs are used, an error is returned.
+// 2) Optionally a deduplicateInterval can be used. When this arg is set, we
+//    debounce the events so it doesn't send more frequently than the interval.
+//    If deduplicateInterval is not set, i.e. nil, no deduplication is done and
+//    all events will be delivered.
+type SubscriptionManager interface {
+	// SubscribePath subscribes to changes about path, when topic happens.
+	SubscribePath(
+		ctx context.Context, subscriptionID SubscriptionID,
+		path string, topic keybase1.PathSubscriptionTopic,
+		deduplicateInterval *time.Duration) error
+	// SubscribeNonPath subscribes to changes when topic happens.
+	SubscribeNonPath(ctx context.Context, subscriptionID SubscriptionID,
+		topic keybase1.SubscriptionTopic,
+		deduplicateInterval *time.Duration) error
+	// Unsubscribe unsubscribes a previsous subscription. The subscriptionID
+	// should be the same as when caller subscribed. Otherwise, it's a no-op.
+	Unsubscribe(context.Context, SubscriptionID)
+	// OnlineStatusTracker returns the OnlineStatusTracker for getting the
+	// current online status for GUI.
+	OnlineStatusTracker() OnlineStatusTracker
+	// Shutdown shuts the subscription manager down.
+	Shutdown(ctx context.Context)
+}
+
+// SubscriptionManagerPublisher associates with one SubscriptionManager, and is
+// used to publish changes to subscribers mangaged by it.
+type SubscriptionManagerPublisher interface {
+	PublishChange(topic keybase1.SubscriptionTopic)
+}
+
+type kbContextGetter interface {
+	// KbContext returns the Keybase Context.
+	KbContext() Context
 }
 
 // Config collects all the singleton instance instantiations needed to
@@ -2043,7 +2280,7 @@ type Config interface {
 	SetDefaultBlockType(blockType keybase1.BlockType)
 	// GetConflictResolutionDB gets the levelDB in which conflict resolution
 	// status is stored.
-	GetConflictResolutionDB() (db *LevelDb)
+	GetConflictResolutionDB() (db *ldbutils.LevelDb)
 	RekeyQueue() RekeyQueue
 	SetRekeyQueue(RekeyQueue)
 	// ReqsBufSize indicates the number of read or write operations
@@ -2063,6 +2300,7 @@ type Config interface {
 	SetRekeyWithPromptWaitTime(time.Duration)
 	// PrefetchStatus returns the prefetch status of a block.
 	PrefetchStatus(context.Context, tlf.ID, data.BlockPointer) PrefetchStatus
+	GetQuotaUsage(keybase1.UserOrTeamID) *EventuallyConsistentQuotaUsage
 
 	// GracePeriod specifies a grace period for which a delayed cancellation
 	// waits before actual cancels the context. This is useful for giving
@@ -2143,6 +2381,16 @@ type Config interface {
 	// strings are hard-coded in go/libkb/vdebug.go, but include
 	// "mobile", "vlog1", "vlog2", etc.
 	VLogLevel() string
+
+	subscriptionManagerGetter
+
+	// SubscriptionManagerPublisher retursn a publisher that can be used to
+	// publish events to the subscription manager.
+	SubscriptionManagerPublisher() SubscriptionManagerPublisher
+	// KbEnv returns the *libkb.Env.
+	KbEnv() *libkb.Env
+
+	kbContextGetter
 }
 
 // NodeCache holds Nodes, and allows libkbfs to update them when
@@ -2379,8 +2627,6 @@ type Chat interface {
 type blockPutState interface {
 	data.BlockPutState
 	oldPtr(ctx context.Context, blockPtr data.BlockPointer) (data.BlockPointer, error)
-	ptrs() []data.BlockPointer
-	getBlock(ctx context.Context, blockPtr data.BlockPointer) (data.Block, error)
 	getReadyBlockData(
 		ctx context.Context, blockPtr data.BlockPointer) (data.ReadyBlockData, error)
 	synced(blockPtr data.BlockPointer) error
@@ -2402,12 +2648,14 @@ type blockPutStateCopiable interface {
 
 type fileBlockMap interface {
 	putTopBlock(
-		ctx context.Context, parentPtr data.BlockPointer, childName string,
-		topBlock *data.FileBlock) error
+		ctx context.Context, parentPtr data.BlockPointer,
+		childName data.PathPartString, topBlock *data.FileBlock) error
 	GetTopBlock(
-		ctx context.Context, parentPtr data.BlockPointer, childName string) (
-		*data.FileBlock, error)
-	getFilenames(ctx context.Context, parentPtr data.BlockPointer) ([]string, error)
+		ctx context.Context, parentPtr data.BlockPointer,
+		childName data.PathPartString) (*data.FileBlock, error)
+	getFilenames(
+		ctx context.Context, parentPtr data.BlockPointer) (
+		[]data.PathPartString, error)
 }
 
 type dirBlockMap interface {

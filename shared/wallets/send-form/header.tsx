@@ -30,14 +30,14 @@ const Header = (props: Props) => (
       {props.children || (
         <Kb.Icon
           type={props.isRequest ? 'icon-stellar-coins-receiving-48' : 'icon-stellar-coins-sending-48'}
-          style={Kb.iconCastPlatformStyles(styles.icon)}
+          style={styles.icon}
         />
       )}
     </Kb.Box2>
   </Kb.Box2>
 )
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   header: Styles.platformStyles({
     common: {
       alignSelf: 'flex-end',
@@ -79,6 +79,6 @@ const styles = Styles.styleSheetCreate({
       borderBottomWidth: '1px',
     },
   }),
-})
+}))
 
 export default Header

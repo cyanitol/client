@@ -19,6 +19,7 @@ import (
 	"github.com/keybase/client/go/kbfs/kbfscrypto"
 	"github.com/keybase/client/go/kbfs/kbfshash"
 	"github.com/keybase/client/go/kbfs/kbfsmd"
+	"github.com/keybase/client/go/kbfs/ldbutils"
 	"github.com/keybase/client/go/kbfs/tlf"
 	"github.com/keybase/client/go/logger"
 	"github.com/keybase/client/go/protocol/keybase1"
@@ -32,13 +33,12 @@ import (
 )
 
 const (
-	// 10 GB maximum storage by default
-	defaultDiskBlockCacheMaxBytes   uint64 = 10 * (1 << 30)
 	defaultBlockCacheTableSize      int    = 50 * opt.MiB
 	defaultBlockCacheBlockSize      int    = 4 * opt.MiB
 	defaultBlockCacheCapacity       int    = 8 * opt.MiB
 	evictionConsiderationFactor     int    = 3
-	defaultNumBlocksToEvict         int    = 10
+	minNumBlocksToEvictInBatch      int    = 10
+	maxNumBlocksToEvictInBatch      int    = 500
 	defaultNumBlocksToEvictOnClear  int    = 100
 	defaultNumUnmarkedBlocksToCheck int    = 100
 	defaultClearTickerDuration             = 1 * time.Second
@@ -53,6 +53,8 @@ const (
 	workingSetCacheName             string = "WorkingSetBlockCache"
 	crDirtyBlockCacheName           string = "DirtyBlockCache"
 	minDiskBlockWriteBufferSize            = 3 * data.MaxBlockSizeBytesDefault // ~ 1 MB
+	deleteCompactThreshold          int    = 25
+	compactTimer                           = time.Minute * 5
 )
 
 var errTeamOrUnknownTLFAddedAsHome = errors.New(
@@ -78,22 +80,22 @@ type DiskBlockCacheLocal struct {
 	numUnmarkedBlocksToCheck int
 
 	// Track the cache hit rate and eviction rate
-	hitMeter         *CountMeter
-	missMeter        *CountMeter
-	putMeter         *CountMeter
-	updateMeter      *CountMeter
-	evictCountMeter  *CountMeter
-	evictSizeMeter   *CountMeter
-	deleteCountMeter *CountMeter
-	deleteSizeMeter  *CountMeter
+	hitMeter         *ldbutils.CountMeter
+	missMeter        *ldbutils.CountMeter
+	putMeter         *ldbutils.CountMeter
+	updateMeter      *ldbutils.CountMeter
+	evictCountMeter  *ldbutils.CountMeter
+	evictSizeMeter   *ldbutils.CountMeter
+	deleteCountMeter *ldbutils.CountMeter
+	deleteSizeMeter  *ldbutils.CountMeter
 
 	// Protect the disk caches from being shutdown while they're being
 	// accessed, and mutable data.
 	lock        sync.RWMutex
-	blockDb     *LevelDb
-	metaDb      *LevelDb
-	tlfDb       *LevelDb
-	lastUnrefDb *LevelDb
+	blockDb     *ldbutils.LevelDb
+	metaDb      *ldbutils.LevelDb
+	tlfDb       *ldbutils.LevelDb
+	lastUnrefDb *ldbutils.LevelDb
 	cacheType   diskLimitTrackerType
 	// Track the number of blocks in the cache per TLF and overall.
 	tlfCounts map[tlf.ID]int
@@ -116,9 +118,12 @@ type DiskBlockCacheLocal struct {
 	currBytesLock sync.RWMutex
 	currBytes     uint64
 
+	compactCh  chan struct{}
+	useCh      chan struct{}
 	startedCh  chan struct{}
 	startErrCh chan struct{}
 	shutdownCh chan struct{}
+	doneCh     chan struct{}
 
 	closer func()
 }
@@ -158,22 +163,26 @@ type DiskBlockCacheStatus struct {
 	BlockBytes      uint64
 	CurrByteLimit   uint64
 	LastUnrefCount  uint64
-	Hits            MeterStatus
-	Misses          MeterStatus
-	Puts            MeterStatus
-	MetadataUpdates MeterStatus
-	NumEvicted      MeterStatus
-	SizeEvicted     MeterStatus
-	NumDeleted      MeterStatus
-	SizeDeleted     MeterStatus
+	Hits            ldbutils.MeterStatus
+	Misses          ldbutils.MeterStatus
+	Puts            ldbutils.MeterStatus
+	MetadataUpdates ldbutils.MeterStatus
+	NumEvicted      ldbutils.MeterStatus
+	SizeEvicted     ldbutils.MeterStatus
+	NumDeleted      ldbutils.MeterStatus
+	SizeDeleted     ldbutils.MeterStatus
 
 	LocalDiskBytesAvailable uint64
 	LocalDiskBytesTotal     uint64
 
-	BlockDBStats   []string `json:",omitempty"`
-	MetaDBStats    []string `json:",omitempty"`
-	TLFDBStats     []string `json:",omitempty"`
-	LastUnrefStats []string `json:",omitempty"`
+	BlockDBStats        []string `json:",omitempty"`
+	MetaDBStats         []string `json:",omitempty"`
+	TLFDBStats          []string `json:",omitempty"`
+	LastUnrefStats      []string `json:",omitempty"`
+	MemCompActive       bool     `json:",omitempty"`
+	TableCompActive     bool     `json:",omitempty"`
+	MetaMemCompActive   bool     `json:",omitempty"`
+	MetaTableCompActive bool     `json:",omitempty"`
 }
 
 type lastUnrefEntry struct {
@@ -205,7 +214,7 @@ func newDiskBlockCacheLocalFromStorage(
 			closer()
 		}
 	}()
-	blockDbOptions := leveldbOptionsFromMode(mode)
+	blockDbOptions := ldbutils.LeveldbOptions(mode)
 	blockDbOptions.CompactionTableSize = defaultBlockCacheTableSize
 	blockDbOptions.BlockSize = defaultBlockCacheBlockSize
 	blockDbOptions.BlockCacheCapacity = defaultBlockCacheCapacity
@@ -213,25 +222,25 @@ func newDiskBlockCacheLocalFromStorage(
 	if blockDbOptions.WriteBuffer < minDiskBlockWriteBufferSize {
 		blockDbOptions.WriteBuffer = minDiskBlockWriteBufferSize
 	}
-	blockDb, err := openLevelDBWithOptions(blockStorage, blockDbOptions)
+	blockDb, err := ldbutils.OpenLevelDbWithOptions(blockStorage, blockDbOptions)
 	if err != nil {
 		return nil, err
 	}
 	closers = append(closers, blockDb)
 
-	metaDb, err := openLevelDB(metadataStorage, mode)
+	metaDb, err := ldbutils.OpenLevelDb(metadataStorage, mode)
 	if err != nil {
 		return nil, err
 	}
 	closers = append(closers, metaDb)
 
-	tlfDb, err := openLevelDB(tlfStorage, mode)
+	tlfDb, err := ldbutils.OpenLevelDb(tlfStorage, mode)
 	if err != nil {
 		return nil, err
 	}
 	closers = append(closers, tlfDb)
 
-	lastUnrefDb, err := openLevelDB(lastUnrefStorage, mode)
+	lastUnrefDb, err := ldbutils.OpenLevelDb(lastUnrefStorage, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -251,14 +260,14 @@ func newDiskBlockCacheLocalFromStorage(
 		numBlocksToEvictOnClear:  defaultNumBlocksToEvictOnClear,
 		numUnmarkedBlocksToCheck: defaultNumUnmarkedBlocksToCheck,
 		cacheType:                cacheType,
-		hitMeter:                 NewCountMeter(),
-		missMeter:                NewCountMeter(),
-		putMeter:                 NewCountMeter(),
-		updateMeter:              NewCountMeter(),
-		evictCountMeter:          NewCountMeter(),
-		evictSizeMeter:           NewCountMeter(),
-		deleteCountMeter:         NewCountMeter(),
-		deleteSizeMeter:          NewCountMeter(),
+		hitMeter:                 ldbutils.NewCountMeter(),
+		missMeter:                ldbutils.NewCountMeter(),
+		putMeter:                 ldbutils.NewCountMeter(),
+		updateMeter:              ldbutils.NewCountMeter(),
+		evictCountMeter:          ldbutils.NewCountMeter(),
+		evictSizeMeter:           ldbutils.NewCountMeter(),
+		deleteCountMeter:         ldbutils.NewCountMeter(),
+		deleteSizeMeter:          ldbutils.NewCountMeter(),
 		homeDirs:                 map[tlf.ID]evictionPriority{},
 		log:                      log,
 		blockDb:                  blockDb,
@@ -274,9 +283,12 @@ func newDiskBlockCacheLocalFromStorage(
 		},
 		tlfSizes:      map[tlf.ID]uint64{},
 		tlfLastUnrefs: map[tlf.ID]kbfsmd.Revision{},
+		compactCh:     make(chan struct{}, 1),
+		useCh:         make(chan struct{}, 1),
 		startedCh:     startedCh,
 		startErrCh:    startErrCh,
 		shutdownCh:    make(chan struct{}),
+		doneCh:        make(chan struct{}),
 		closer:        closer,
 	}
 	// Sync the block counts asynchronously so syncing doesn't block init.
@@ -302,6 +314,14 @@ func newDiskBlockCacheLocalFromStorage(
 		}
 		close(startedCh)
 	}()
+
+	// Only do background compaction on desktop for now, because on
+	// mobile we'd probably cause issues if we try to do it while
+	// backgrounded.
+	if mode.DiskCacheCompactionEnabled() {
+		go cache.compactLoop()
+	}
+
 	return cache, nil
 }
 
@@ -314,10 +334,14 @@ func newDiskBlockCacheLocal(config diskBlockCacheConfig,
 	defer func() {
 		if err != nil {
 			log.Error("Error initializing disk cache: %+v", err)
+			config.GetPerfLog().CDebugf(
+				context.TODO(),
+				"KBFS couldn't initialize disk cache of type %s: %v",
+				cacheType, err)
 		}
 	}()
-	versionPath, err := getVersionedPathForDiskCache(
-		log, dirPath, "block", currentDiskBlockCacheVersion)
+	versionPath, err := ldbutils.GetVersionedPathForDb(
+		log, dirPath, "disk block cache", currentDiskBlockCacheVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -403,7 +427,9 @@ func (cache *DiskBlockCacheLocal) addCurrBytes(b uint64) {
 func (cache *DiskBlockCacheLocal) subCurrBytes(b uint64) {
 	cache.currBytesLock.Lock()
 	defer cache.currBytesLock.Unlock()
-	cache.currBytes -= b
+	if b <= cache.currBytes {
+		cache.currBytes -= b
+	}
 }
 
 // WaitUntilStarted waits until this cache has started.
@@ -514,8 +540,8 @@ func (cache *DiskBlockCacheLocal) updateMetadataLocked(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	var putMeter *CountMeter
-	if metered {
+	var putMeter *ldbutils.CountMeter
+	if ldbutils.Metered {
 		putMeter = cache.updateMeter
 	}
 	err = cache.metaDb.PutWithMeter(blockKey, encodedMetadata, putMeter)
@@ -531,8 +557,8 @@ func (cache *DiskBlockCacheLocal) updateMetadataLocked(ctx context.Context,
 func (cache *DiskBlockCacheLocal) getMetadataLocked(
 	blockID kbfsblock.ID, metered bool) (
 	metadata DiskBlockCacheMetadata, err error) {
-	var hitMeter, missMeter *CountMeter
-	if metered {
+	var hitMeter, missMeter *ldbutils.CountMeter
+	if ldbutils.Metered {
 		hitMeter = cache.hitMeter
 		missMeter = cache.missMeter
 	}
@@ -580,8 +606,21 @@ func (cache *DiskBlockCacheLocal) encodeBlockCacheEntry(buf []byte,
 	return cache.config.Codec().Encode(&entry)
 }
 
+func (cache *DiskBlockCacheLocal) used() {
+	select {
+	case cache.useCh <- struct{}{}:
+	default:
+	}
+}
+
 // checkAndLockCache checks whether the cache is started.
-func (cache *DiskBlockCacheLocal) checkCacheLocked(method string) error {
+func (cache *DiskBlockCacheLocal) checkCacheLocked(method string) (err error) {
+	defer func() {
+		if err == nil {
+			cache.used()
+		}
+	}()
+
 	select {
 	case <-cache.startedCh:
 	case <-cache.startErrCh:
@@ -627,7 +666,7 @@ func (cache *DiskBlockCacheLocal) Get(
 	if err != nil {
 		return nil, kbfscrypto.BlockCryptKeyServerHalf{}, NoPrefetch, err
 	}
-	err = cache.updateMetadataLocked(ctx, blockKey, md, unmetered)
+	err = cache.updateMetadataLocked(ctx, blockKey, md, ldbutils.Unmetered)
 	if err != nil {
 		return nil, kbfscrypto.BlockCryptKeyServerHalf{}, NoPrefetch, err
 	}
@@ -635,7 +674,26 @@ func (cache *DiskBlockCacheLocal) Get(
 	return buf, serverHalf, md.PrefetchStatus(), err
 }
 
-func (cache *DiskBlockCacheLocal) evictUntilBytesAvailable(
+// numBlocksToEvict estimates the number of blocks to evict to make
+// enough room for new blocks, based on the average block size in the
+// cache.
+func (cache *DiskBlockCacheLocal) numBlocksToEvictLocked(
+	bytesAvailable int64) int {
+	if cache.numBlocks <= 0 || bytesAvailable > 0 {
+		return minNumBlocksToEvictInBatch
+	}
+
+	bytesPerBlock := int(cache.getCurrBytes()) / cache.numBlocks
+	toEvict := -int(bytesAvailable) / bytesPerBlock
+	if toEvict < minNumBlocksToEvictInBatch {
+		return minNumBlocksToEvictInBatch
+	} else if toEvict > maxNumBlocksToEvictInBatch {
+		return maxNumBlocksToEvictInBatch
+	}
+	return toEvict
+}
+
+func (cache *DiskBlockCacheLocal) evictUntilBytesAvailableLocked(
 	ctx context.Context, encodedLen int64) (hasEnoughSpace bool, err error) {
 	if !cache.useLimiter() {
 		return true, nil
@@ -658,7 +716,8 @@ func (cache *DiskBlockCacheLocal) evictUntilBytesAvailable(
 			return true, nil
 		}
 		cache.log.CDebugf(ctx, "Need more bytes. Available: %d", bytesAvailable)
-		numRemoved, _, err := cache.evictLocked(ctx, defaultNumBlocksToEvict)
+		numRemoved, _, err := cache.evictLocked(
+			ctx, cache.numBlocksToEvictLocked(bytesAvailable))
 		if err != nil {
 			return false, err
 		}
@@ -712,7 +771,8 @@ func (cache *DiskBlockCacheLocal) Put(
 				return data.CachePutCacheFullError{BlockID: blockID}
 			}
 		} else {
-			hasEnoughSpace, err := cache.evictUntilBytesAvailable(ctx, encodedLen)
+			hasEnoughSpace, err := cache.evictUntilBytesAvailableLocked(
+				ctx, encodedLen)
 			if err != nil {
 				return err
 			}
@@ -762,7 +822,7 @@ func (cache *DiskBlockCacheLocal) Put(
 		md.BlockSize = uint32(encodedLen)
 		err = nil
 	}
-	return cache.updateMetadataLocked(ctx, blockKey, md, unmetered)
+	return cache.updateMetadataLocked(ctx, blockKey, md, ldbutils.Unmetered)
 }
 
 // GetMetadata implements the DiskBlockCache interface for
@@ -806,7 +866,27 @@ func (cache *DiskBlockCacheLocal) UpdateMetadata(ctx context.Context,
 		md.TriggeredPrefetch = true
 		md.FinishedPrefetch = true
 	}
-	return cache.updateMetadataLocked(ctx, blockID.Bytes(), md, metered)
+	return cache.updateMetadataLocked(ctx, blockID.Bytes(), md, ldbutils.Metered)
+}
+
+func (cache *DiskBlockCacheLocal) decCacheCountsLocked(
+	tlfID tlf.ID, numBlocks int, totalSize uint64) {
+	if numBlocks <= cache.tlfCounts[tlfID] {
+		cache.tlfCounts[tlfID] -= numBlocks
+	}
+	if numBlocks <= cache.priorityBlockCounts[cache.homeDirs[tlfID]] {
+		cache.priorityBlockCounts[cache.homeDirs[tlfID]] -= numBlocks
+	}
+	if numBlocks <= cache.priorityTlfMap[cache.homeDirs[tlfID]][tlfID] {
+		cache.priorityTlfMap[cache.homeDirs[tlfID]][tlfID] -= numBlocks
+	}
+	if numBlocks <= cache.numBlocks {
+		cache.numBlocks -= numBlocks
+	}
+	if totalSize <= cache.tlfSizes[tlfID] {
+		cache.tlfSizes[tlfID] -= totalSize
+	}
+	cache.subCurrBytes(totalSize)
 }
 
 // deleteLocked deletes a set of blocks from the disk block cache.
@@ -862,24 +942,107 @@ func (cache *DiskBlockCacheLocal) deleteLocked(ctx context.Context,
 
 	// Update the cache's totals.
 	for k, v := range removalCounts {
-		cache.tlfCounts[k] -= v
-		cache.priorityBlockCounts[cache.homeDirs[k]] -= v
-		cache.priorityTlfMap[cache.homeDirs[k]][k] -= v
-		cache.numBlocks -= v
-		cache.tlfSizes[k] -= removalSizes[k]
-		cache.subCurrBytes(removalSizes[k])
+		cache.decCacheCountsLocked(k, v, removalSizes[k])
 	}
 	if cache.useLimiter() {
-		cache.config.DiskLimiter().release(ctx, cache.cacheType,
-			sizeRemoved, 0)
+		cache.config.DiskLimiter().release(
+			ctx, cache.cacheType, sizeRemoved, 0)
 	}
 
 	return numRemoved, sizeRemoved, nil
 }
 
+// compactDBs forces the disk cache to compact.  It should be called
+// after bulk deletion events, since level db doesn't run compactions
+// after those (only after a certain number of lookups occur).
+func (cache *DiskBlockCacheLocal) compactDBs(ctx context.Context) (err error) {
+	// We need to lock here to make sure the caches don't get shut
+	// down.  TODO: make this less restrictive so this cache can still
+	// serve writes during compaction; however, I'm not yet sure if
+	// this is even allowed on the leveldb side or not.
+	cache.lock.RLock()
+	defer cache.lock.RUnlock()
+	err = cache.checkCacheLocked("compactDBs")
+	if err != nil {
+		return err
+	}
+
+	cache.log.CDebugf(ctx, "Compacting DBs for cacheType=%s", cache.cacheType)
+	defer func() {
+		cache.log.CDebugf(
+			ctx, "Done compacting DBs for cacheType=%s: %+v", cache.cacheType,
+			err)
+	}()
+	err = cache.blockDb.CompactRange(util.Range{})
+	if err != nil {
+		return err
+	}
+	err = cache.tlfDb.CompactRange(util.Range{})
+	if err != nil {
+		return err
+	}
+	return cache.metaDb.CompactRange(util.Range{})
+}
+
+// compactLoops fires compaction, but only after five minutes of
+// non-usage has passed.
+func (cache *DiskBlockCacheLocal) compactLoop() {
+	ctx := context.Background()
+	var timer *time.Timer
+	var timerCh <-chan time.Time
+	for {
+		select {
+		case <-cache.compactCh:
+			// If we explicitly need to compact, start a new timer no
+			// matter what (since a compaction request implies a use
+			// of the cache).
+			if timer != nil {
+				timer.Stop()
+			} else {
+				cache.log.CDebugf(ctx, "Starting initial compaction timer")
+			}
+
+			timer = time.NewTimer(compactTimer)
+			timerCh = timer.C
+		case <-cache.useCh:
+			// If we've just been used, interrupt any timer that's
+			// already running, but don't start a new one if one isn't
+			// already running.
+			if timer != nil {
+				timer.Stop()
+				timer = time.NewTimer(compactTimer)
+				timerCh = timer.C
+			}
+		case <-timerCh:
+			err := cache.compactDBs(ctx)
+			if err != nil {
+				cache.log.CDebugf(ctx, "Error compacting DBs: %+v", err)
+			}
+			timerCh = nil
+			timer = nil
+		case <-cache.shutdownCh:
+			close(cache.doneCh)
+			return
+		}
+	}
+}
+
+func (cache *DiskBlockCacheLocal) doCompact() {
+	select {
+	case cache.compactCh <- struct{}{}:
+	default:
+	}
+}
+
 // Delete implements the DiskBlockCache interface for DiskBlockCacheLocal.
 func (cache *DiskBlockCacheLocal) Delete(ctx context.Context,
 	blockIDs []kbfsblock.ID) (numRemoved int, sizeRemoved int64, err error) {
+	defer func() {
+		if err == nil && numRemoved > deleteCompactThreshold {
+			cache.doCompact()
+		}
+	}()
+
 	cache.lock.Lock()
 	defer cache.lock.Unlock()
 	err = cache.checkCacheLocked("Block(Delete)")
@@ -947,6 +1110,47 @@ func (cache *DiskBlockCacheLocal) evictSomeBlocks(ctx context.Context,
 	return cache.deleteLocked(ctx, blocksToDelete)
 }
 
+func (cache *DiskBlockCacheLocal) removeBrokenBlock(
+	ctx context.Context, tlfID tlf.ID, blockID kbfsblock.ID) int64 {
+	cache.log.CDebugf(ctx, "Removing broken block %s from the cache", blockID)
+	blockKey := blockID.Bytes()
+	entry, err := cache.blockDb.Get(blockKey, nil)
+	if err != nil {
+		cache.log.CDebugf(ctx, "Couldn't get %s: %+v", blockID, err)
+		return 0
+	}
+
+	err = cache.blockDb.Delete(blockKey, nil)
+	if err != nil {
+		cache.log.CDebugf(ctx, "Couldn't delete %s from block cache: %+v",
+			blockID, err)
+		return 0
+	}
+
+	tlfKey := cache.tlfKey(tlfID, blockKey)
+	err = cache.tlfDb.Delete(tlfKey, nil)
+	if err != nil {
+		cache.log.CWarningf(ctx,
+			"Couldn't delete from TLF cache database: %+v", err)
+	}
+
+	size := int64(len(entry))
+	// It's tough to know whether the block actually made it into the
+	// block stats or not.  If the block was added during this run of
+	// KBFS, it will be in there; if it was loaded from disk, it
+	// probably won't be in there, since the stats are loaded by
+	// iterating over the metadata db.  So it's very possible that
+	// this will make the stats incorrect. ‾\_(ツ)_/‾.
+	cache.decCacheCountsLocked(tlfID, 1, uint64(size))
+	if cache.useLimiter() {
+		cache.config.DiskLimiter().release(ctx, cache.cacheType, size, 0)
+	}
+
+	// Attempt to clean up corrupted metadata, if any.
+	_ = cache.metaDb.Delete(blockKey, nil)
+	return size
+}
+
 // evictFromTLFLocked evicts a number of blocks from the cache for a given TLF.
 // We choose a pivot variable b randomly. Then begin an iterator into
 // cache.tlfDb.Range(tlfID + b, tlfID + MaxBlockID) and iterate from there to
@@ -969,6 +1173,7 @@ func (cache *DiskBlockCacheLocal) evictFromTLFLocked(ctx context.Context,
 	defer iter.Release()
 
 	blockIDs := make(blockIDsByTime, 0, numElements)
+	var brokenIDs []kbfsblock.ID
 
 	for i := 0; i < numElements; i++ {
 		if !iter.Next() {
@@ -979,19 +1184,37 @@ func (cache *DiskBlockCacheLocal) evictFromTLFLocked(ctx context.Context,
 		blockIDBytes := key[len(tlfBytes):]
 		blockID, err := kbfsblock.IDFromBytes(blockIDBytes)
 		if err != nil {
-			cache.log.CWarningf(ctx, "Error decoding block ID %x", blockIDBytes)
+			cache.log.CWarningf(
+				ctx, "Error decoding block ID %x: %+v", blockIDBytes, err)
+			brokenIDs = append(brokenIDs, blockID)
 			continue
 		}
 		lru, err := cache.getLRULocked(blockID)
 		if err != nil {
-			cache.log.CWarningf(ctx, "Error decoding LRU time for block %s",
-				blockID)
+			cache.log.CWarningf(
+				ctx, "Error decoding LRU time for block %s: %+v", blockID, err)
+			brokenIDs = append(brokenIDs, blockID)
 			continue
 		}
 		blockIDs = append(blockIDs, lruEntry{blockID, lru})
 	}
 
-	return cache.evictSomeBlocks(ctx, numBlocks, blockIDs)
+	numRemoved, sizeRemoved, err = cache.evictSomeBlocks(
+		ctx, numBlocks, blockIDs)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	for _, id := range brokenIDs {
+		// Assume that a block that is in `tlfDB`, but for which the
+		// metadata is missing or busted,
+		size := cache.removeBrokenBlock(ctx, tlfID, id)
+		if size > 0 {
+			numRemoved++
+			sizeRemoved += size
+		}
+	}
+	return numRemoved, sizeRemoved, nil
 }
 
 // weightedByCount is used to shuffle TLF IDs, weighting by per-TLF block count.
@@ -1074,6 +1297,7 @@ func (cache *DiskBlockCacheLocal) evictLocked(ctx context.Context,
 				iter := cache.tlfDb.NewIterator(rng, nil)
 				defer iter.Release()
 
+				var brokenIDs []kbfsblock.ID
 				for i := 0; i < numElements; i++ {
 					if !iter.Next() {
 						break
@@ -1083,16 +1307,30 @@ func (cache *DiskBlockCacheLocal) evictLocked(ctx context.Context,
 					blockIDBytes := key[len(tlfBytes):]
 					blockID, err := kbfsblock.IDFromBytes(blockIDBytes)
 					if err != nil {
-						cache.log.CWarningf(ctx, "Error decoding block ID %x", blockIDBytes)
+						cache.log.CWarningf(
+							ctx, "Error decoding block ID %x", blockIDBytes)
+						brokenIDs = append(brokenIDs, blockID)
 						continue
 					}
 					lru, err := cache.getLRULocked(blockID)
 					if err != nil {
-						cache.log.CWarningf(ctx, "Error decoding LRU time for block %s",
+						cache.log.CWarningf(
+							ctx, "Error decoding LRU time for block %s",
 							blockID)
+						brokenIDs = append(brokenIDs, blockID)
 						continue
 					}
 					blockIDs = append(blockIDs, lruEntry{blockID, lru})
+				}
+
+				for _, id := range brokenIDs {
+					// Assume that a block that is in `tlfDB`, but for which the
+					// metadata is missing or busted,
+					size := cache.removeBrokenBlock(ctx, tlfID, id)
+					if size > 0 {
+						numRemoved++
+						sizeRemoved += size
+					}
 				}
 			}()
 			if len(blockIDs) == numElements {
@@ -1143,6 +1381,9 @@ func (cache *DiskBlockCacheLocal) ClearAllTlfBlocks(
 	defer func() {
 		cache.log.CDebugf(ctx,
 			"Finished clearing blocks from %s: %+v", tlfID, err)
+		if err == nil {
+			cache.doCompact()
+		}
 	}()
 
 	// Delete the blocks in batches, so we don't keep the lock for too
@@ -1255,6 +1496,8 @@ func (cache *DiskBlockCacheLocal) Status(
 	defer cache.lock.RUnlock()
 
 	var blockStats, metaStats, tlfStats, lastUnrefStats []string
+	var memCompActive, tableCompActive bool
+	var metaMemCompActive, metaTableCompActive bool
 	if err := cache.checkCacheLocked("Block(Status)"); err == nil {
 		blockStats, err = cache.blockDb.StatStrings()
 		if err != nil {
@@ -1272,6 +1515,21 @@ func (cache *DiskBlockCacheLocal) Status(
 		if err != nil {
 			cache.log.CDebugf(ctx, "Couldn't get last unref db stats: %+v", err)
 		}
+		var dbStats leveldb.DBStats
+		err = cache.blockDb.Stats(&dbStats)
+		if err != nil {
+			cache.log.CDebugf(
+				ctx, "Couldn't get block db compaction stats: %+v", err)
+		}
+		memCompActive, tableCompActive =
+			dbStats.MemCompactionActive, dbStats.TableCompactionActive
+		err = cache.metaDb.Stats(&dbStats)
+		if err != nil {
+			cache.log.CDebugf(
+				ctx, "Couldn't get meta db compaction stats: %+v", err)
+		}
+		metaMemCompActive, metaTableCompActive =
+			dbStats.MemCompactionActive, dbStats.TableCompactionActive
 	}
 
 	// The disk cache status doesn't depend on the chargedTo ID, and
@@ -1283,18 +1541,22 @@ func (cache *DiskBlockCacheLocal) Status(
 			BlockBytes:              cache.getCurrBytes(),
 			CurrByteLimit:           maxLimit,
 			LastUnrefCount:          uint64(len(cache.tlfLastUnrefs)),
-			Hits:                    rateMeterToStatus(cache.hitMeter),
-			Misses:                  rateMeterToStatus(cache.missMeter),
-			Puts:                    rateMeterToStatus(cache.putMeter),
-			MetadataUpdates:         rateMeterToStatus(cache.updateMeter),
-			NumEvicted:              rateMeterToStatus(cache.evictCountMeter),
-			SizeEvicted:             rateMeterToStatus(cache.evictSizeMeter),
-			NumDeleted:              rateMeterToStatus(cache.deleteCountMeter),
-			SizeDeleted:             rateMeterToStatus(cache.deleteSizeMeter),
+			Hits:                    ldbutils.RateMeterToStatus(cache.hitMeter),
+			Misses:                  ldbutils.RateMeterToStatus(cache.missMeter),
+			Puts:                    ldbutils.RateMeterToStatus(cache.putMeter),
+			MetadataUpdates:         ldbutils.RateMeterToStatus(cache.updateMeter),
+			NumEvicted:              ldbutils.RateMeterToStatus(cache.evictCountMeter),
+			SizeEvicted:             ldbutils.RateMeterToStatus(cache.evictSizeMeter),
+			NumDeleted:              ldbutils.RateMeterToStatus(cache.deleteCountMeter),
+			SizeDeleted:             ldbutils.RateMeterToStatus(cache.deleteSizeMeter),
 			LocalDiskBytesAvailable: availableBytes,
 			LocalDiskBytesTotal:     totalBytes,
 			BlockDBStats:            blockStats,
 			MetaDBStats:             metaStats,
+			MemCompActive:           memCompActive,
+			TableCompActive:         tableCompActive,
+			MetaMemCompActive:       metaMemCompActive,
+			MetaTableCompActive:     metaTableCompActive,
 			TLFDBStats:              tlfStats,
 			LastUnrefStats:          lastUnrefStats,
 		},
@@ -1413,6 +1675,9 @@ func (cache *DiskBlockCacheLocal) DeleteUnmarked(
 		cache.log.CDebugf(ctx,
 			"Finished deleting unmarked blocks (tag=%s) from %s: %+v",
 			tag, tlfID, err)
+		if err == nil {
+			cache.doCompact()
+		}
 	}()
 
 	// Delete the blocks in batches, so we don't keep the lock for too
@@ -1499,12 +1764,13 @@ func (cache *DiskBlockCacheLocal) GetTlfIDs(
 }
 
 // Shutdown implements the DiskBlockCache interface for DiskBlockCacheLocal.
-func (cache *DiskBlockCacheLocal) Shutdown(ctx context.Context) {
+func (cache *DiskBlockCacheLocal) Shutdown(ctx context.Context) <-chan struct{} {
 	// Wait for the cache to either finish starting or error.
 	select {
 	case <-cache.startedCh:
 	case <-cache.startErrCh:
-		return
+		close(cache.doneCh)
+		return cache.doneCh
 	}
 	cache.lock.Lock()
 	defer cache.lock.Unlock()
@@ -1512,11 +1778,12 @@ func (cache *DiskBlockCacheLocal) Shutdown(ctx context.Context) {
 	select {
 	case <-cache.shutdownCh:
 		cache.log.CWarningf(ctx, "Shutdown called more than once")
+		return cache.doneCh
 	default:
 	}
 	close(cache.shutdownCh)
 	if cache.blockDb == nil {
-		return
+		return cache.doneCh
 	}
 	cache.closer()
 	cache.blockDb = nil
@@ -1534,4 +1801,5 @@ func (cache *DiskBlockCacheLocal) Shutdown(ctx context.Context) {
 	cache.evictSizeMeter.Shutdown()
 	cache.deleteCountMeter.Shutdown()
 	cache.deleteSizeMeter.Shutdown()
+	return cache.doneCh
 }

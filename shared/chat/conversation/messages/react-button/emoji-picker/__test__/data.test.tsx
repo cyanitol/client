@@ -1,6 +1,5 @@
 /* eslint-env jest */
 import {categories, categoryOrder, emojiNameMap, emojiIndex} from '../data'
-// @ts-ignore
 import emojidata from 'emoji-datasource'
 
 const searchIndexOmissions = [
@@ -15,10 +14,15 @@ describe('emoji data processing', () => {
   it('nameMap containes all possible search results', () => {
     let containsAll = true
     Object.values(emojiIndex.emojis).forEach((emoji: any) => {
+      // sometimes its a collection of things
+      if (emoji.id === undefined && emoji[1]) {
+        emoji = emoji[1]
+      }
       if (!emojiNameMap[emoji.id]) {
         containsAll = false
       }
     })
+
     expect(containsAll).toBe(true)
   })
   it('categorized data has same number of categories as category order', () =>

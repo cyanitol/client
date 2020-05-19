@@ -21,7 +21,7 @@ func NewProfileEdit(g *libkb.GlobalContext, arg keybase1.ProfileEditArg) *Profil
 }
 
 func (e *ProfileEdit) Run(m libkb.MetaContext) (err error) {
-	defer m.Trace("ProfileEdit#Run", func() error { return err })()
+	defer m.Trace("ProfileEdit#Run", &err)()
 	_, err = m.G().API.Post(m, libkb.APIArg{
 		Endpoint:    "profile-edit",
 		SessionType: libkb.APISessionTypeREQUIRED,
@@ -36,7 +36,8 @@ func (e *ProfileEdit) Run(m libkb.MetaContext) (err error) {
 	}
 	u := m.G().ActiveDevice.UID()
 	m.Debug("Clearing Card cache for %s", u)
-	e.G().CardCache().Delete(u)
+	_ = e.G().CardCache().Delete(u)
+	_ = e.G().UIDMapper.ClearUIDFullName(m.Ctx(), m.G(), u)
 	return nil
 }
 

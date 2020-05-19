@@ -1,87 +1,65 @@
 import logger from '../../logger'
 import * as FsGen from '../fs-gen'
 import * as Types from '../../constants/types/fs'
+import * as Constants from '../../constants/fs'
 import * as Saga from '../../util/saga'
-import * as Flow from '../../util/flow'
 import {TypedState} from '../../constants/reducer'
-import ImagePicker from 'react-native-image-picker'
-import {isIOS} from '../../constants/platform'
-import {makeRetriableErrorHandler} from './shared'
-import {saveAttachmentDialog, showShareActionSheetFromURL} from '../platform-specific'
-import {types} from '@babel/core'
+import {parseUri, launchImageLibraryAsync} from '../../util/expo-image-picker'
+import {errorToActionOrThrow} from './shared'
+import {saveAttachmentToCameraRoll, showShareActionSheet} from '../platform-specific'
 
-const pickAndUploadToPromise = (state: TypedState, action: FsGen.PickAndUploadPayload): Promise<any> =>
-  new Promise((resolve, reject) => {
-    let title = 'Select a photo'
-    let takePhotoButtonTitle = 'Take photo...'
-    switch (action.payload.type) {
-      case Types.MobilePickType.Video:
-        title = 'Select a video'
-        takePhotoButtonTitle = 'Take video...'
-        break
-      case Types.MobilePickType.Mixed:
-        title = 'Select a photo or video'
-        takePhotoButtonTitle = 'Take photo or video...'
-        break
-    }
-    return ImagePicker.showImagePicker(
-      {
-        mediaType: action.payload.type,
-        quality: 1,
-        takePhotoButtonTitle,
-        title,
-        videoQuality: 'high',
-      },
-      response =>
-        response.didCancel
-          ? resolve()
-          : response.error
-          ? reject(response.error)
-          : isIOS
-          ? response.uri
-            ? resolve(response.uri.replace('file://', ''))
-            : reject(new Error('uri field is missing from response'))
-          : response.path
-          ? resolve(response.path)
-          : reject(new Error('path field is missing from response'))
-    )
-  })
-    .then(
-      (localPath: any) =>
-        localPath &&
-        FsGen.createUpload({
-          localPath: localPath as string,
+const pickAndUploadToPromise = async (_: TypedState, action: FsGen.PickAndUploadPayload) => {
+  try {
+    const result = await launchImageLibraryAsync(action.payload.type)
+    return result.cancelled === true
+      ? null
+      : FsGen.createUpload({
+          localPath: parseUri(result),
           parentPath: action.payload.parentPath,
         })
-    )
-    .catch(makeRetriableErrorHandler(action))
-
-const downloadSuccess = (state, action: FsGen.DownloadSuccessPayload) => {
-  const {key, mimeType} = action.payload
-  const download = state.fs.downloads.get(key)
-  if (!download) {
-    logger.warn('missing download key', key)
-    return
-  }
-  const {intent, localPath} = download.meta as Types.DownloadMeta
-  switch (intent) {
-    case Types.DownloadIntent.CameraRoll:
-      return saveAttachmentDialog(localPath)
-        .then(() => FsGen.createDismissDownload({key}))
-        .catch(makeRetriableErrorHandler(action))
-    case Types.DownloadIntent.Share:
-      // @ts-ignore codemod-issue probably a real issue
-      return showShareActionSheetFromURL({mimeType, url: localPath})
-        .then(() => FsGen.createDismissDownload({key}))
-        .catch(makeRetriableErrorHandler(action))
-    case Types.DownloadIntent.None:
-      return
-    default:
-      Flow.ifFlowComplainsAboutThisFunctionYouHaventHandledAllCasesInASwitch(intent)
+  } catch (e) {
+    return errorToActionOrThrow(e)
   }
 }
 
-export default function* nativeSaga(): Saga.SagaGenerator<any, any> {
-  yield* Saga.chainAction<FsGen.PickAndUploadPayload>(FsGen.pickAndUpload, pickAndUploadToPromise)
-  yield* Saga.chainAction<FsGen.DownloadSuccessPayload>(FsGen.downloadSuccess, downloadSuccess)
+const finishedDownloadWithIntent = async (
+  state: TypedState,
+  action: FsGen.FinishedDownloadWithIntentPayload
+) => {
+  const {downloadID, downloadIntent, mimeType} = action.payload
+  const downloadState = state.fs.downloads.state.get(downloadID) || Constants.emptyDownloadState
+  if (downloadState === Constants.emptyDownloadState) {
+    logger.warn('missing download', downloadID)
+    return
+  }
+  if (downloadState.error) {
+    return [
+      FsGen.createDismissDownload({downloadID}),
+      FsGen.createRedbar({
+        error: downloadState.error,
+      }),
+    ]
+  }
+  const {localPath} = downloadState
+  try {
+    switch (downloadIntent) {
+      case Types.DownloadIntent.CameraRoll:
+        await saveAttachmentToCameraRoll(localPath, mimeType)
+        return FsGen.createDismissDownload({downloadID})
+      case Types.DownloadIntent.Share:
+        await showShareActionSheet({filePath: localPath, mimeType})
+        return FsGen.createDismissDownload({downloadID})
+      case Types.DownloadIntent.None:
+        return null
+      default:
+        return null
+    }
+  } catch (err) {
+    return errorToActionOrThrow(err)
+  }
+}
+
+export default function* nativeSaga() {
+  yield* Saga.chainAction2(FsGen.pickAndUpload, pickAndUploadToPromise)
+  yield* Saga.chainAction2(FsGen.finishedDownloadWithIntent, finishedDownloadWithIntent)
 }

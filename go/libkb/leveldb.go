@@ -33,14 +33,10 @@ type levelDBOps interface {
 	Write(b *leveldb.Batch, wo *opt.WriteOptions) error
 }
 
-func LevelDbPrefix(typ ObjType) []byte {
-	return []byte(PrefixString(levelDbTableKv, typ))
-}
-
 func levelDbPut(ops levelDBOps, cleaner *levelDbCleaner, id DbKey, aliases []DbKey, value []byte) (err error) {
-	defer convertNoSpaceError(err)
+	defer convertNoSpaceError(&err)
 
-	idb := id.ToBytes(levelDbTableKv)
+	idb := id.ToBytes()
 	if aliases == nil {
 		// if no aliases, just do a put
 		if err := ops.Put(idb, value, nil); err != nil {
@@ -55,7 +51,7 @@ func levelDbPut(ops levelDBOps, cleaner *levelDbCleaner, id DbKey, aliases []DbK
 	keys := make([][]byte, len(aliases))
 	keys = append(keys, idb)
 	for i, alias := range aliases {
-		aliasKey := alias.ToBytes(levelDbTableLo)
+		aliasKey := alias.ToBytesLookup()
 		batch.Put(aliasKey, idb)
 		keys[i] = aliasKey
 	}
@@ -69,8 +65,7 @@ func levelDbPut(ops levelDBOps, cleaner *levelDbCleaner, id DbKey, aliases []DbK
 	return nil
 }
 
-func levelDbGetWhich(ops levelDBOps, cleaner *levelDbCleaner, id DbKey, which string) (val []byte, found bool, err error) {
-	key := id.ToBytes(which)
+func levelDbGetWhich(ops levelDBOps, cleaner *levelDbCleaner, key []byte) (val []byte, found bool, err error) {
 	val, err = ops.Get(key, nil)
 	found = false
 	if err == nil {
@@ -86,26 +81,26 @@ func levelDbGetWhich(ops levelDBOps, cleaner *levelDbCleaner, id DbKey, which st
 }
 
 func levelDbGet(ops levelDBOps, cleaner *levelDbCleaner, id DbKey) ([]byte, bool, error) {
-	return levelDbGetWhich(ops, cleaner, id, levelDbTableKv)
+	return levelDbGetWhich(ops, cleaner, id.ToBytes())
 }
 
 func levelDbLookup(ops levelDBOps, cleaner *levelDbCleaner, id DbKey) (val []byte, found bool, err error) {
-	val, found, err = levelDbGetWhich(ops, cleaner, id, levelDbTableLo)
+	val, found, err = levelDbGetWhich(ops, cleaner, id.ToBytesLookup())
 	if found {
 		if tab, id2, err2 := DbKeyParse(string(val)); err2 != nil {
 			err = err2
 		} else if tab != levelDbTableKv && tab != levelDbTablePerm {
-			err = fmt.Errorf("bad alias; expected 'kv' but got '%s'", tab)
+			err = fmt.Errorf("bad alias; expected 'kv' or 'pm' but got '%s'", tab)
 		} else {
-			val, found, err = levelDbGetWhich(ops, cleaner, id2, tab)
+			val, found, err = levelDbGetWhich(ops, cleaner, id2.ToBytes())
 		}
 	}
 	return val, found, err
 }
 
 func levelDbDelete(ops levelDBOps, cleaner *levelDbCleaner, id DbKey) (err error) {
-	defer convertNoSpaceError(err)
-	key := id.ToBytes(levelDbTableKv)
+	defer convertNoSpaceError(&err)
+	key := id.ToBytes()
 	if err := ops.Delete(key, nil); err != nil {
 		return err
 	}
@@ -152,6 +147,7 @@ func (l *LevelDb) Opts() *opt.Options {
 		OpenFilesCacheCapacity: l.G().Env.GetLevelDBNumFiles(),
 		Filter:                 filter.NewBloomFilter(10),
 		CompactionTableSize:    10 * opt.MiB,
+		WriteBuffer:            l.G().Env.GetLevelDBWriteBufferMB() * opt.MiB,
 	}
 }
 
@@ -168,15 +164,16 @@ func (l *LevelDb) doWhileOpenAndNukeIfCorrupted(action func() error) (err error)
 			l.G().Log.Debug("| Opening LevelDB for local cache: %v %s", l, fn)
 			l.G().Log.Debug("| Opening LevelDB options: %+v", l.Opts())
 			l.db, err = leveldb.OpenFile(fn, l.Opts())
-			if err != nil {
-				if _, ok := err.(*errors.ErrCorrupted); ok {
-					l.G().Log.Debug("| LevelDb was corrupted; attempting recovery (%v)", err)
-					l.db, err = leveldb.RecoverFile(fn, nil)
-					if err != nil {
-						l.G().Log.Debug("| Recovery failed: %v", err)
-					} else {
-						l.G().Log.Debug("| Recovery succeeded!")
-					}
+			if _, ok := err.(*errors.ErrCorrupted); ok {
+				l.G().Log.Debug("| LevelDb was corrupted; attempting recovery (%v)", err)
+				var recoveryError error
+				l.db, recoveryError = leveldb.RecoverFile(fn, nil)
+				if recoveryError != nil {
+					l.G().Log.Debug("| Recovery failed: %v", recoveryError)
+				} else {
+					l.G().Log.Debug("| Recovery succeeded!")
+					// wipe the outer error since it's fixed now
+					err = nil
 				}
 			}
 			l.G().Log.Debug("- LevelDb.open -> %s", ErrToOk(err))
@@ -203,7 +200,7 @@ func (l *LevelDb) doWhileOpenAndNukeIfCorrupted(action func() error) (err error)
 		err = nil
 	} else if IsNoSpaceOnDeviceError(err) {
 		// If we are out of space force a db clean
-		go l.cleaner.clean(true)
+		go func() { _ = l.cleaner.clean(true) }()
 	}
 
 	// Notably missing here is the error handling for when DB open fails but on
@@ -242,6 +239,16 @@ func (l *LevelDb) Stats() (stats string) {
 	return stats
 }
 
+func (l *LevelDb) CompactionStats() (memActive, tableActive bool, err error) {
+	var dbStats leveldb.DBStats
+	if err := l.doWhileOpenAndNukeIfCorrupted(func() (err error) {
+		return l.db.Stats(&dbStats)
+	}); err != nil {
+		return false, false, err
+	}
+	return dbStats.MemCompactionActive, dbStats.TableCompactionActive, nil
+}
+
 func (l *LevelDb) GetFilename() string {
 	if len(l.filename) == 0 {
 		l.G().Log.Fatalf("DB filename empty")
@@ -267,6 +274,7 @@ func (l *LevelDb) closeLocked() error {
 		l.dbOpenerOnce.Do(func() {})
 		// stop any active cleaning jobs
 		l.cleaner.Stop()
+		l.cleaner.Shutdown()
 	}
 	return err
 }
@@ -286,17 +294,13 @@ func (l *LevelDb) isCorrupt(err error) bool {
 	if strings.Contains(err.Error(), "corrupt") {
 		return true
 	}
-	// if our db is in a bad state with too many open files also nuke
-	if strings.Contains(strings.ToLower(err.Error()), "too many open files") {
-		return true
-	}
 	return false
 }
 
 func (l *LevelDb) Clean(force bool) (err error) {
 	l.Lock()
 	defer l.Unlock()
-	defer l.G().Trace("LevelDb::Clean", func() error { return err })()
+	defer l.G().Trace("LevelDb::Clean", &err)()
 	return l.cleaner.clean(force)
 }
 
@@ -306,7 +310,7 @@ func (l *LevelDb) Nuke() (fn string, err error) {
 	// l.Close() because we'll be re-opening the database later, and it's
 	// necessary to block other doWhileOpenAndNukeIfCorrupted() calls.
 	defer l.Unlock()
-	defer l.G().Trace("LevelDb::Nuke", func() error { return err })()
+	defer l.G().Trace("LevelDb::Nuke", &err)()
 
 	// even if we can't close the db try to nuke the files directly
 	if err = l.closeLocked(); err != nil {
@@ -376,27 +380,29 @@ func (l *LevelDb) OpenTransaction() (LocalDbTransaction, error) {
 }
 
 func (l *LevelDb) KeysWithPrefixes(prefixes ...[]byte) (DBKeySet, error) {
-	m := make(map[DbKey]bool)
-
-	l.Lock()
-	defer l.Unlock()
-
-	opts := &opt.ReadOptions{DontFillCache: true}
-	for _, prefix := range prefixes {
-		iter := l.db.NewIterator(util.BytesPrefix(prefix), opts)
-		for iter.Next() {
-			_, dbKey, err := DbKeyParse(string(iter.Key()))
-			if err != nil {
-				iter.Release()
-				return m, err
+	m := make(map[DbKey]struct{})
+	err := l.doWhileOpenAndNukeIfCorrupted(func() error {
+		opts := &opt.ReadOptions{DontFillCache: true}
+		for _, prefix := range prefixes {
+			iter := l.db.NewIterator(util.BytesPrefix(prefix), opts)
+			for iter.Next() {
+				_, dbKey, err := DbKeyParse(string(iter.Key()))
+				if err != nil {
+					iter.Release()
+					return err
+				}
+				m[dbKey] = struct{}{}
 			}
-			m[dbKey] = true
+			iter.Release()
+			err := iter.Error()
+			if err != nil {
+				return nil
+			}
 		}
-		iter.Release()
-		err := iter.Error()
-		if err != nil {
-			return nil, nil
-		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return m, nil
@@ -424,7 +430,7 @@ func (l LevelDbTransaction) Delete(id DbKey) error {
 }
 
 func (l LevelDbTransaction) Commit() (err error) {
-	defer convertNoSpaceError(err)
+	defer convertNoSpaceError(&err)
 	return l.tr.Commit()
 }
 
@@ -432,11 +438,9 @@ func (l LevelDbTransaction) Discard() {
 	l.tr.Discard()
 }
 
-func convertNoSpaceError(err error) error {
-	if IsNoSpaceOnDeviceError(err) {
+func convertNoSpaceError(err *error) {
+	if IsNoSpaceOnDeviceError(*err) {
 		// embed in exportable error type
-		err = NoSpaceOnDeviceError{Desc: err.Error()}
+		*err = NoSpaceOnDeviceError{Desc: (*err).Error()}
 	}
-
-	return err
 }

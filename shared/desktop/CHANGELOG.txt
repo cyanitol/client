@@ -1,3 +1,8 @@
-• Updated Files tab
-• See all your attachments in the chat info panel
-• Better scrolling in profile screen
+• Administering groups is easier than ever with the redesigned Teams tab
+• Prettier icons
+• Better handling of audio attachments in info panel
+• Forward images and attachments in chat
+• Improved file sharing with email addresses
+• Updated some emojis
+• Fix some hotkeys that could stop working
+

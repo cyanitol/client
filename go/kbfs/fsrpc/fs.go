@@ -25,6 +25,7 @@ func NewFS(config libkbfs.Config, log logger.Logger) keybase1.FsInterface {
 }
 
 func (f fs) favorites(ctx context.Context, path Path) (keybase1.ListResult, error) {
+	f.config.GetPerfLog().CDebugf(ctx, "GetFavorites fsrpc")
 	favs, err := f.config.KBFSOps().GetFavorites(ctx)
 	if err != nil {
 		return keybase1.ListResult{}, err
@@ -85,8 +86,8 @@ func (f fs) tlf(ctx context.Context, path Path) (keybase1.ListResult, error) {
 func (f fs) keybase(ctx context.Context) (keybase1.ListResult, error) {
 	return keybase1.ListResult{
 		Files: []keybase1.File{
-			keybase1.File{Path: "/keybase/public"},
-			keybase1.File{Path: "/keybase/private"},
+			{Path: "/keybase/public"},
+			{Path: "/keybase/private"},
 		},
 	}, nil
 }
@@ -94,7 +95,7 @@ func (f fs) keybase(ctx context.Context) (keybase1.ListResult, error) {
 func (f fs) root(ctx context.Context) (keybase1.ListResult, error) {
 	return keybase1.ListResult{
 		Files: []keybase1.File{
-			keybase1.File{Path: "/keybase"},
+			{Path: "/keybase"},
 		},
 	}, nil
 }

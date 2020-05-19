@@ -44,6 +44,12 @@ const (
 	// InitMemoryLimitedString is for when KBFS will use memory limited
 	// resources.
 	InitMemoryLimitedString = "memoryLimited"
+	// InitTestSearchString is for when KBFS will index synced TLFs.
+	InitTestSearchString = "testSearch"
+	// InitSingleOpWithQRString is for when KBFS will only be used for
+	// a single logical operation (e.g., as a git remote helper), with
+	// QR enabled.
+	InitSingleOpWithQRString = "singleOpQR"
 )
 
 // CtxInitTagKey is the type used for unique context tags for KBFS init.
@@ -61,6 +67,13 @@ const CtxInitID = "KBFSINIT"
 
 // AdditionalProtocolCreator creates an additional protocol.
 type AdditionalProtocolCreator func(Context, Config) (rpc.Protocol, error)
+
+const (
+	configModeStr                  = "kbfs.mode"
+	configBlockCacheMemMaxBytesStr = "kbfs.block_cache.mem_max_bytes"
+	configBlockCacheDiskMaxFracStr = "kbfs.block_cache.disk_max_fraction"
+	configBlockCacheSyncMaxFracStr = "kbfs.block_cache.sync_max_fraction"
+)
 
 // InitParams contains the initialization parameters for Init(). It is
 // usually filled in by the flags parser passed into AddFlags().
@@ -226,9 +239,7 @@ func DefaultInitParams(ctx Context) InitParams {
 		BGFlushDirOpBatchSize:          bgFlushDirOpBatchSizeDefault,
 		EnableJournal:                  BoolForString(journalEnv),
 		DiskCacheMode:                  DiskCacheModeLocal,
-		DiskBlockCacheFraction:         0.10,
-		SyncBlockCacheFraction:         1.00,
-		Mode: InitDefaultString,
+		Mode:                           "",
 	}
 }
 
@@ -295,8 +306,8 @@ func AddFlagsWithDefaults(
 		defaultParams.BGFlushPeriod,
 		"The amount of time to wait before syncing data in a TLF, if the "+
 			"batch size doesn't fill up.")
-	flags.IntVar((*int)(&params.BGFlushDirOpBatchSize), "sync-batch-size",
-		int(defaultParams.BGFlushDirOpBatchSize),
+	flags.IntVar(&params.BGFlushDirOpBatchSize, "sync-batch-size",
+		defaultParams.BGFlushDirOpBatchSize,
 		"The number of unflushed directory operations in a TLF that will "+
 			"trigger an immediate data sync.")
 
@@ -312,11 +323,11 @@ func AddFlagsWithDefaults(
 			InitMinimalString, InitSingleOpString, InitConstrainedString,
 			InitMemoryLimitedString))
 
-	flags.Float64Var((*float64)(&params.DiskBlockCacheFraction),
+	flags.Float64Var(&params.DiskBlockCacheFraction,
 		"disk-block-cache-fraction", defaultParams.DiskBlockCacheFraction,
 		"The portion of the free disk space that KBFS will use for caching ")
 
-	flags.Float64Var((*float64)(&params.SyncBlockCacheFraction),
+	flags.Float64Var(&params.SyncBlockCacheFraction,
 		"sync-block-cache-fraction", defaultParams.SyncBlockCacheFraction,
 		"The portion of the free disk space that KBFS will use for offline storage")
 
@@ -392,8 +403,7 @@ func makeMDServer(kbCtx Context, config Config, mdserverAddr string,
 	if serverRootDir, ok := parseRootDir(mdserverAddr); ok {
 		log.Debug("Using on-disk mdserver at %s", serverRootDir)
 		// local persistent MD server
-		mdPath := filepath.Join(serverRootDir, "kbfs_md")
-		return NewMDServerDir(mdServerLocalConfigAdapter{config}, mdPath)
+		return MakeDiskMDServer(config, serverRootDir)
 	}
 
 	remote, err := rpc.ParsePrioritizedRoundRobinRemote(mdserverAddr)
@@ -454,10 +464,7 @@ func makeBlockServer(kbCtx Context, config Config, bserverAddr string,
 	if serverRootDir, ok := parseRootDir(bserverAddr); ok {
 		log.Debug("Using on-disk bserver at %s", serverRootDir)
 		// local persistent block server
-		blockPath := filepath.Join(serverRootDir, "kbfs_block")
-		bserverLog := config.MakeLogger("BSD")
-		return NewBlockServerDir(config.Codec(),
-			bserverLog, blockPath), nil
+		return MakeDiskBlockServer(config, serverRootDir), nil
 	}
 
 	remote, err := rpc.ParsePrioritizedRoundRobinRemote(bserverAddr)
@@ -488,7 +495,7 @@ func InitLogWithPrefix(
 	}
 
 	if params.LogFileConfig.Path != "" {
-		err = logger.SetLogFileConfig(&params.LogFileConfig)
+		err = logger.SetLogFileConfig(&params.LogFileConfig, nil)
 	}
 	log := logger.New(prefix)
 
@@ -552,7 +559,7 @@ func InitWithLogPrefix(
 			// https://golang.org/pkg/os/signal/#hdr-Default_behavior_of_signals_in_Go_programs
 			switch sig {
 			case syscall.SIGQUIT, syscall.SIGILL, syscall.SIGTRAP, syscall.SIGABRT:
-				pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+				_ = pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 			}
 
 			if onInterruptFn != nil {
@@ -616,34 +623,108 @@ func Init(
 		ctx, kbCtx, params, keybaseServiceCn, onInterruptFn, log, "kbfs")
 }
 
+func getInitMode(
+	ctx context.Context, kbCtx Context, params InitParams,
+	log logger.Logger) (InitMode, error) {
+	mode := InitDefault
+
+	// Use the KBFS mode from the config file if none is provided on
+	// the command line.
+	modeString := params.Mode
+	if modeString == "" {
+		config := kbCtx.GetEnv().GetConfig()
+		configModeString, ok := config.GetStringAtPath(configModeStr)
+		if ok {
+			log.CDebugf(
+				ctx, "Using mode from config file: %s", configModeString)
+			modeString = configModeString
+		} else {
+			modeString = InitDefaultString
+		}
+	}
+
+	switch modeString {
+	case InitDefaultString:
+		// Already the default
+	case InitMinimalString:
+		mode = InitMinimal
+	case InitSingleOpString:
+		mode = InitSingleOp
+	case InitConstrainedString:
+		mode = InitConstrained
+	case InitMemoryLimitedString:
+		mode = InitMemoryLimited
+	case InitTestSearchString:
+		mode = InitTestSearch
+	case InitSingleOpWithQRString:
+		mode = InitSingleOpWithQR
+	default:
+		return nil, fmt.Errorf("Unexpected mode: %s", params.Mode)
+	}
+
+	log.CDebugf(ctx, "Initializing in %s mode", modeString)
+	kbCtx.GetPerfLog().CDebugf(
+		ctx, "KBFS initializing in %s mode, version %s", modeString,
+		VersionString())
+
+	return NewInitModeFromType(mode), nil
+}
+
+func getCleanBlockCacheCapacity(
+	ctx context.Context, kbCtx Context, params InitParams,
+	log logger.Logger) uint64 {
+	cap := params.CleanBlockCacheCapacity
+
+	// Use the capacity from the config file if none is provided on
+	// the command line.
+	if cap == 0 {
+		config := kbCtx.GetEnv().GetConfig()
+		capInt, ok := config.GetIntAtPath(configBlockCacheMemMaxBytesStr)
+		if ok {
+			log.CDebugf(
+				ctx, "Using block cache capacity from config file: %d", capInt)
+			cap = uint64(capInt)
+		}
+	}
+
+	return cap
+}
+
+func getCacheFrac(
+	ctx context.Context, kbCtx Context, param, defaultVal float64,
+	configKey string, log logger.Logger) float64 {
+	frac := param
+
+	// Use the fraction from the config file if none is provided on
+	// the command line.
+	if frac == 0 {
+		config := kbCtx.GetEnv().GetConfig()
+		configFrac, ok := config.GetFloatAtPath(configKey)
+		if ok {
+			log.CDebugf(
+				ctx, "Using %s value from config file: %f", configKey,
+				configFrac)
+			frac = configFrac
+		}
+	}
+
+	if frac == 0 {
+		frac = defaultVal
+	}
+
+	return frac
+}
+
 func doInit(
 	ctx context.Context, kbCtx Context, params InitParams,
 	keybaseServiceCn KeybaseServiceCn, log logger.Logger,
 	logPrefix string) (Config, error) {
 	ctx = CtxWithRandomIDReplayable(ctx, CtxInitKey, CtxInitID, log)
 
-	mode := InitDefault
-	switch params.Mode {
-	case InitDefaultString:
-		log.CDebugf(ctx, "Initializing in default mode")
-		// Already the default
-	case InitMinimalString:
-		log.CDebugf(ctx, "Initializing in minimal mode")
-		mode = InitMinimal
-	case InitSingleOpString:
-		log.CDebugf(ctx, "Initializing in singleOp mode")
-		mode = InitSingleOp
-	case InitConstrainedString:
-		log.CDebugf(ctx, "Initializing in constrained mode")
-		mode = InitConstrained
-	case InitMemoryLimitedString:
-		log.CDebugf(ctx, "Initializing in memoryLimited mode")
-		mode = InitMemoryLimited
-	default:
-		return nil, fmt.Errorf("Unexpected mode: %s", params.Mode)
+	initMode, err := getInitMode(ctx, kbCtx, params, log)
+	if err != nil {
+		return nil, err
 	}
-
-	initMode := NewInitModeFromType(mode)
 
 	config := NewConfigLocal(initMode,
 		func(module string) logger.Logger {
@@ -661,20 +742,18 @@ func doInit(
 		}, params.StorageRoot, params.DiskCacheMode, kbCtx)
 	config.SetVLogLevel(kbCtx.GetVDebugSetting())
 
-	if params.CleanBlockCacheCapacity > 0 {
+	if cap := getCleanBlockCacheCapacity(ctx, kbCtx, params, log); cap > 0 {
 		log.CDebugf(
-			ctx, "overriding default clean block cache capacity from %d to %d",
-			config.BlockCache().GetCleanBytesCapacity(),
-			params.CleanBlockCacheCapacity)
-		config.BlockCache().SetCleanBytesCapacity(
-			params.CleanBlockCacheCapacity)
+			ctx, "Overriding default clean block cache capacity from %d to %d",
+			config.BlockCache().GetCleanBytesCapacity(), cap)
+		config.BlockCache().SetCleanBytesCapacity(cap)
 	}
 
 	workers := config.Mode().BlockWorkers()
 	prefetchWorkers := config.Mode().PrefetchWorkers()
 	throttledPrefetchPeriod := config.Mode().ThrottledPrefetchPeriod()
 	config.SetBlockOps(NewBlockOpsStandard(
-		config, workers, prefetchWorkers, throttledPrefetchPeriod))
+		config, workers, prefetchWorkers, throttledPrefetchPeriod, kbCtx))
 
 	bsplitter, err := data.NewBlockSplitterSimple(
 		data.MaxBlockSizeBytesDefault, 8*1024, config.Codec())
@@ -698,15 +777,15 @@ func doInit(
 		config.SetKeyBundleCache(keyBundleCache)
 	}
 
-	config.SetMetadataVersion(kbfsmd.MetadataVer(params.MetadataVersion))
-	config.SetBlockCryptVersion(
-		kbfscrypto.EncryptionVer(params.BlockCryptVersion))
+	config.SetMetadataVersion(params.MetadataVersion)
+	config.SetBlockCryptVersion(params.BlockCryptVersion)
 	config.SetTLFValidDuration(params.TLFValidDuration)
 	config.SetBGFlushPeriod(params.BGFlushPeriod)
 
 	kbfsLog := config.MakeLogger("")
 
-	// Initialize Keybase service connection
+	// Initialize Keybase service connection. This needs to happen before
+	// KBPKI client.
 	if keybaseServiceCn == nil {
 		keybaseServiceCn = keybaseDaemon{}
 	}
@@ -715,6 +794,10 @@ func doInit(
 	if err != nil {
 		return nil, fmt.Errorf("problem creating service: %s", err)
 	}
+	if registry := config.MetricsRegistry(); registry != nil {
+		service = NewKeybaseServiceMeasured(service, registry)
+	}
+	config.SetKeybaseService(service)
 
 	// Initialize KBPKI client (needed for KBFSOps, MD Server, and Chat).
 	k := NewKBPKIClient(config, kbfsLog)
@@ -727,27 +810,25 @@ func doInit(
 	}
 	config.SetChat(chat)
 
-	kbfsOps := NewKBFSOpsStandard(kbCtx, config)
+	initDoneCh := make(chan struct{})
+	kbfsOps := NewKBFSOpsStandard(kbCtx, config, initDoneCh)
+	defer close(initDoneCh)
 	config.SetKBFSOps(kbfsOps)
 	config.SetNotifier(kbfsOps)
 	config.SetKeyManager(NewKeyManagerStandard(config))
 	config.SetMDOps(NewMDOpsStandard(config))
 
-	// Enable the disk limiter before the keybase service, since if
-	// that service receives a logged-in event it will create a disk
-	// block cache, which requires the disk limiter.
-	config.SetDiskBlockCacheFraction(params.DiskBlockCacheFraction)
-	config.SetSyncBlockCacheFraction(params.SyncBlockCacheFraction)
+	config.SetDiskBlockCacheFraction(getCacheFrac(
+		ctx, kbCtx, params.DiskBlockCacheFraction,
+		defaultDiskBlockCacheFraction, configBlockCacheDiskMaxFracStr, log))
+	config.SetSyncBlockCacheFraction(getCacheFrac(
+		ctx, kbCtx, params.SyncBlockCacheFraction,
+		defaultSyncBlockCacheFraction, configBlockCacheSyncMaxFracStr, log))
 	err = config.EnableDiskLimiter(params.StorageRoot)
 	if err != nil {
 		log.CWarningf(ctx, "Could not enable disk limiter: %+v", err)
 		return nil, err
 	}
-
-	if registry := config.MetricsRegistry(); registry != nil {
-		service = NewKeybaseServiceMeasured(service, registry)
-	}
-	config.SetKeybaseService(service)
 
 	kbfsOps.favs.Initialize(ctx)
 
@@ -793,15 +874,24 @@ func doInit(
 	}
 	config.SetBlockServer(bserv)
 
+	// Don't trigger cache initialization warnings in single-op mode
+	// (e.g., during a git pull), because KBFS might be running in
+	// constrained mode and the cache remote proxy wouldn't be
+	// available (which is fine).
+	doSendWarnings := !config.Mode().IsSingleOp()
 	err = config.MakeDiskBlockCacheIfNotExists()
 	if err != nil {
 		log.CWarningf(ctx, "Could not initialize disk cache: %+v", err)
+		config.GetPerfLog().CDebugf(
+			ctx, "KBFS could not initialize disk cache: %v", err)
 		notification := &keybase1.FSNotification{
 			StatusCode:       keybase1.FSStatusCode_ERROR,
 			NotificationType: keybase1.FSNotificationType_INITIALIZED,
 			ErrorType:        keybase1.FSErrorType_DISK_CACHE_ERROR_LOG_SEND,
 		}
-		defer config.Reporter().Notify(ctx, notification)
+		if doSendWarnings {
+			defer config.Reporter().Notify(ctx, notification)
+		}
 	} else {
 		log.CDebugf(ctx, "Disk cache of type \"%s\" enabled",
 			params.DiskCacheMode.String())
@@ -815,7 +905,9 @@ func doInit(
 			NotificationType: keybase1.FSNotificationType_INITIALIZED,
 			ErrorType:        keybase1.FSErrorType_DISK_CACHE_ERROR_LOG_SEND,
 		}
-		defer config.Reporter().Notify(ctx, notification)
+		if doSendWarnings {
+			defer config.Reporter().Notify(ctx, notification)
+		}
 	} else {
 		log.CDebugf(ctx, "Disk MD cache enabled")
 	}
@@ -828,7 +920,9 @@ func doInit(
 			NotificationType: keybase1.FSNotificationType_INITIALIZED,
 			ErrorType:        keybase1.FSErrorType_DISK_CACHE_ERROR_LOG_SEND,
 		}
-		defer config.Reporter().Notify(ctx, notification)
+		if doSendWarnings {
+			defer config.Reporter().Notify(ctx, notification)
+		}
 	} else {
 		log.CDebugf(ctx, "Disk quota cache enabled")
 	}

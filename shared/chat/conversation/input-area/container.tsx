@@ -1,10 +1,11 @@
 import * as React from 'react'
 import * as Types from '../../../constants/types/chat2'
 import * as Constants from '../../../constants/chat2'
+import * as Container from '../../../util/container'
 import Normal from './normal/container'
 import Preview from './preview/container'
-import {connect, isMobile} from '../../../util/container'
 import ThreadSearch from '../search/container'
+import AudioSend from '../../audio/audio-send'
 
 type OwnProps = {
   conversationIDKey: Types.ConversationIDKey
@@ -13,30 +14,15 @@ type OwnProps = {
   onRequestScrollDown: () => void
   onRequestScrollToBottom: () => void
   onRequestScrollUp: () => void
+  maxInputArea?: number
 }
 
 type Props = {
   isPreview: boolean
   noInput: boolean
+  showAudioSend: boolean
   showThreadSearch: boolean
 } & OwnProps
-
-const mapStateToProps = (state, {conversationIDKey}: OwnProps) => {
-  const meta = Constants.getMeta(state, conversationIDKey)
-  let noInput = !meta.resetParticipants.isEmpty() || !!meta.wasFinalizedBy
-  const showThreadSearch = Constants.getThreadSearchInfo(state, conversationIDKey).visible
-
-  if (conversationIDKey === Constants.pendingWaitingConversationIDKey) {
-    noInput = true
-  }
-
-  return {
-    conversationIDKey,
-    isPreview: meta.membershipType === 'youArePreviewing',
-    noInput,
-    showThreadSearch,
-  }
-}
 
 class InputArea extends React.PureComponent<Props> {
   render() {
@@ -46,8 +32,11 @@ class InputArea extends React.PureComponent<Props> {
     if (this.props.isPreview) {
       return <Preview conversationIDKey={this.props.conversationIDKey} />
     }
-    if (this.props.showThreadSearch && isMobile) {
+    if (this.props.showThreadSearch && Container.isMobile) {
       return <ThreadSearch conversationIDKey={this.props.conversationIDKey} />
+    }
+    if (this.props.showAudioSend) {
+      return <AudioSend conversationIDKey={this.props.conversationIDKey} />
     }
     return (
       <Normal
@@ -57,13 +46,36 @@ class InputArea extends React.PureComponent<Props> {
         onRequestScrollToBottom={this.props.onRequestScrollToBottom}
         onRequestScrollUp={this.props.onRequestScrollUp}
         conversationIDKey={this.props.conversationIDKey}
+        maxInputArea={this.props.maxInputArea}
       />
     )
   }
 }
 
-export default connect(
-  mapStateToProps,
+export default Container.connect(
+  (state, {conversationIDKey, maxInputArea}: OwnProps) => {
+    const meta = Constants.getMeta(state, conversationIDKey)
+    let noInput = meta.resetParticipants.size > 0 || !!meta.wasFinalizedBy
+    const showThreadSearch = Constants.getThreadSearchInfo(state, conversationIDKey).visible
+    const audio = state.chat2.audioRecording.get(conversationIDKey)
+    const showAudioSend = !!audio && audio.status === Types.AudioRecordingStatus.STAGED
+
+    if (
+      conversationIDKey === Constants.pendingWaitingConversationIDKey ||
+      conversationIDKey === Constants.pendingErrorConversationIDKey
+    ) {
+      noInput = true
+    }
+
+    return {
+      conversationIDKey,
+      isPreview: meta.membershipType === 'youArePreviewing',
+      maxInputArea,
+      noInput,
+      showAudioSend,
+      showThreadSearch,
+    }
+  },
   () => ({}),
-  (s, d, o) => ({...o, ...s, ...d})
+  (s, _d, o: OwnProps) => ({...o, ...s})
 )(InputArea)

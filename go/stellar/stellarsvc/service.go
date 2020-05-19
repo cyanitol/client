@@ -70,13 +70,7 @@ type preambleArg struct {
 //   if err != nil { return err }
 func (s *Server) Preamble(inCtx context.Context, opts preambleArg) (mctx libkb.MetaContext, fin func(), err error) {
 	mctx = libkb.NewMetaContext(s.logTag(inCtx), s.G())
-	getFinalErr := func() error {
-		if opts.Err == nil {
-			return nil
-		}
-		return *opts.Err
-	}
-	fin = mctx.TraceTimed("LRPC "+opts.RPCName, getFinalErr)
+	fin = mctx.Trace("LRPC "+opts.RPCName, opts.Err)
 	if !opts.AllowLoggedOut {
 		if err = s.assertLoggedIn(mctx); err != nil {
 			return mctx, fin, err
@@ -201,6 +195,11 @@ func (s *Server) SendCLILocal(ctx context.Context, arg stellar1.SendCLILocalArg)
 	}
 	mctx = mctx.WithUIs(uis)
 
+	memo, err := stellarnet.NewMemoFromStrings(arg.PublicNote, arg.PublicNoteType.String())
+	if err != nil {
+		return res, err
+	}
+
 	sendRes, err := stellar.SendPaymentCLI(mctx, s.walletState, stellar.SendPaymentArg{
 		From:           arg.FromAccountID,
 		To:             stellarcommon.RecipientInput(arg.Recipient),
@@ -209,7 +208,7 @@ func (s *Server) SendCLILocal(ctx context.Context, arg stellar1.SendCLILocalArg)
 		SecretNote:     arg.Note,
 		ForceRelay:     arg.ForceRelay,
 		QuickReturn:    false,
-		PublicMemo:     stellarnet.NewMemoText(arg.PublicNote),
+		PublicMemo:     memo,
 	})
 	if err != nil {
 		return res, err
@@ -218,6 +217,51 @@ func (s *Server) SendCLILocal(ctx context.Context, arg stellar1.SendCLILocalArg)
 		KbTxID: sendRes.KbTxID,
 		TxID:   sendRes.TxID,
 	}, nil
+}
+
+func (s *Server) AccountMergeCLILocal(ctx context.Context, arg stellar1.AccountMergeCLILocalArg) (res stellar1.TransactionID, err error) {
+	mctx, fin, err := s.Preamble(ctx, preambleArg{
+		RPCName:       "AccountMergeCLILocal",
+		Err:           &err,
+		RequireWallet: true,
+	})
+	defer fin()
+	if err != nil {
+		return res, err
+	}
+	uis := libkb.UIs{
+		IdentifyUI: s.uiSource.IdentifyUI(s.G(), 0),
+	}
+	mctx = mctx.WithUIs(uis)
+
+	primary, err := stellar.GetOwnPrimaryAccountID(mctx)
+	if err != nil {
+		return res, err
+	}
+	if arg.FromAccountID == primary {
+		return res, fmt.Errorf("cannot merge away your primary account")
+	}
+	if arg.To == "" {
+		// if unspecified, default the target account to the user's primary
+		arg.To = primary.String()
+	}
+
+	signRes, err := stellar.AccountMerge(mctx, s.walletState, arg)
+	if err != nil {
+		mctx.Debug("error building account-merge transaction for %s into %s: %v", arg.FromAccountID, arg.To, err)
+		return res, err
+	}
+	err = s.remoter.PostAnyTransaction(mctx, signRes.Signed)
+	if err != nil {
+		mctx.Debug("error posting account-merge transaction for %s into %s: %v", arg.FromAccountID, arg.To, err)
+		return res, err
+	}
+	mctx.Debug("posted account merge transaction for %s into %s", arg.FromAccountID, arg.To)
+	err = s.walletState.RefreshAll(mctx, "account merge")
+	if err != nil {
+		mctx.Debug("error refreshing accounts after successfully processing a merge")
+	}
+	return stellar1.TransactionID(signRes.TxHash), nil
 }
 
 func (s *Server) SendPathCLILocal(ctx context.Context, arg stellar1.SendPathCLILocalArg) (res stellar1.SendResultCLILocal, err error) {
@@ -236,12 +280,17 @@ func (s *Server) SendPathCLILocal(ctx context.Context, arg stellar1.SendPathCLIL
 	}
 	mctx = mctx.WithUIs(uis)
 
+	memo, err := stellarnet.NewMemoFromStrings(arg.PublicNote, arg.PublicNoteType.String())
+	if err != nil {
+		return res, err
+	}
+
 	sendRes, err := stellar.SendPathPaymentCLI(mctx, s.walletState, stellar.SendPathPaymentArg{
 		From:        arg.Source,
 		To:          stellarcommon.RecipientInput(arg.Recipient),
 		Path:        arg.Path,
 		SecretNote:  arg.Note,
-		PublicMemo:  stellarnet.NewMemoText(arg.PublicNote),
+		PublicMemo:  memo,
 		QuickReturn: false,
 	})
 	if err != nil {
@@ -569,9 +618,8 @@ func (s *Server) LookupCLILocal(ctx context.Context, arg string) (res stellar1.L
 			return res, fmt.Errorf("Keybase user %q does not have a Stellar account", recipient.User.Username)
 		} else if recipient.Assertion != nil {
 			return res, fmt.Errorf("Could not resolve assertion %q", *recipient.Assertion)
-		} else {
-			return res, fmt.Errorf("Could not find a Stellar account for %q", recipient.Input)
 		}
+		return res, fmt.Errorf("Could not find a Stellar account for %q", recipient.Input)
 	}
 	res.AccountID = stellar1.AccountID(*recipient.AccountID)
 	if recipient.User != nil {
@@ -594,7 +642,17 @@ func (s *Server) BatchLocal(ctx context.Context, arg stellar1.BatchLocalArg) (re
 	}
 
 	if arg.UseMulti {
-		return stellar.BatchMulti(mctx, s.walletState, arg)
+		res, err = stellar.BatchMulti(mctx, s.walletState, arg)
+		if err == nil {
+			return res, nil
+		}
+
+		if err == stellar.ErrRelayinMultiBatch {
+			mctx.Debug("found relay recipient in BatchMulti, using standard Batch instead")
+			return stellar.Batch(mctx, s.walletState, arg)
+		}
+
+		return res, err
 	}
 
 	return stellar.Batch(mctx, s.walletState, arg)
@@ -633,6 +691,10 @@ func (s *Server) validateStellarURI(mctx libkb.MetaContext, uri string, getter s
 		return nil, nil, err
 	}
 
+	if validated.UnknownReplaceFields {
+		return nil, nil, errors.New("This Stellar link is requesting replacements on fields in the transaction that Keybase does not handle. Sorry, there's nothing you can do with this Stellar link.")
+	}
+
 	local := stellar1.ValidateStellarURIResultLocal{
 		Operation:    validated.Operation,
 		OriginDomain: validated.OriginDomain,
@@ -645,6 +707,7 @@ func (s *Server) validateStellarURI(mctx libkb.MetaContext, uri string, getter s
 		AssetIssuer:  validated.AssetIssuer,
 		Memo:         validated.Memo,
 		MemoType:     validated.MemoType,
+		Signed:       validated.Signed,
 	}
 
 	if validated.AssetCode == "" {
@@ -701,7 +764,7 @@ func (s *Server) validateStellarURI(mctx libkb.MetaContext, uri string, getter s
 
 	if validated.TxEnv != nil {
 		tx := validated.TxEnv.Tx
-		if tx.SourceAccount.Address() != "" && tx.SourceAccount.Address() != zeroSourceAccount {
+		if !validated.ReplaceSourceAccount && tx.SourceAccount.Address() != "" && tx.SourceAccount.Address() != zeroSourceAccount {
 			local.Summary.Source = stellar1.AccountID(tx.SourceAccount.Address())
 		}
 		local.Summary.Fee = int(tx.Fee)
@@ -740,7 +803,7 @@ func (s *Server) ApproveTxURILocal(ctx context.Context, arg stellar1.ApproveTxUR
 		return "", errors.New("no tx envelope in URI")
 	}
 
-	if vp.Summary.Source == "" {
+	if validated.ReplaceSourceAccount || vp.Summary.Source == "" {
 		// need to fill in SourceAccount
 		accountID, err := stellar.GetOwnPrimaryAccountID(mctx)
 		if err != nil {
@@ -756,7 +819,7 @@ func (s *Server) ApproveTxURILocal(ctx context.Context, arg stellar1.ApproveTxUR
 		}
 	}
 
-	if txEnv.Tx.SeqNum == 0 {
+	if txEnv.Tx.SeqNum == 0 || validated.ReplaceSeqnum {
 		// need to fill in SeqNum
 		sp, unlock := stellar.NewSeqnoProvider(mctx, s.walletState)
 		defer unlock()
@@ -765,6 +828,9 @@ func (s *Server) ApproveTxURILocal(ctx context.Context, arg stellar1.ApproveTxUR
 		if err != nil {
 			return "", err
 		}
+
+		// need to bump the seqno:
+		txEnv.Tx.SeqNum++
 	}
 
 	// sign it
@@ -782,10 +848,8 @@ func (s *Server) ApproveTxURILocal(ctx context.Context, arg stellar1.ApproveTxUR
 		if err != nil {
 			return "", err
 		}
-	} else {
-		if err := postXDRToCallback(sig.Signed, vp.CallbackURL); err != nil {
-			return "", err
-		}
+	} else if err := postXDRToCallback(sig.Signed, vp.CallbackURL); err != nil {
+		return "", err
 	}
 
 	return stellar1.TransactionID(sig.TxHash), nil

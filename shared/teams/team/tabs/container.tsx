@@ -1,55 +1,54 @@
 import * as Constants from '../../../constants/teams'
-import * as I from 'immutable'
 import * as Types from '../../../constants/types/teams'
 import Tabs from '.'
-import {connect} from '../../../util/container'
+import * as Container from '../../../util/container'
 import {anyWaiting} from '../../../constants/waiting'
 
 type OwnProps = {
-  teamname: string
-  selectedTab: string
-  setSelectedTab: (arg0: Types.TabKey) => void
+  teamID: Types.TeamID
+  selectedTab: Types.TabKey
+  setSelectedTab: (tab: Types.TabKey) => void
 }
 
-const mapStateToProps = (state, {teamname, selectedTab, setSelectedTab}) => {
-  const yourOperations = Constants.getCanPerform(state, teamname)
-  return {
-    _newTeamRequests: state.teams.getIn(['newTeamRequests'], I.List()),
-    admin: yourOperations.manageMembers,
-    loading: anyWaiting(state, Constants.teamWaitingKey(teamname), Constants.teamTarsWaitingKey(teamname)),
-    memberCount: Constants.getTeamMemberCount(state, teamname),
-    numInvites: Constants.getTeamInvites(state, teamname).size,
-    numRequests: Constants.getTeamRequests(state, teamname).size,
-    numSubteams: Constants.getTeamSubteams(state, teamname).size,
-    resetUserCount: Constants.getTeamResetUsers(state, teamname).size,
-    selectedTab,
-    setSelectedTab,
-    teamname,
-    yourOperations,
-  }
-}
+export default Container.connect(
+  (state, {teamID, selectedTab, setSelectedTab}: OwnProps) => {
+    const teamMeta = Constants.getTeamMeta(state, teamID)
+    const teamDetails = Constants.getTeamDetails(state, teamID)
+    const yourOperations = Constants.getCanPerformByID(state, teamID)
 
-const mapDispatchToProps = dispatch => ({})
-
-const mergeProps = (stateProps, dispatchProps) => {
-  return {
+    return {
+      admin: yourOperations.manageMembers,
+      error: state.teams.errorInAddToTeam,
+      isBig: Constants.isBigTeam(state, teamID),
+      loading: anyWaiting(
+        state,
+        Constants.teamWaitingKey(teamID),
+        Constants.teamTarsWaitingKey(teamMeta.teamname)
+      ),
+      newTeamRequests: state.teams.newTeamRequests,
+      numInvites: teamDetails.invites?.size ?? 0,
+      numRequests: teamDetails.requests?.size ?? 0,
+      numSubteams: teamDetails.subteams?.size ?? 0,
+      resetUserCount: Constants.getTeamResetUsers(state, teamMeta.teamname).size,
+      selectedTab,
+      setSelectedTab,
+      showSubteams: yourOperations.manageSubteams,
+      teamname: teamMeta.teamname,
+    }
+  },
+  () => ({}),
+  (stateProps, _, ownProps: OwnProps) => ({
     admin: stateProps.admin,
+    error: stateProps.error,
+    isBig: stateProps.isBig,
     loading: stateProps.loading,
-    memberCount: stateProps.memberCount,
-    newTeamRequests: stateProps._newTeamRequests.toArray(),
+    newRequests: stateProps.newTeamRequests.get(ownProps.teamID)?.size ?? 0,
     numInvites: stateProps.numInvites,
     numRequests: stateProps.numRequests,
     numSubteams: stateProps.numSubteams,
     resetUserCount: stateProps.resetUserCount,
     selectedTab: stateProps.selectedTab,
     setSelectedTab: stateProps.setSelectedTab,
-    teamname: stateProps.teamname,
-    yourOperations: stateProps.yourOperations,
-  }
-}
-
-export default connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  mergeProps
+    showSubteams: stateProps.showSubteams,
+  })
 )(Tabs)

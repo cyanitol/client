@@ -87,9 +87,9 @@ func (d *deviceWrapper) loadEncryptionKIDs() (devices []keybase1.KID, backups []
 		}
 
 		switch parent.DeviceType {
-		case libkb.DeviceTypePaper:
+		case keybase1.DeviceTypeV2_PAPER:
 			backups = append(backups, backupKey{KID: key.KID, deviceID: parent.DeviceID})
-		case libkb.DeviceTypeDesktop:
+		case keybase1.DeviceTypeV2_DESKTOP:
 			devices = append(devices, key.KID)
 		default:
 		}
@@ -154,7 +154,8 @@ func (rkt *rekeyTester) cleanup() {
 		od.tctx.Cleanup()
 		if od.service != nil {
 			od.service.Stop(0)
-			od.stop()
+			err := od.stop()
+			require.NoError(od.tctx.T, err)
 		}
 		for _, cl := range od.clones {
 			cl.Cleanup()
@@ -410,38 +411,6 @@ func (rkt *rekeyTester) clearAllEvents(dw *deviceWrapper) {
 	rkt.log.Debug("- cleared all events")
 }
 
-func (rkt *rekeyTester) clearAllRefreshes(dw *deviceWrapper) {
-	loop := true
-	rkt.log.Debug("+ clearing all refreshes")
-	for loop {
-		select {
-		case r := <-dw.rekeyUI.refreshes:
-			rkt.log.Debug("| Got refresh: %+v", r)
-		default:
-			loop = false
-		}
-	}
-	rkt.log.Debug("- cleared all refreshes")
-}
-
-func (rkt *rekeyTester) waitForEvent(dw *deviceWrapper, wanted service.RekeyInterrupt) {
-	rkt.log.Debug("+ waitForEvent(%v)", wanted)
-	defer rkt.log.Debug("- waitForEvent(%v)", wanted)
-	timeout := 30 * time.Second
-	for {
-		select {
-		case received := <-dw.rekeyUI.events:
-			if received.InterruptType == int(wanted) {
-				rkt.log.Debug("| found event!")
-				return
-			}
-			rkt.log.Debug("| ignored event: %v", received)
-		case <-time.After(timeout):
-			rkt.t.Fatalf("Failed to get %d event after %s", wanted, timeout)
-		}
-	}
-}
-
 func (rkt *rekeyTester) snoozeRekeyWindow(dw *deviceWrapper) {
 	rkt.log.Debug("+ -------- snoozeRekeyWindow ---------")
 	defer rkt.log.Debug("- -------- snoozeRekeyWindow ---------")
@@ -504,6 +473,8 @@ type rekeyBackupKeyUI struct {
 	secret string
 }
 
+var _ libkb.LoginUI = (*rekeyBackupKeyUI)(nil)
+
 func (u *rekeyBackupKeyUI) DisplayPaperKeyPhrase(_ context.Context, arg keybase1.DisplayPaperKeyPhraseArg) error {
 	u.secret = arg.Phrase
 	return nil
@@ -530,8 +501,8 @@ func (u *rekeyBackupKeyUI) GetPassphrase(p keybase1.GUIEntryArg, terminal *keyba
 	return res, err
 }
 
-func (u *rekeyBackupKeyUI) PromptResetAccount(_ context.Context, arg keybase1.PromptResetAccountArg) (bool, error) {
-	return false, nil
+func (u *rekeyBackupKeyUI) PromptResetAccount(_ context.Context, arg keybase1.PromptResetAccountArg) (keybase1.ResetPromptResponse, error) {
+	return keybase1.ResetPromptResponse_NOTHING, nil
 }
 
 func (u *rekeyBackupKeyUI) DisplayResetProgress(_ context.Context, arg keybase1.DisplayResetProgressArg) error {
@@ -544,6 +515,14 @@ func (u *rekeyBackupKeyUI) ExplainDeviceRecovery(_ context.Context, arg keybase1
 
 func (u *rekeyBackupKeyUI) PromptPassphraseRecovery(_ context.Context, arg keybase1.PromptPassphraseRecoveryArg) (bool, error) {
 	return false, nil
+}
+
+func (u *rekeyBackupKeyUI) ChooseDeviceToRecoverWith(_ context.Context, arg keybase1.ChooseDeviceToRecoverWithArg) (keybase1.DeviceID, error) {
+	return "", nil
+}
+
+func (u *rekeyBackupKeyUI) DisplayResetMessage(_ context.Context, arg keybase1.DisplayResetMessageArg) error {
+	return nil
 }
 
 func (rkt *rekeyTester) findNewBackupKey(newList []backupKey) (ret backupKey, found bool) {
@@ -633,6 +612,8 @@ type rekeyProvisionUI struct {
 	backupKey backupKey
 }
 
+var _ libkb.LoginUI = (*rekeyProvisionUI)(nil)
+
 func (r *rekeyProvisionUI) GetEmailOrUsername(context.Context, int) (string, error) {
 	return r.username, nil
 }
@@ -679,8 +660,8 @@ func (r *rekeyProvisionUI) GetPassphrase(context.Context, keybase1.GetPassphrase
 	ret.Passphrase = r.backupKey.secret
 	return ret, nil
 }
-func (r *rekeyProvisionUI) PromptResetAccount(_ context.Context, arg keybase1.PromptResetAccountArg) (bool, error) {
-	return false, nil
+func (r *rekeyProvisionUI) PromptResetAccount(_ context.Context, arg keybase1.PromptResetAccountArg) (keybase1.ResetPromptResponse, error) {
+	return keybase1.ResetPromptResponse_NOTHING, nil
 }
 func (r *rekeyProvisionUI) DisplayResetProgress(_ context.Context, arg keybase1.DisplayResetProgressArg) error {
 	return nil
@@ -690,6 +671,12 @@ func (r *rekeyProvisionUI) ExplainDeviceRecovery(_ context.Context, arg keybase1
 }
 func (r *rekeyProvisionUI) PromptPassphraseRecovery(_ context.Context, arg keybase1.PromptPassphraseRecoveryArg) (bool, error) {
 	return false, nil
+}
+func (r *rekeyProvisionUI) ChooseDeviceToRecoverWith(_ context.Context, arg keybase1.ChooseDeviceToRecoverWithArg) (keybase1.DeviceID, error) {
+	return "", nil
+}
+func (r *rekeyProvisionUI) DisplayResetMessage(_ context.Context, arg keybase1.DisplayResetMessageArg) error {
+	return nil
 }
 
 func (rkt *rekeyTester) provisionNewDevice() *deviceWrapper {

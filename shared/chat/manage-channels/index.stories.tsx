@@ -91,6 +91,8 @@ const load = () => {
           canEditChannels={true}
           canCreateChannels={true}
           channels={channels}
+          isFiltered={false}
+          onChangeSearch={Sb.action('onChangeSearch')}
           onClose={Sb.action('onClose')}
           onToggle={Sb.action('onToggle')}
           onEdit={Sb.action('onEdit')}
@@ -111,6 +113,8 @@ const load = () => {
           canEditChannels={true}
           canCreateChannels={true}
           channels={[]}
+          isFiltered={false}
+          onChangeSearch={Sb.action('onChangeSearch')}
           onClose={Sb.action('onClose')}
           onToggle={Sb.action('onToggle')}
           onEdit={Sb.action('onEdit')}
@@ -128,9 +132,11 @@ const load = () => {
       <Box style={{minWidth: isMobile ? undefined : 400, width: '100%'}}>
         <ManageChannels
           teamname="stripe.usa"
+          isFiltered={false}
           canEditChannels={false}
           canCreateChannels={false}
           channels={channels}
+          onChangeSearch={Sb.action('onChangeSearch')}
           onClose={Sb.action('onClose')}
           onToggle={Sb.action('onToggle')}
           onEdit={Sb.action('onEdit')}
@@ -161,7 +167,6 @@ const load = () => {
           showDelete={true}
           deleteRenameDisabled={false}
           waitingForGetInfo={false}
-          loadChannelInfo={Sb.action('loadChannelInfo')}
         />
       </Box>
     ))
@@ -182,7 +187,6 @@ const load = () => {
           showDelete={true}
           deleteRenameDisabled={true}
           waitingForGetInfo={false}
-          loadChannelInfo={Sb.action('loadChannelInfo')}
         />
       </Box>
     ))
@@ -203,7 +207,6 @@ const load = () => {
           showDelete={true}
           deleteRenameDisabled={false}
           waitingForGetInfo={true}
-          loadChannelInfo={Sb.action('loadChannelInfo')}
         />
       </Box>
     ))
@@ -224,13 +227,15 @@ const load = () => {
           showDelete={true}
           deleteRenameDisabled={false}
           waitingForGetInfo={true}
-          loadChannelInfo={Sb.action('loadChannelInfo')}
         />
       </Box>
     ))
 }
 
-const toPlatformStyle = styleOpts => ({...styleOpts.common, ...styleOpts[isMobile ? 'mobile' : 'desktop']})
+const toPlatformStyle = (styleOpts: any) => ({
+  ...styleOpts.common,
+  ...styleOpts[isMobile ? 'mobile' : 'desktop'],
+})
 
 const editChannelStyle = {
   common: {},

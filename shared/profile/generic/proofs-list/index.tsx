@@ -23,9 +23,9 @@ export type Props = {
 
 const HoverBox = Styles.isMobile
   ? Kb.ClickableBox
-  : Styles.styled(Kb.ClickableBox)({
+  : Styles.styled(Kb.ClickableBox)(() => ({
       ':hover': {backgroundColor: Styles.globalColors.blueLighter2},
-    })
+    }))
 
 type ProvidersProps = {
   filter: string
@@ -68,7 +68,17 @@ class Providers extends React.Component<ProvidersProps> {
   render() {
     const filterRegexp = makeInsertMatcher(this.props.filter)
 
-    const items = this.props.providers.filter(p => filterProvider(p, filterRegexp))
+    let exact: Array<IdentityProvider> = []
+    let inexact: Array<IdentityProvider> = []
+    this.props.providers.forEach(p => {
+      if (p.name === this.props.filter) {
+        exact.push(p)
+      } else if (filterProvider(p, filterRegexp)) {
+        inexact.push(p)
+      }
+    })
+
+    const items = [...exact, ...inexact]
     return (
       <Kb.Box2 direction="vertical" fullWidth={true} fullHeight={true}>
         <Kb.Box2 direction="vertical" fullWidth={true} style={styles.flexOne}>
@@ -89,52 +99,52 @@ type State = {
   filter: string
 }
 
-class _ProofsList extends React.Component<Props, State> {
+class ProofsList extends React.Component<Props, State> {
   state = {filter: ''}
   _onSetFilter = filter => this.setState({filter})
   render() {
     return (
-      <Kb.Box style={styles.mobileFlex}>
-        <Kb.Box2 direction="vertical" style={styles.container}>
-          {!Styles.isMobile && (
-            <Kb.Text center={true} type="Header" style={styles.header}>
-              Prove your...
-            </Kb.Text>
-          )}
-          <Kb.Box style={styles.inputContainer}>
-            <Kb.Icon
-              type="iconfont-search"
-              color={Styles.globalColors.black_50}
-              fontSize={Styles.isMobile ? 20 : 16}
-            />
-            <Kb.PlainInput
-              autoFocus={true}
-              placeholder={`Search ${this.props.providers.length} platforms`}
-              placeholderColor={Styles.globalColors.black_50}
-              flexable={true}
-              multiline={false}
-              onChangeText={this._onSetFilter}
-              type="text"
-              style={styles.text}
-              value={this.state.filter}
-            />
-          </Kb.Box>
-          <Kb.Box2 direction="vertical" fullWidth={true} style={styles.listContainer}>
-            <Providers {...this.props} filter={this.state.filter} />
-            <Kb.Divider />
+      <Kb.PopupWrapper onCancel={this.props.onCancel}>
+        <Kb.Box style={styles.mobileFlex}>
+          <Kb.Box2 direction="vertical" style={styles.container}>
+            {!Styles.isMobile && (
+              <Kb.Text center={true} type="Header" style={styles.header}>
+                Prove your...
+              </Kb.Text>
+            )}
+            <Kb.Box style={styles.inputContainer}>
+              <Kb.Icon
+                type="iconfont-search"
+                color={Styles.globalColors.black_50}
+                fontSize={Styles.isMobile ? 20 : 16}
+              />
+              <Kb.PlainInput
+                autoFocus={true}
+                placeholder={`Search ${this.props.providers.length} platforms`}
+                flexable={true}
+                multiline={false}
+                onChangeText={this._onSetFilter}
+                type="text"
+                style={styles.text}
+                value={this.state.filter}
+              />
+            </Kb.Box>
+            <Kb.Box2 direction="vertical" fullWidth={true} style={styles.listContainer}>
+              <Providers {...this.props} filter={this.state.filter} />
+              <Kb.Divider />
+            </Kb.Box2>
+            <HoverBox onClick={this.props.onClickLearn} style={styles.footer}>
+              <Kb.Icon color={Styles.globalColors.black_50} fontSize={16} type="iconfont-info" />
+              <Kb.Text center={true} type="BodySmall" style={styles.footerText}>
+                Learn how to list your platform here
+              </Kb.Text>
+            </HoverBox>
           </Kb.Box2>
-          <HoverBox onClick={this.props.onClickLearn} style={styles.footer}>
-            <Kb.Icon color={Styles.globalColors.black_50} fontSize={16} type="iconfont-info" />
-            <Kb.Text center={true} type="BodySmall" style={styles.footerText}>
-              Learn how to list your platform here
-            </Kb.Text>
-          </HoverBox>
-        </Kb.Box2>
-      </Kb.Box>
+        </Kb.Box>
+      </Kb.PopupWrapper>
     )
   }
 }
-const ProofsList = Kb.HeaderOrPopup(_ProofsList)
 
 const rightColumnStyle = Styles.platformStyles({
   isElectron: {
@@ -144,94 +154,97 @@ const rightColumnStyle = Styles.platformStyles({
   },
 })
 
-const styles = Styles.styleSheetCreate({
-  container: Styles.platformStyles({
-    isElectron: {
-      borderRadius: 4,
-      height: 485,
-      overflow: 'hidden',
-      width: 560,
-    },
-    isMobile: {
-      flex: 1,
-      width: '100%',
-    },
-  }),
-  containerBox: {
-    alignItems: 'center',
-    display: 'flex',
-    flexDirection: 'row',
-    height: Styles.isMobile ? 56 : 48,
-    justifyContent: 'flex-start',
-  },
-  description: {
-    ...rightColumnStyle,
-  },
-  flexOne: {
-    flex: 1,
-  },
-  footer: {
-    alignItems: 'center',
-    backgroundColor: Styles.globalColors.blueGrey,
-    display: 'flex',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    padding: Styles.globalMargins.xsmall,
-  },
-  footerText: {
-    ...rightColumnStyle,
-    color: Styles.globalColors.black_50,
-    marginLeft: Styles.globalMargins.tiny,
-  },
-  header: {
-    color: Styles.globalColors.black,
-    marginTop: Styles.globalMargins.tiny,
-  },
-  icon: {
-    height: 32,
-    marginLeft: Styles.globalMargins.small,
-    marginRight: Styles.globalMargins.small,
-    width: 32,
-  },
-  iconArrow: {
-    marginRight: Styles.globalMargins.small,
-  },
-  inputContainer: {
-    ...Styles.globalStyles.flexBoxRow,
-    alignItems: 'center',
-    backgroundColor: Styles.globalColors.black_10,
-    borderRadius: Styles.borderRadius,
-    marginBottom: Styles.globalMargins.xsmall,
-    marginLeft: Styles.globalMargins.small,
-    marginRight: Styles.globalMargins.small,
-    marginTop: Styles.globalMargins.xsmall,
-    padding: Styles.globalMargins.tiny,
-  },
-  listContainer: Styles.platformStyles({
-    common: {
-      flex: 1,
-    },
-    isElectron: {
-      maxHeight: 560 - 48,
-    },
-  }),
-  mobileFlex: Styles.platformStyles({
-    isMobile: {flex: 1},
-  }),
-  new: {
-    marginRight: Styles.globalMargins.xtiny,
-    marginTop: 1,
-  },
-  text: {
-    backgroundColor: Styles.globalColors.transparent,
-    color: Styles.globalColors.black_50,
-    marginLeft: Styles.globalMargins.tiny,
-    marginRight: Styles.globalMargins.tiny,
-  },
-  title: {
-    ...rightColumnStyle,
-    color: Styles.globalColors.black,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: Styles.platformStyles({
+        isElectron: {
+          borderRadius: 4,
+          height: 485,
+          overflow: 'hidden',
+          width: 560,
+        },
+        isMobile: {
+          flex: 1,
+          width: '100%',
+        },
+      }),
+      containerBox: {
+        alignItems: 'center',
+        display: 'flex',
+        flexDirection: 'row',
+        height: Styles.isMobile ? 56 : 48,
+        justifyContent: 'flex-start',
+      },
+      description: {
+        ...rightColumnStyle,
+      },
+      flexOne: {
+        flex: 1,
+      },
+      footer: {
+        alignItems: 'center',
+        backgroundColor: Styles.globalColors.blueGrey,
+        display: 'flex',
+        flexDirection: 'row',
+        justifyContent: 'center',
+        padding: Styles.globalMargins.xsmall,
+      },
+      footerText: {
+        ...rightColumnStyle,
+        color: Styles.globalColors.black_50,
+        marginLeft: Styles.globalMargins.tiny,
+      },
+      header: {
+        color: Styles.globalColors.black,
+        marginTop: Styles.globalMargins.tiny,
+      },
+      icon: {
+        height: 32,
+        marginLeft: Styles.globalMargins.small,
+        marginRight: Styles.globalMargins.small,
+        width: 32,
+      },
+      iconArrow: {
+        marginRight: Styles.globalMargins.small,
+      },
+      inputContainer: {
+        ...Styles.globalStyles.flexBoxRow,
+        alignItems: 'center',
+        backgroundColor: Styles.globalColors.black_10,
+        borderRadius: Styles.borderRadius,
+        marginBottom: Styles.globalMargins.xsmall,
+        marginLeft: Styles.globalMargins.small,
+        marginRight: Styles.globalMargins.small,
+        marginTop: Styles.globalMargins.xsmall,
+        padding: Styles.globalMargins.tiny,
+      },
+      listContainer: Styles.platformStyles({
+        common: {
+          flex: 1,
+        },
+        isElectron: {
+          maxHeight: 560 - 48,
+        },
+      }),
+      mobileFlex: Styles.platformStyles({
+        isMobile: {flex: 1},
+      }),
+      new: {
+        marginRight: Styles.globalMargins.xtiny,
+        marginTop: 1,
+      },
+      text: {
+        backgroundColor: Styles.globalColors.transparent,
+        color: Styles.globalColors.black_50,
+        marginLeft: Styles.globalMargins.tiny,
+        marginRight: Styles.globalMargins.tiny,
+      },
+      title: {
+        ...rightColumnStyle,
+        color: Styles.globalColors.black,
+      },
+    } as const)
+)
 
 export default ProofsList

@@ -31,13 +31,14 @@ const Wrapper = ({children}) => (
 )
 
 const types: ButtonType[] = ['Default', 'Success', 'Danger', 'Wallet', 'Dim']
-const backgroundColors: ButtonColor[] = ['blue', 'red', 'green', 'purple', 'black']
+const backgroundColors: ButtonColor[] = ['blue', 'red', 'green', 'purple', 'black', 'yellow']
 const bgToColor = {
   black: globalColors.black,
   blue: globalColors.blue,
   green: globalColors.green,
   purple: globalColors.purple,
   red: globalColors.red,
+  yellow: globalColors.yellow,
 }
 
 const load = () => {
@@ -52,6 +53,13 @@ const load = () => {
             </Text>
             <Button {...commonProps} type={t} label="Primary" mode="Primary" />
             <Button {...commonProps} type={t} label="Secondary" mode="Secondary" />
+            <Button
+              {...commonProps}
+              type={t}
+              icon="iconfont-block"
+              label="Secondary with icon"
+              mode="Secondary"
+            />
           </Wrapper>
         ))}
         <Wrapper>
@@ -71,6 +79,36 @@ const load = () => {
                 <Button {...commonProps} type={t} label={t} mode="Secondary" small={true} disabled={true} />
                 <Button {...commonProps} type={t} label={t} small={true} waiting={true} />
                 <Button {...commonProps} type={t} label={t} mode="Secondary" small={true} waiting={true} />
+              </Wrapper>
+            ))}
+          </Box2>
+        </Wrapper>
+        <Wrapper>
+          <Box2
+            direction="vertical"
+            gap="small"
+            gapStart={true}
+            gapEnd={true}
+            style={{alignSelf: 'flex-start'}}
+          >
+            <Text type="BodySemibold">Icon</Text>
+            {types.map(t => (
+              <Wrapper key={t}>
+                <Button
+                  {...commonProps}
+                  type={t}
+                  icon="iconfont-fire"
+                  tooltip="Icon button!"
+                  label={undefined}
+                />
+                <Button
+                  {...commonProps}
+                  type={t}
+                  icon="iconfont-fire"
+                  tooltip="Icon button!"
+                  label={undefined}
+                  mode="Secondary"
+                />
               </Wrapper>
             ))}
           </Box2>

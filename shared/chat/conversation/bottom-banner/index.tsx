@@ -1,18 +1,15 @@
 import * as React from 'react'
 import {Box2, Button, Text} from '../../../common-adapters'
+import {assertionToDisplay} from '../../../common-adapters/usernames'
+import {Props as TextProps} from '../../../common-adapters/text'
 import * as Styles from '../../../styles'
-import {intersperseFn} from '../../../util/arrays'
-import flags from '../../../util/feature-flags'
 import {isMobile} from '../../../constants/platform'
-
-export type BrokenTrackerProps = {
-  users: Array<string>
-  onClick: (user: string) => void
-}
 
 export type InviteProps = {
   openShareSheet: () => void
   openSMS: (phoneNumber: string) => void
+  onDismiss: () => void
+  usernameToContactName: Map<string, string>
   users: Array<string>
 }
 
@@ -26,101 +23,52 @@ const BannerBox = (props: {
     fullWidth={true}
     style={Styles.collapseStyles([styles.bannerStyle, {backgroundColor: props.color}])}
     gap={props.gap}
+    alignItems="center"
   >
     {props.children}
   </Box2>
 )
 
-const BannerText = props => <Text center={true} type="BodySmallSemibold" negative={true} {...props} />
+const BannerText = (props: Partial<TextProps>) => (
+  <Text center={true} type="BodySmallSemibold" negative={true} {...props} />
+)
 
-function brokenSeparator(idx, item, arr) {
-  if (idx === arr.length) {
-    return null
-  } else if (idx === arr.length - 1) {
-    return (
-      <BannerText key={idx}>
-        {arr.length === 1 ? '' : ','}
-        &nbsp;and&nbsp;
-      </BannerText>
-    )
-  } else {
-    return <BannerText key={idx}>,&nbsp;</BannerText>
-  }
-}
+const InviteBanner = ({users, openSMS, openShareSheet, usernameToContactName, onDismiss}: InviteProps) => {
+  const theirName =
+    users.length === 1
+      ? usernameToContactName.get(users[0]) || assertionToDisplay(users[0])
+      : `these ${users.length} people`
+  const mobileClickInstall =
+    users.length === 1 && users[0].endsWith('@phone') ? () => openSMS(users[0].slice(0, -6)) : openShareSheet
+  const caption = `Last step: summon ${theirName}!`
 
-const BrokenTrackerBanner = ({users, onClick}: BrokenTrackerProps) =>
-  users.length === 1 ? (
-    <BannerBox color={Styles.globalColors.red}>
-      <BannerText>
-        <BannerText>Some of&nbsp;</BannerText>
-        <BannerText type="BodySmallSemiboldPrimaryLink" onClick={() => onClick(users[0])}>
-          {users[0]}
-        </BannerText>
-        <BannerText>'s proofs have changed since you last followed them.</BannerText>
-      </BannerText>
-    </BannerBox>
-  ) : (
-    <BannerBox color={Styles.globalColors.red}>
-      <BannerText>
-        {intersperseFn(
-          brokenSeparator,
-          users.map((user, idx) => (
-            <BannerText type="BodySmallSemiboldPrimaryLink" key={user} onClick={() => onClick(user)}>
-              {user}
-            </BannerText>
-          ))
-        )}
-        <BannerText>&nbsp;have changed their proofs since you last followed them.</BannerText>
-      </BannerText>
-    </BannerBox>
-  )
-
-const InviteBanner = ({users, openSMS, openShareSheet}: InviteProps) => {
-  if (!flags.sbsContacts) {
-    return (
-      <BannerBox color={Styles.globalColors.blue}>
-        <BannerText>Your messages to {users.join(' & ')} will unlock when they join Keybase.</BannerText>
-      </BannerBox>
-    )
-  }
-
-  // On mobile, single recipient, a phone number
-  if (isMobile && users.length === 1 && users[0].endsWith('@phone')) {
-    return (
-      <BannerBox color={Styles.globalColors.blue} gap="xtiny">
-        <BannerText>Last step: summon Firstname Lastman!</BannerText>
-        <Button label="Send install link" onClick={() => openSMS(users[0].slice(0, -6))} mode="Secondary" />
-      </BannerBox>
-    )
-  }
-
-  // Any number of recipients, on iOS / Android show the share screen
   if (isMobile) {
     return (
       <BannerBox color={Styles.globalColors.blue} gap="xtiny">
-        <BannerText>
-          {users.length === 1
-            ? 'Last step: summon Firstname Lastman!'
-            : `Last step: summon these ${users.length} people!`}
-        </BannerText>
-        <Button label="Send install link" onClick={openShareSheet} mode="Secondary" />
+        <BannerText>{caption}</BannerText>
+        <Box2 direction="horizontal" gap="tiny" fullWidth={true} centerChildren={true}>
+          <Button
+            label="Send install link"
+            onClick={mobileClickInstall}
+            small={true}
+            backgroundColor="blue"
+          />
+          <Button label="Dismiss" mode="Secondary" onClick={onDismiss} small={true} backgroundColor="blue" />
+        </Box2>
       </BannerBox>
     )
   }
 
-  const hasPhoneNumber = users.some(user => user.endsWith('@phone'))
   return (
     <BannerBox color={Styles.globalColors.blue}>
-      <BannerText>
-        Your messages will unlock once they join Keybase
-        {hasPhoneNumber && ' and verify their phone number'}.
-      </BannerText>
+      <BannerText>{caption}</BannerText>
       <BannerText>
         Send them this link:
         <BannerText
           onClickURL="https://keybase.io/app"
           underline={true}
           type="BodySmallPrimaryLink"
+          selectable={true}
           style={{marginLeft: Styles.globalMargins.xtiny}}
         >
           https://keybase.io/app
@@ -130,23 +78,26 @@ const InviteBanner = ({users, openSMS, openShareSheet}: InviteProps) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
-  bannerStyle: Styles.platformStyles({
-    common: {
-      ...Styles.globalStyles.flexBoxColumn,
-      alignItems: 'center',
-      backgroundColor: Styles.globalColors.red,
-      flexWrap: 'wrap',
-      justifyContent: 'center',
-      paddingBottom: 8,
-      paddingLeft: 24,
-      paddingRight: 24,
-      paddingTop: 8,
-    },
-    isElectron: {
-      marginBottom: Styles.globalMargins.tiny,
-    },
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      bannerStyle: Styles.platformStyles({
+        common: {
+          ...Styles.globalStyles.flexBoxColumn,
+          alignItems: 'center',
+          backgroundColor: Styles.globalColors.red,
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          paddingBottom: 8,
+          paddingLeft: 24,
+          paddingRight: 24,
+          paddingTop: 8,
+        },
+        isElectron: {
+          marginBottom: Styles.globalMargins.tiny,
+        },
+      }),
+    } as const)
+)
 
-export {BrokenTrackerBanner, InviteBanner}
+export {InviteBanner}

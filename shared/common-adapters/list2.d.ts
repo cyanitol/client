@@ -1,5 +1,5 @@
 import * as React from 'react'
-import {StylesCrossPlatformWithSomeDisallowed} from '../styles'
+import {CustomStyles} from '../styles'
 
 // List2 differs from list in that on desktop it uses react-window.
 // Don't use List2 if you need a list with dynamic item sizes
@@ -7,7 +7,7 @@ import {StylesCrossPlatformWithSomeDisallowed} from '../styles'
 export type VariableItemHeight<Item> = {
   getItemLayout: (
     index: number,
-    item: Item
+    item?: Item
   ) => {
     index: number
     length: number
@@ -28,17 +28,14 @@ export type FixedListItem2Auto = {
 
 // Having flex in the list messes with creating the right size inner container
 // for scroll
-type DisallowedStyles = {
-  flex?: never
-  flexDirection?: never
-}
-
 export type Props<Item> = {
-  style?: StylesCrossPlatformWithSomeDisallowed<DisallowedStyles>
+  forceLayout?: number // desktop only; causes resetAfterIndex(0, true) whe nit changes.
+  style?: CustomStyles<'flex' | 'flexDirection', {}>
   indexAsKey?: boolean
+  itemAsKey?: Item extends string ? boolean : never // only if items are unique strings
   keyProperty?: string // if passed uses item[keyProperty] for the item keys,
   items: Array<Item>
-  renderItem: (index: number, item: Item) => React.ReactNode
+  renderItem: (index: number, item: Item) => React.ReactElement | null
   itemHeight: VariableItemHeight<Item> | FixedHeight | FixedListItem2Auto
   estimatedItemHeight?: number
   selectedIndex?: number // TODO,
@@ -46,6 +43,7 @@ export type Props<Item> = {
   keyboardShouldPersistTaps?: 'never' | 'always' | 'handled' // mobile only,
   windowSize?: number // Mobile only, has a non-RN default,
   onEndReached?: () => void
+  reAnimated?: boolean // mobile only, make list animated
 }
 
 export default class List2<Item> extends React.Component<Props<Item>> {}

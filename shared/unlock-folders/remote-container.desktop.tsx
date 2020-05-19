@@ -1,18 +1,24 @@
-import UnlockFolders from './index.desktop'
-import {remoteConnect} from '../util/container'
+import * as Container from '../util/container'
+import * as React from 'react'
 import * as UnlockFoldersGen from '../actions/unlock-folders-gen'
+import UnlockFolders from './index.desktop'
+import {DeserializeProps} from './remote-serializer.desktop'
 
-type State = any
-type OwnProps = {}
+const RemoteContainer = () => {
+  const state = Container.useRemoteStore<DeserializeProps>()
+  const dispatch = Container.useDispatch()
 
-// Props are handled by remote-proxy.desktop.js
-const mapDispatchToProps = dispatch => ({
-  onBackFromPaperKey: () => dispatch(UnlockFoldersGen.createOnBackFromPaperKey()),
-  onClose: () => dispatch(UnlockFoldersGen.createClosePopup()),
-  onContinueFromPaperKey: (paperKey: string) => dispatch(UnlockFoldersGen.createCheckPaperKey({paperKey})),
-  onFinish: () => dispatch(UnlockFoldersGen.createFinish()),
-  toPaperKeyInput: () => dispatch(UnlockFoldersGen.createToPaperKeyInput()),
-})
-export default remoteConnect((state: any) => state, mapDispatchToProps, (s, d, o) => ({...o, ...s, ...d}))(
-  UnlockFolders
-)
+  return (
+    <UnlockFolders
+      {...state}
+      onBackFromPaperKey={() => dispatch(UnlockFoldersGen.createOnBackFromPaperKey())}
+      onClose={() => dispatch(UnlockFoldersGen.createClosePopup())}
+      onContinueFromPaperKey={(paperKey: string) =>
+        dispatch(UnlockFoldersGen.createCheckPaperKey({paperKey}))
+      }
+      onFinish={() => dispatch(UnlockFoldersGen.createFinish())}
+      toPaperKeyInput={() => dispatch(UnlockFoldersGen.createToPaperKeyInput())}
+    />
+  )
+}
+export default RemoteContainer

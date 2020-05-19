@@ -1,5 +1,7 @@
 import * as React from 'react'
 import * as Kb from '../../../common-adapters'
+import * as Container from '../../../util/container'
+import {useSafeArea} from '../../../common-adapters/safe-area-view'
 import * as Types from '../../../constants/types/wallets'
 import * as Styles from '../../../styles'
 import {SendButton, SmallAccountID} from '../../common'
@@ -9,7 +11,8 @@ type Props = {
   accountID: Types.AccountID
   isDefaultWallet: boolean
   keybaseUser: string
-  onBack: (() => void) | null
+  onBack?: () => void
+  onBuy: () => void
   onReceive: () => void
   onSettings: () => void
   thisDeviceIsLockedOut: boolean
@@ -18,7 +21,18 @@ type Props = {
 }
 
 const Header = (props: Props) => {
-  const backButton = props.onBack && <Kb.BackButton onClick={props.onBack} style={styles.backButton} />
+  const acceptedDisclaimer = Container.useSelector(state => state.wallets.acceptedDisclaimer)
+  const insets = useSafeArea()
+  // TODO can handle this better in nav5
+  if (!acceptedDisclaimer) {
+    return (
+      <Kb.Box2
+        direction="vertical"
+        style={{backgroundColor: Styles.globalColors.purple, paddingTop: insets.top, width: '100%'}}
+      />
+    )
+  }
+  const backButton = Styles.isPhone && <Kb.BackButton onClick={props.onBack} style={styles.backButton} />
   // Only show caret/unread badge when we have a switcher,
   // i.e. when isMobile is true.
   const caret = Styles.isMobile && (
@@ -72,7 +86,11 @@ const Header = (props: Props) => {
       gap="tiny"
       gapStart={true}
       gapEnd={true}
-      style={styles.container}
+      style={Styles.collapseStyles([
+        styles.container,
+        {paddingTop: insets.top},
+        acceptedDisclaimer && {height: 150 + insets.top / 2},
+      ])}
     >
       {nameAndInfo}
       <Kb.Box2 direction="horizontal" gap="tiny" centerChildren={true}>
@@ -83,13 +101,17 @@ const Header = (props: Props) => {
           onClick={props.onReceive}
           label="Receive"
           disabled={!props.walletName}
+          narrow={Styles.isMobile}
         />
         <Kb.Button
-          onClick={props.onSettings}
-          mode="Secondary"
-          style={styles.settingsButton}
           type="Wallet"
-        >
+          mode="Secondary"
+          onClick={props.onBuy}
+          label="Buy"
+          disabled={!props.walletName}
+          narrow={Styles.isMobile}
+        />
+        <Kb.Button onClick={props.onSettings} mode="Secondary" style={styles.settingsButton} type="Wallet">
           <Kb.Icon type="iconfont-gear" style={styles.gear} />
         </Kb.Button>
       </Kb.Box2>
@@ -102,51 +124,56 @@ const Header = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
-  backButton: {
-    left: 0,
-    position: 'absolute',
-  },
-  caret: {
-    marginLeft: Styles.globalMargins.xtiny,
-    width: 10,
-  },
-  container: {
-    borderBottomColor: Styles.globalColors.black_10,
-    borderBottomWidth: 1,
-    borderStyle: 'solid',
-    flexShrink: 0,
-  },
-  gear: {
-    position: 'relative',
-    top: 1,
-  },
-  settingsButton: {
-    minWidth: undefined,
-    paddingLeft: Styles.globalMargins.tiny,
-    paddingRight: Styles.globalMargins.tiny,
-  },
-  smallAccountID: {
-    marginLeft: Styles.globalMargins.tiny,
-    marginRight: Styles.globalMargins.tiny,
-    textAlign: 'center',
-  },
-  spinner: {
-    height: Styles.globalMargins.small,
-    width: Styles.globalMargins.small,
-  },
-  topContainer: {
-    position: 'relative',
-  },
-  unread: {
-    backgroundColor: Styles.globalColors.orange,
-    borderRadius: 6,
-    flexShrink: 0,
-    height: Styles.globalMargins.tiny,
-    marginLeft: -Styles.globalMargins.tiny,
-    marginTop: -Styles.globalMargins.xtiny,
-    width: Styles.globalMargins.tiny,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      backButton: {
+        left: 0,
+        position: 'absolute',
+      },
+      caret: {
+        marginLeft: Styles.globalMargins.xtiny,
+        width: 10,
+      },
+      container: {
+        backgroundColor: Styles.globalColors.white,
+        borderBottomColor: Styles.globalColors.black_10,
+        borderBottomWidth: 1,
+        borderStyle: 'solid',
+        flexShrink: 0,
+        width: '100%',
+      },
+      gear: {
+        position: 'relative',
+        top: 1,
+      },
+      settingsButton: {
+        minWidth: undefined,
+        paddingLeft: Styles.globalMargins.tiny,
+        paddingRight: Styles.globalMargins.tiny,
+      },
+      smallAccountID: {
+        marginLeft: Styles.globalMargins.tiny,
+        marginRight: Styles.globalMargins.tiny,
+        textAlign: 'center',
+      },
+      spinner: {
+        height: Styles.globalMargins.small,
+        width: Styles.globalMargins.small,
+      },
+      topContainer: {
+        position: 'relative',
+      },
+      unread: {
+        backgroundColor: Styles.globalColors.orange,
+        borderRadius: 6,
+        flexShrink: 0,
+        height: Styles.globalMargins.tiny,
+        marginLeft: -Styles.globalMargins.tiny,
+        marginTop: -Styles.globalMargins.xtiny,
+        width: Styles.globalMargins.tiny,
+      },
+    } as const)
+)
 
 export default Header

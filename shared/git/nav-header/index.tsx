@@ -1,6 +1,9 @@
 import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
+import * as Container from '../../util/container'
+import * as GitGen from '../../actions/git-gen'
+import * as RouteTreeGen from '../../actions/route-tree-gen'
 
 export const HeaderTitle = () => (
   <Kb.Box2
@@ -24,45 +27,47 @@ export const HeaderTitle = () => (
   </Kb.Box2>
 )
 
-type HeaderRightActionsProps = {
-  onAddPersonal: () => void
-  onAddTeam: () => void
-}
+export const HeaderRightActions = () => {
+  const dispatch = Container.useDispatch()
 
-const _HeaderRightActions = (props: Kb.PropsWithOverlay<HeaderRightActionsProps>) => (
-  <>
-    <Kb.Button
-      label="New repository"
-      onClick={props.toggleShowingMenu}
-      small={true}
-      ref={props.setAttachmentRef}
-      style={styles.newRepoButton}
-    />
+  const onAddPersonal = () => {
+    dispatch(GitGen.createSetError({}))
+    dispatch(RouteTreeGen.createNavigateAppend({path: [{props: {isTeam: false}, selected: 'gitNewRepo'}]}))
+  }
+  const onAddTeam = () => {
+    dispatch(GitGen.createSetError({}))
+    dispatch(RouteTreeGen.createNavigateAppend({path: [{props: {isTeam: true}, selected: 'gitNewRepo'}]}))
+  }
+
+  const {showingPopup, setShowingPopup, popup, popupAnchor} = Kb.usePopup(attachTo => (
     <Kb.FloatingMenu
-      attachTo={props.getAttachmentRef}
+      attachTo={attachTo}
       closeOnSelect={true}
-      visible={props.showingMenu}
-      onHidden={props.toggleShowingMenu}
+      visible={showingPopup}
+      onHidden={() => setShowingPopup(false)}
       position="bottom center"
       positionFallbacks={[]}
       items={[
-        {
-          onClick: () => props.onAddPersonal(),
-          title: 'New personal repository',
-        },
-        {
-          disabled: Styles.isMobile,
-          onClick: Styles.isMobile ? undefined : () => props.onAddTeam(),
-          style: Styles.isMobile ? {paddingLeft: 0, paddingRight: 0} : {},
-          title: `New team repository${Styles.isMobile ? ' (desktop only)' : ''}`,
-        },
+        {icon: 'iconfont-person', onClick: onAddPersonal, title: 'New personal repository'},
+        {icon: 'iconfont-people', onClick: onAddTeam, title: 'New team repository'},
       ]}
     />
-  </>
-)
-export const HeaderRightActions = Kb.OverlayParentHOC(_HeaderRightActions)
+  ))
+  return (
+    <>
+      <Kb.Button
+        label="New repository"
+        onClick={() => setShowingPopup(!showingPopup)}
+        small={true}
+        ref={popupAnchor}
+        style={styles.newRepoButton}
+      />
+      {popup}
+    </>
+  )
+}
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   headerTitle: {flex: 1, paddingBottom: Styles.globalMargins.xtiny, paddingLeft: Styles.globalMargins.xsmall},
   headerTitleLink: Styles.platformStyles({
     isElectron: {...Styles.desktopStyles.windowDraggingClickable, cursor: 'pointer'},
@@ -71,4 +76,4 @@ const styles = Styles.styleSheetCreate({
     common: {alignSelf: 'flex-end', marginBottom: 6, marginRight: Styles.globalMargins.xsmall},
     isElectron: Styles.desktopStyles.windowDraggingClickable,
   }),
-})
+}))

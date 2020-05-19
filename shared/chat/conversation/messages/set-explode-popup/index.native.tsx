@@ -1,9 +1,15 @@
 import * as React from 'react'
 import {Box2, Text, FloatingPicker} from '../../../../common-adapters/mobile.native'
-import {Props} from './index.types'
+import {Props} from '.'
 
 const Prompt = () => (
-  <Box2 direction="horizontal" fullWidth={true} gap="xtiny" style={promptContainerStyle}>
+  <Box2
+    direction="horizontal"
+    fullWidth={true}
+    gap="xtiny"
+    // @ts-ignore TODO fix styles
+    style={promptContainerStyle}
+  >
     <Text type="BodySmallSemibold">Explode messages after:</Text>
   </Box2>
 )

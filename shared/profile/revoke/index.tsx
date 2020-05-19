@@ -2,7 +2,7 @@ import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
 import * as Constants from '../../constants/profile'
-import {capitalize} from 'lodash-es'
+import capitalize from 'lodash/capitalize'
 import {subtitle as platformSubtitle} from '../../util/platforms'
 import {SiteIcon} from '../generic/shared'
 import {PlatformsExpandedType} from '../../constants/types/more'
@@ -68,48 +68,51 @@ const Revoke = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
-  contentContainer: {
-    ...Styles.globalStyles.flexBoxColumn,
-    alignItems: 'center',
-    flexGrow: 1,
-    justifyContent: 'center',
-    margin: Styles.isMobile ? Styles.globalMargins.tiny : Styles.globalMargins.large,
-    maxWidth: 512,
-    ...(Styles.isMobile ? {} : {textAlign: 'center'}),
-  },
-  descriptionText: {marginTop: Styles.globalMargins.medium},
-  errorBanner: {
-    ...Styles.globalStyles.flexBoxColumn,
-    alignItems: 'center',
-    backgroundColor: Styles.globalColors.red,
-    justifyContent: 'center',
-    minHeight: Styles.globalMargins.large,
-    padding: Styles.globalMargins.tiny,
-    width: '100%',
-  },
-  errorBannerText: {
-    color: Styles.globalColors.white,
-    maxWidth: 512,
-  },
-  platformSubtitle: {
-    color: Styles.globalColors.black_20,
-  },
-  platformUsername: Styles.platformStyles({
-    common: {
-      color: Styles.globalColors.redDark,
-      textDecorationLine: 'line-through',
-    },
-    isElectron: {
-      maxWidth: 400,
-      overflowWrap: 'break-word',
-    },
-  }),
-  positionRelative: {position: 'relative'},
-  reminderText: {marginTop: Styles.globalMargins.tiny},
-  revokeIcon: {bottom: -8, position: 'absolute', right: -10},
-  siteIcon: Styles.isMobile ? {height: 64, width: 64} : {height: 48, width: 48},
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      contentContainer: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'center',
+        flexGrow: 1,
+        justifyContent: 'center',
+        margin: Styles.isMobile ? Styles.globalMargins.tiny : Styles.globalMargins.large,
+        maxWidth: 512,
+        textAlign: Styles.isMobile ? undefined : 'center',
+      },
+      descriptionText: {marginTop: Styles.globalMargins.medium},
+      errorBanner: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'center',
+        backgroundColor: Styles.globalColors.red,
+        justifyContent: 'center',
+        minHeight: Styles.globalMargins.large,
+        padding: Styles.globalMargins.tiny,
+        width: '100%',
+      },
+      errorBannerText: {
+        color: Styles.globalColors.white,
+        maxWidth: 512,
+      },
+      platformSubtitle: {
+        color: Styles.globalColors.black_20,
+      },
+      platformUsername: Styles.platformStyles({
+        common: {
+          color: Styles.globalColors.redDark,
+          textDecorationLine: 'line-through',
+        },
+        isElectron: {
+          maxWidth: 400,
+          overflowWrap: 'break-word',
+        },
+      }),
+      positionRelative: {position: 'relative'},
+      reminderText: {marginTop: Styles.globalMargins.tiny},
+      revokeIcon: {bottom: -8, position: 'absolute', right: -10},
+      siteIcon: Styles.isMobile ? {height: 64, width: 64} : {height: 48, width: 48},
+    } as const)
+)
 
 function formatMessage(platform: PlatformsExpandedType) {
   if (platform === 'pgp') {

@@ -101,7 +101,7 @@ func NewKBFSService(kbCtx Context, config kbfsServiceConfig) (
 
 // Run starts listening on the passed-in listener.
 func (k *KBFSService) Run(l net.Listener) {
-	go k.listenLoop(l)
+	go func() { _ = k.listenLoop(l) }()
 }
 
 // registerProtocols registers protocols for this KBFSService.
@@ -121,7 +121,8 @@ func (k *KBFSService) registerProtocols(
 
 // handle creates a server on an established connection.
 func (k *KBFSService) handle(c net.Conn) {
-	xp := rpc.NewTransport(c, k.kbCtx.NewRPCLogFactory(), libkb.WrapError, rpc.DefaultMaxFrameLength)
+	xp := rpc.NewTransport(c, k.kbCtx.NewRPCLogFactory(), k.kbCtx.NewNetworkInstrumenter(keybase1.NetworkSource_LOCAL),
+		libkb.WrapError, rpc.DefaultMaxFrameLength)
 
 	server := rpc.NewServer(xp, libkb.WrapError)
 

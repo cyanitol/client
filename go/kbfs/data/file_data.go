@@ -116,7 +116,6 @@ func (fd *FileData) getByteSlicesInOffsetRange(ctx context.Context,
 
 	// Find all the indirect pointers to leaf blocks in the offset range.
 	var iptrs []IndirectFilePtr
-	firstBlockOff := Int64Offset(-1)
 	endBlockOff := Int64Offset(-1)
 	nextBlockOff := Int64Offset(-1)
 	var blockMap map[BlockPointer]Block
@@ -136,9 +135,6 @@ func (fd *FileData) getByteSlicesInOffsetRange(ctx context.Context,
 			lowestAncestor := p[len(p)-1]
 			iptr := childFileIptr(lowestAncestor)
 			iptrs = append(iptrs, iptr)
-			if firstBlockOff < 0 {
-				firstBlockOff = iptr.Off
-			}
 			if i == len(pfr)-1 {
 				leafBlock := blockMap[iptr.BlockPointer].(*FileBlock)
 				endBlockOff = iptr.Off + Int64Offset(len(leafBlock.Contents))
@@ -149,7 +145,6 @@ func (fd *FileData) getByteSlicesInOffsetRange(ctx context.Context,
 			BlockInfo: BlockInfo{BlockPointer: fd.rootBlockPointer()},
 			Off:       0,
 		}}
-		firstBlockOff = 0
 		endBlockOff = Int64Offset(len(topBlock.Contents))
 		blockMap = map[BlockPointer]Block{fd.rootBlockPointer(): topBlock}
 	}
@@ -981,8 +976,9 @@ func (fd *FileData) Split(ctx context.Context, id tlf.ID,
 				// TODO: If we're down to just one leaf block at this
 				// level, remove the layer of indirection (KBFS-1824).
 				iptrs := pblock.IPtrs
-				pblock.IPtrs =
-					append(iptrs[:pb.childIndex], iptrs[pb.childIndex+1:]...)
+				pblock.IPtrs = make([]IndirectFilePtr, len(iptrs)-1)
+				copy(pblock.IPtrs, iptrs[:pb.childIndex])
+				copy(pblock.IPtrs[pb.childIndex:], iptrs[pb.childIndex+1:])
 			}
 
 			// Mark all parents as dirty.
@@ -1004,7 +1000,8 @@ func (fd *FileData) Split(ctx context.Context, id tlf.ID,
 // info from any readied block to its corresponding old block pointer.
 func (fd *FileData) Ready(ctx context.Context, id tlf.ID,
 	bcache BlockCache, dirtyBcache IsDirtyProvider,
-	rp ReadyProvider, bps BlockPutState, topBlock *FileBlock, df *DirtyFile) (
+	rp ReadyProvider, bps BlockPutState, topBlock *FileBlock, df *DirtyFile,
+	hashBehavior BlockCacheHashBehavior) (
 	map[BlockInfo]BlockPointer, error) {
 	return fd.tree.ready(
 		ctx, id, bcache, dirtyBcache, rp, bps, topBlock,
@@ -1013,7 +1010,7 @@ func (fd *FileData) Ready(ctx context.Context, id tlf.ID,
 				return func() error { return df.setBlockSynced(ptr) }
 			}
 			return nil
-		})
+		}, hashBehavior)
 }
 
 // GetIndirectFileBlockInfosWithTopBlock returns the block infos
@@ -1117,9 +1114,6 @@ func (fd *FileData) DeepCopy(ctx context.Context, dataVer Ver) (
 	// Handle the single-level case first.
 	if !topBlock.IsInd {
 		newTopBlock := topBlock.DeepCopy()
-		if err != nil {
-			return ZeroPtr, nil, err
-		}
 
 		newTopPtr = fd.rootBlockPointer()
 		newTopPtr.RefNonce, err = kbfsblock.MakeRefNonce()
@@ -1259,7 +1253,8 @@ func (fd *FileData) DeepCopy(ctx context.Context, dataVer Ver) (
 // the BlockInfos for all children.
 func (fd *FileData) UndupChildrenInCopy(ctx context.Context,
 	bcache BlockCache, rp ReadyProvider, bps BlockPutState,
-	topBlock *FileBlock) ([]BlockInfo, error) {
+	topBlock *FileBlock, hashBehavior BlockCacheHashBehavior) (
+	[]BlockInfo, error) {
 	if !topBlock.IsInd {
 		return nil, nil
 	}
@@ -1292,7 +1287,7 @@ func (fd *FileData) UndupChildrenInCopy(ctx context.Context,
 	}
 
 	newInfos, err := fd.tree.readyHelper(
-		ctx, fd.tree.file.Tlf, bcache, rp, bps, pfr, nil)
+		ctx, fd.tree.file.Tlf, bcache, rp, bps, pfr, nil, hashBehavior)
 	if err != nil {
 		return nil, err
 	}
@@ -1310,7 +1305,8 @@ func (fd *FileData) UndupChildrenInCopy(ctx context.Context,
 // BlockInfos for all non-leaf children.
 func (fd *FileData) ReadyNonLeafBlocksInCopy(ctx context.Context,
 	bcache BlockCache, rp ReadyProvider, bps BlockPutState,
-	topBlock *FileBlock) ([]BlockInfo, error) {
+	topBlock *FileBlock, hashBehavior BlockCacheHashBehavior) (
+	[]BlockInfo, error) {
 	if !topBlock.IsInd {
 		return nil, nil
 	}
@@ -1329,7 +1325,7 @@ func (fd *FileData) ReadyNonLeafBlocksInCopy(ctx context.Context,
 	}
 
 	newInfos, err := fd.tree.readyHelper(
-		ctx, fd.tree.file.Tlf, bcache, rp, bps, pfr, nil)
+		ctx, fd.tree.file.Tlf, bcache, rp, bps, pfr, nil, hashBehavior)
 	if err != nil {
 		return nil, err
 	}

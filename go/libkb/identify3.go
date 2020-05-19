@@ -73,6 +73,12 @@ func (s *Identify3Session) ResultType() keybase1.Identify3ResultType {
 	}
 }
 
+func (s *Identify3Session) Outcome() *IdentifyOutcome {
+	s.Lock()
+	defer s.Unlock()
+	return s.outcome
+}
+
 func (s *Identify3Session) OutcomeLocked() *IdentifyOutcome {
 	return s.outcome
 }
@@ -149,7 +155,8 @@ func (s *Identify3State) Shutdown() chan struct{} {
 	ch := make(chan struct{})
 	if s.markShutdown() {
 		go func() {
-			s.eg.Wait()
+			_ = s.eg.Wait()
+			s.shutdownCh = nil
 			close(ch)
 		}()
 	} else {
@@ -173,7 +180,6 @@ func (s *Identify3State) markShutdown() bool {
 		return false
 	}
 	close(s.shutdownCh)
-	s.shutdownCh = nil
 	s.shutdown = true
 	return true
 }
@@ -227,7 +233,7 @@ func (s *Identify3State) runExpireThread(g *GlobalContext, expireCh <-chan struc
 }
 
 func (s *Identify3Session) doExpireSession(mctx MetaContext) {
-	defer mctx.Trace("Identify3Session#doExpireSession", func() error { return nil })()
+	defer mctx.Trace("Identify3Session#doExpireSession", nil)()
 	s.Lock()
 	defer s.Unlock()
 	mctx.Debug("Identify3Session#doExpireSession(%s)", s.id)
@@ -254,7 +260,7 @@ func (s *Identify3Session) doExpireSession(mctx MetaContext) {
 }
 
 func (s *Identify3State) expireSessions(mctx MetaContext, now time.Time) time.Duration {
-	defer mctx.Trace("Identify3State#expireSessions", func() error { return nil })()
+	defer mctx.Trace("Identify3State#expireSessions", nil)()
 
 	// getSesionsToExpire holds the Identify3State Mutex.
 	toExpire, diff := s.getSessionsToExpire(mctx, now)

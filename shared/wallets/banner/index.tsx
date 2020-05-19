@@ -5,6 +5,7 @@ import * as Styles from '../../styles'
 import {AdvancedBanner} from '../../constants/types/rpc-stellar-gen'
 
 export type Props = {
+  actionText?: string
   background: Background
   offerAdvancedSendForm?: AdvancedBanner
   onAction?: (() => void) | null
@@ -71,13 +72,13 @@ const Banner = (props: Props) => (
         negative={true}
         onClick={props.onAction}
       >
-        Review payments
+        {props.actionText}
       </Text>
     )}
   </Box2>
 )
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   container: Styles.platformStyles({
     common: {
       minHeight: 40,
@@ -93,6 +94,6 @@ const styles = Styles.styleSheetCreate({
     },
   }),
   secondText: {paddingLeft: Styles.globalMargins.xtiny},
-})
+}))
 
 export default Banner

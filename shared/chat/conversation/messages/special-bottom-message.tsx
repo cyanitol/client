@@ -34,26 +34,25 @@ class BottomMessage extends React.PureComponent<Props> {
 
 type OwnProps = {
   conversationIDKey: Types.ConversationIDKey
-  measure: (() => void)| null
+  measure: (() => void) | null
 }
 
-const mapStateToProps = (state, ownProps: OwnProps) => {
-  const meta = Constants.getMeta(state, ownProps.conversationIDKey)
-  const showResetParticipants = !meta.resetParticipants.isEmpty() ? ownProps.conversationIDKey : null
-  const showSuperseded =
-    meta && (meta.wasFinalizedBy || meta.supersededBy !== Constants.noConversationIDKey)
-      ? ownProps.conversationIDKey
-      : null
+export default namedConnect(
+  (state, ownProps: OwnProps) => {
+    const meta = Constants.getMeta(state, ownProps.conversationIDKey)
+    const showResetParticipants = meta.resetParticipants.size !== 0 ? ownProps.conversationIDKey : null
+    const showSuperseded =
+      meta && (meta.wasFinalizedBy || meta.supersededBy !== Constants.noConversationIDKey)
+        ? ownProps.conversationIDKey
+        : null
 
-  return {
-    measure: ownProps.measure,
-    showResetParticipants,
-    showSuperseded,
-  }
-}
-const mapDispatchToProps = dispatch => ({})
-const mergeProps = (stateProps, dispatchProps) => ({...stateProps, ...dispatchProps})
-
-export default namedConnect(mapStateToProps, mapDispatchToProps, mergeProps, 'BottomMessage')(
-  BottomMessage
-) as any
+    return {
+      measure: ownProps.measure,
+      showResetParticipants,
+      showSuperseded,
+    }
+  },
+  () => ({}),
+  (stateProps, dispatchProps) => ({...stateProps, ...dispatchProps}),
+  'BottomMessage'
+)(BottomMessage) as any

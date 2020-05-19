@@ -110,7 +110,7 @@ func (s *FileErasableKVStore) noiseKey(key string) string {
 }
 
 func (s *FileErasableKVStore) unbox(mctx MetaContext, data []byte, noiseBytes NoiseBytes, val interface{}) (err error) {
-	defer mctx.TraceTimed("FileErasableKVStore#unbox", func() error { return err })()
+	defer mctx.Trace("FileErasableKVStore#unbox", &err)()
 	// Decode encrypted box
 	var boxed boxedData
 	if err := MPackDecode(data, &boxed); err != nil {
@@ -145,7 +145,7 @@ func (s *FileErasableKVStore) unbox(mctx MetaContext, data []byte, noiseBytes No
 
 func (s *FileErasableKVStore) box(mctx MetaContext, val interface{},
 	noiseBytes NoiseBytes) (data []byte, err error) {
-	defer mctx.TraceTimed("FileErasableKVStore#box", func() error { return err })()
+	defer mctx.Trace("FileErasableKVStore#box", &err)()
 	data, err = MPackEncode(val)
 	if err != nil {
 		return data, err
@@ -175,7 +175,7 @@ func (s *FileErasableKVStore) box(mctx MetaContext, val interface{},
 }
 
 func (s *FileErasableKVStore) Put(mctx MetaContext, key string, val interface{}) (err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("FileErasableKVStore#Put: %v", key), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("FileErasableKVStore#Put: %v", key), &err)()
 	s.Lock()
 	defer s.Unlock()
 
@@ -192,7 +192,7 @@ func (s *FileErasableKVStore) Put(mctx MetaContext, key string, val interface{})
 }
 
 func (s *FileErasableKVStore) write(mctx MetaContext, key string, data []byte) (err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("FileErasableKVStore#write: %v", key), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("FileErasableKVStore#write: %v", key), &err)()
 	filepath := s.filepath(key)
 	if err := MakeParentDirs(mctx.G().Log, filepath); err != nil {
 		return err
@@ -203,9 +203,9 @@ func (s *FileErasableKVStore) write(mctx MetaContext, key string, data []byte) (
 		return err
 	}
 	// remove the temp file if it still exists at the end of this function
-	defer ShredFile(tmp.Name())
+	defer func() { _ = ShredFile(tmp.Name()) }()
 
-	if SetDisableBackup(mctx, tmp.Name()); err != nil {
+	if err := SetDisableBackup(mctx, tmp.Name()); err != nil {
 		return err
 	}
 
@@ -231,12 +231,15 @@ func (s *FileErasableKVStore) write(mctx MetaContext, key string, data []byte) (
 	// we'd need to somehow call the ReplaceFile Win32 function (which Go
 	// doesn't expose anywhere as far as I know, so this would require CGO) to
 	// take advantage of its lpBackupFileName param.
-	s.erase(mctx, key)
+	err = s.erase(mctx, key)
+	if err != nil {
+		return err
+	}
 
 	if err := os.Rename(tmp.Name(), filepath); err != nil {
 		return err
 	}
-	if SetDisableBackup(mctx, filepath); err != nil {
+	if err := SetDisableBackup(mctx, filepath); err != nil {
 		return err
 	}
 
@@ -250,7 +253,7 @@ func (s *FileErasableKVStore) write(mctx MetaContext, key string, data []byte) (
 }
 
 func (s *FileErasableKVStore) Get(mctx MetaContext, key string, val interface{}) (err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("FileErasableKVStore#Get: %v", key), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("FileErasableKVStore#Get: %v", key), &err)()
 	s.Lock()
 	defer s.Unlock()
 	return s.get(mctx, key, val)
@@ -260,6 +263,9 @@ func (s *FileErasableKVStore) get(mctx MetaContext, key string, val interface{})
 	noiseKey := s.noiseKey(key)
 	noise, err := s.read(mctx, noiseKey)
 	if err != nil {
+		if IsTooManyFilesError(err) {
+			return err
+		}
 		return NewUnboxError(err)
 	}
 	var noiseBytes NoiseBytes
@@ -267,6 +273,9 @@ func (s *FileErasableKVStore) get(mctx MetaContext, key string, val interface{})
 
 	data, err := s.read(mctx, key)
 	if err != nil {
+		if IsTooManyFilesError(err) {
+			return err
+		}
 		return NewUnboxError(err)
 	}
 
@@ -274,19 +283,19 @@ func (s *FileErasableKVStore) get(mctx MetaContext, key string, val interface{})
 }
 
 func (s *FileErasableKVStore) read(mctx MetaContext, key string) (data []byte, err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("FileErasableKVStore#read: %v", key), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("FileErasableKVStore#read: %v", key), &err)()
 	filepath := s.filepath(key)
 	return ioutil.ReadFile(filepath)
 }
 
 func (s *FileErasableKVStore) noiseHash(noiseBytes []byte) []byte {
 	h := sha256.New()
-	h.Write(noiseBytes[:])
+	_, _ = h.Write(noiseBytes)
 	return h.Sum(nil)
 }
 
 func (s *FileErasableKVStore) Erase(mctx MetaContext, key string) (err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("FileErasableKVStore#Erase: %s", key), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("FileErasableKVStore#Erase: %s", key), &err)()
 	s.Lock()
 	defer s.Unlock()
 	noiseKey := s.noiseKey(key)
@@ -298,7 +307,7 @@ func (s *FileErasableKVStore) Erase(mctx MetaContext, key string) (err error) {
 }
 
 func (s *FileErasableKVStore) erase(mctx MetaContext, key string) (err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("FileErasableKVStore#erase: %s", key), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("FileErasableKVStore#erase: %s", key), &err)()
 	filepath := s.filepath(key)
 	if exists, err := FileExists(filepath); err != nil {
 		return err
@@ -311,7 +320,7 @@ func (s *FileErasableKVStore) erase(mctx MetaContext, key string) (err error) {
 }
 
 func (s *FileErasableKVStore) AllKeys(mctx MetaContext, keySuffix string) (keys []string, err error) {
-	defer mctx.TraceTimed("FileErasableKVStore#AllKeys", func() error { return err })()
+	defer mctx.Trace("FileErasableKVStore#AllKeys", &err)()
 	s.Lock()
 	defer s.Unlock()
 	if err := os.MkdirAll(s.storageDir, PermDir); err != nil {

@@ -8,10 +8,11 @@ type PlaceholderProps = {
   type: Types.PathType.Folder | Types.PathType.File
 }
 
-export default ({type}: PlaceholderProps) => (
+const PlaceholderRow = ({type}: PlaceholderProps) => (
   <Kb.ListItem2
     type="Small"
     firstItem={true /* we add divider in Rows */}
+    statusIcon={<Kb.Box />}
     icon={
       <Kb.Icon
         type={type === Types.PathType.Folder ? 'icon-folder-placeholder-32' : 'icon-file-placeholder-32'}
@@ -25,9 +26,13 @@ export default ({type}: PlaceholderProps) => (
     }
   />
 )
+export default PlaceholderRow
 
-const styles = Styles.styleSheetCreate({
-  placeholder: {
-    marginTop: 4,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      placeholder: {
+        marginTop: 4,
+      },
+    } as const)
+)

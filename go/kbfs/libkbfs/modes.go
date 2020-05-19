@@ -29,6 +29,10 @@ func NewInitModeFromType(t InitModeType) InitMode {
 		return modeConstrained{modeDefault{}}
 	case InitMemoryLimited:
 		return modeMemoryLimited{modeConstrained{modeDefault{}}}
+	case InitTestSearch:
+		return modeTestSearch{modeDefault{}}
+	case InitSingleOpWithQR:
+		return modeSingleOpWithQR{modeSingleOp{modeDefault{}}}
 	default:
 		panic(fmt.Sprintf("Unknown mode: %s", t))
 	}
@@ -73,6 +77,10 @@ func (md modeDefault) RekeyQueueSize() int {
 }
 
 func (md modeDefault) IsTestMode() bool {
+	return false
+}
+
+func (md modeDefault) IsSingleOp() bool {
 	return false
 }
 
@@ -175,6 +183,10 @@ func (md modeDefault) DoLogObfuscation() bool {
 	return true
 }
 
+func (md modeDefault) BlockTLFEditHistoryIntialization() bool {
+	return false
+}
+
 func (md modeDefault) InitialDelayForBackgroundWork() time.Duration {
 	return 0
 }
@@ -183,8 +195,24 @@ func (md modeDefault) BackgroundWorkPeriod() time.Duration {
 	return 0
 }
 
-func (md modeDefault) DiskCacheWriteBufferSize() int {
+func (md modeDefault) IndexingEnabled() bool {
+	return false
+}
+
+func (md modeDefault) DelayInitialConnect() bool {
+	return false
+}
+
+func (md modeDefault) DbWriteBufferSize() int {
 	return 10 * opt.MiB // 10 MB
+}
+
+func (md modeDefault) DiskCacheCompactionEnabled() bool {
+	return true
+}
+
+func (md modeDefault) EditHistoryPrefetchingEnabled() bool {
+	return false
 }
 
 // Minimal mode:
@@ -223,6 +251,10 @@ func (mm modeMinimal) RekeyQueueSize() int {
 }
 
 func (mm modeMinimal) IsTestMode() bool {
+	return false
+}
+
+func (mm modeMinimal) IsSingleOp() bool {
 	return false
 }
 
@@ -338,6 +370,11 @@ func (mm modeMinimal) DoLogObfuscation() bool {
 	return true
 }
 
+func (mm modeMinimal) BlockTLFEditHistoryIntialization() bool {
+	// Never used.
+	return false
+}
+
 func (mm modeMinimal) InitialDelayForBackgroundWork() time.Duration {
 	// No background work
 	return math.MaxInt64
@@ -348,8 +385,24 @@ func (mm modeMinimal) BackgroundWorkPeriod() time.Duration {
 	return math.MaxInt64
 }
 
-func (mm modeMinimal) DiskCacheWriteBufferSize() int {
+func (mm modeMinimal) IndexingEnabled() bool {
+	return false
+}
+
+func (mm modeMinimal) DelayInitialConnect() bool {
+	return false
+}
+
+func (mm modeMinimal) DbWriteBufferSize() int {
 	return 1 * opt.KiB // 1 KB
+}
+
+func (mm modeMinimal) DiskCacheCompactionEnabled() bool {
+	return false
+}
+
+func (mm modeMinimal) EditHistoryPrefetchingEnabled() bool {
+	return false
 }
 
 // Single op mode:
@@ -406,6 +459,10 @@ func (mso modeSingleOp) TLFEditHistoryEnabled() bool {
 	return false
 }
 
+func (mso modeSingleOp) MetricsEnabled() bool {
+	return false
+}
+
 func (mso modeSingleOp) SendEditNotificationsEnabled() bool {
 	// We don't want git, or other single op writes, showing up in the
 	// notification history.
@@ -436,6 +493,42 @@ func (mso modeSingleOp) InitialDelayForBackgroundWork() time.Duration {
 func (mso modeSingleOp) BackgroundWorkPeriod() time.Duration {
 	// No background work
 	return math.MaxInt64
+}
+
+func (mso modeSingleOp) IsSingleOp() bool {
+	return true
+}
+
+func (mso modeSingleOp) DiskCacheCompactionEnabled() bool {
+	return false
+}
+
+// Single-op mode with QR:
+
+type modeSingleOpWithQR struct {
+	modeSingleOp
+}
+
+func (msowq modeSingleOpWithQR) QuotaReclamationEnabled() bool {
+	return true
+}
+
+func (msowq modeSingleOpWithQR) QuotaReclamationPeriod() time.Duration {
+	// We might end up needing to make this much shorter, because it
+	// can take a while to get through all the revisions.  But for now
+	// I want to make sure it doesn't wake up too often and cause too
+	// much CPU.
+	return 1 * time.Minute
+}
+
+func (msowq modeSingleOpWithQR) QuotaReclamationMinUnrefAge() time.Duration {
+	return 1 * time.Minute
+}
+
+func (msowq modeSingleOpWithQR) QuotaReclamationMinHeadAge() time.Duration {
+	// In the case of indexing, another device will never run QR on
+	// the TLFs in question, but might as well set it to something...
+	return 2 * time.Minute
 }
 
 // Constrained mode:
@@ -526,6 +619,14 @@ func (mc modeConstrained) LocalHTTPServerEnabled() bool {
 	return true
 }
 
+func (mc modeConstrained) BlockTLFEditHistoryIntialization() bool {
+	// In constrained mode, we don't want to incur this work in the
+	// background when it might interfere with other foreground tasks.
+	// Instead, make requests that depend on the edit history block
+	// and effectively foreground that initialization work.
+	return true
+}
+
 func (mc modeConstrained) InitialDelayForBackgroundWork() time.Duration {
 	return 10 * time.Second
 }
@@ -534,8 +635,16 @@ func (mc modeConstrained) BackgroundWorkPeriod() time.Duration {
 	return 5 * time.Second
 }
 
-func (mc modeConstrained) DiskCacheWriteBufferSize() int {
+func (mc modeConstrained) DelayInitialConnect() bool {
+	return true
+}
+
+func (mc modeConstrained) DbWriteBufferSize() int {
 	return 100 * opt.KiB // 100 KB
+}
+
+func (mc modeConstrained) DiskCacheCompactionEnabled() bool {
+	return false
 }
 
 // Memory limited mode
@@ -584,8 +693,26 @@ func (mml modeMemoryLimited) TLFEditHistoryEnabled() bool {
 	return false
 }
 
-func (mml modeMemoryLimited) DiskCacheWriteBufferSize() int {
+func (mml modeMemoryLimited) DbWriteBufferSize() int {
 	return 1 * opt.KiB // 1 KB
+}
+
+type modeTestSearch struct {
+	InitMode
+}
+
+func (mts modeTestSearch) IndexingEnabled() bool {
+	return true
+}
+
+func (mts modeTestSearch) InitialDelayForBackgroundWork() time.Duration {
+	// Delay background work like loading the synced TLFs, until the
+	// indexer has registered to receive notifications about them.
+	return 5 * time.Second
+}
+
+func (mts modeTestSearch) DelayInitialConnect() bool {
+	return false
 }
 
 // Wrapper for tests.
@@ -614,7 +741,11 @@ func (mt modeTest) QuotaReclamationMinHeadAge() time.Duration {
 	return 0
 }
 
+// EnvKeybaseTestObfuscateLogsForTest is "KEYBASE_TEST_OBFUSCATE_LOGS" and used
+// to specify if log obfuscation should be enabled for test.
+const EnvKeybaseTestObfuscateLogsForTest = "KEYBASE_TEST_OBFUSCATE_LOGS"
+
 func (mt modeTest) DoLogObfuscation() bool {
-	e := os.Getenv("KEYBASE_TEST_OBFUSCATE_LOGS")
+	e := os.Getenv(EnvKeybaseTestObfuscateLogsForTest)
 	return e != "" && e != "0" && strings.ToLower(e) != "false"
 }

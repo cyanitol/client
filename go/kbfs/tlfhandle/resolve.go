@@ -17,6 +17,7 @@ import (
 	"github.com/keybase/client/go/kbfs/kbfsmd"
 	"github.com/keybase/client/go/kbfs/tlf"
 	kbname "github.com/keybase/client/go/kbun"
+	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/logger"
 	"github.com/keybase/client/go/protocol/keybase1"
 	"github.com/pkg/errors"
@@ -287,7 +288,8 @@ func (ruid resolvableID) resolve(ctx context.Context) (
 		// First check if this is an implicit team.
 		iteamInfo, err := ruid.resolver.ResolveImplicitTeamByID(
 			ctx, ruid.id.AsTeamOrBust(), ruid.tlfType, ruid.offline)
-		if err == nil {
+		switch errors.Cause(err).(type) {
+		case nil:
 			if ruid.id != iteamInfo.TID.AsUserOrTeam() {
 				return nameIDPair{}, keybase1.SocialAssertion{}, tlf.NullID,
 					fmt.Errorf("Implicit team ID %s doesn't match ID in "+
@@ -298,6 +300,18 @@ func (ruid resolvableID) resolve(ctx context.Context) (
 				name: iteamInfo.Name,
 				id:   iteamInfo.TID.AsUserOrTeam(),
 			}, keybase1.SocialAssertion{}, iteamInfo.TlfID, nil
+		case libkb.AppStatusError:
+			// This could indicate a temporary error, like a network
+			// failure.  So fail it; the user should see a failure
+			// rather than possibly attempting to look up an implicit
+			// team through the path below.  See HOTPOT-1698.
+			return nameIDPair{}, keybase1.SocialAssertion{}, tlf.NullID, err
+		default:
+			// Fallthrough to the classic TLF case.  Normally this
+			// would be an error string that looks like: "Operation
+			// only allowed on implicit teams:
+			// MapImplicitTeamIDToDisplayName".  TODO: make that an
+			// exported error and treat only it specially.
 		}
 	}
 
@@ -682,8 +696,8 @@ func (ra resolvableAssertion) resolve(ctx context.Context) (
 		}
 		reason := fmt.Sprintf("You accessed a folder with %s.", ra.assertion)
 		var resName kbname.NormalizedUsername
-		resName, _, err = ra.identifier.Identify(
-			ctx, ra.assertion, reason, ra.offline)
+		resName, err = IdentifySingleAssertion(
+			ctx, ra.assertion, reason, ra.identifier, ra.offline)
 		if err == nil && resName != name {
 			return nameIDPair{}, keybase1.SocialAssertion{}, tlf.NullID,
 				fmt.Errorf(
@@ -834,11 +848,20 @@ func parseHandleLoose(
 			if iteamHandle.tlfID != tlf.NullID {
 				return iteamHandle, nil
 			}
+
+		} else {
+			switch err.(type) {
+			case libkb.TeamContactSettingsBlockError:
+				// The implicit team couldn't be created due to one of the
+				// users' privacy settings, so fail the handle lookup completely.
+				return nil, err
+			default:
+				// This is not an implicit team, so continue on to check for a
+				// normal team.  TODO: return non-nil errors immediately if they
+				// don't simply indicate the implicit team doesn't exist yet
+				// (i.e., when we start creating them by default).
+			}
 		}
-		// This is not an implicit team, so continue on to check for a
-		// normal team.  TODO: return non-nil errors immediately if they
-		// don't simply indicate the implicit team doesn't exist yet
-		// (i.e., when we start creating them by default).
 	}
 
 	// Before parsing the tlf handle (which results in identify

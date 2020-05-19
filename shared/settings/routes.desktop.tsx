@@ -1,18 +1,20 @@
 import * as Constants from '../constants/settings'
 import * as Kb from '../common-adapters'
 import * as React from 'react'
-import {createNavigator, StackRouter, SceneView} from '@react-navigation/core'
+import {NavigationViewProps, createNavigator, StackRouter, SceneView} from '@react-navigation/core'
 import * as Shim from '../router-v2/shim'
+import DevicesTab from '../devices/container'
+import GitTab from '../git/container'
 import FsTab from './files/container'
-import AdvancedTab from './advanced/container'
+import AdvancedTab from './advanced'
 import ChatTab from './chat/container'
-import DeleteMeTab from './delete/container'
+import DisplayTab from './display/container'
 import InvitationsTab from './invites/container'
 import AccountTab from './account/container'
 import FeedbackTab from './feedback/container'
 import NotificationsTab from './notifications/container'
 import DbNukeConfirm from './db-nuke-confirm/container'
-import DeleteConfirm from './delete-confirm/container'
+import DeleteConfirm from './delete-confirm/index'
 import InviteSent from './invite-generated/container'
 import RemoveDevice from '../devices/device-revoke/container'
 import LogOutTab from './logout/container'
@@ -22,31 +24,27 @@ import {DeleteModal} from './account/confirm-delete'
 import {Email, Phone, VerifyPhone} from './account/add-modals'
 
 const settingsSubRoutes = {
-  // TODO connect broken
+  [Constants.devicesTab]: {getScreen: (): typeof DevicesTab => require('../devices/container').default},
+  [Constants.gitTab]: {getScreen: (): typeof GitTab => require('../git/container').default},
   [Constants.fsTab]: {getScreen: (): typeof FsTab => require('./files/container').default},
-  [Constants.advancedTab]: {getScreen: (): typeof AdvancedTab => require('./advanced/container').default},
+  [Constants.advancedTab]: {getScreen: (): typeof AdvancedTab => require('./advanced').default},
   [Constants.chatTab]: {getScreen: (): typeof ChatTab => require('./chat/container').default},
-  // TODO connect broken
-  [Constants.deleteMeTab]: {getScreen: (): typeof DeleteMeTab => require('./delete/container').default},
   // TODO connect broken
   [Constants.invitationsTab]: {
     getScreen: (): typeof InvitationsTab => require('./invites/container').default,
   },
   [Constants.accountTab]: {getScreen: (): typeof AccountTab => require('./account/container').default},
+  [Constants.displayTab]: {getScreen: (): typeof DisplayTab => require('./display/container').default},
   [Constants.feedbackTab]: {getScreen: (): typeof FeedbackTab => require('./feedback/container').default},
   [Constants.notificationsTab]: {
     getScreen: (): typeof NotificationsTab => require('./notifications/container').default,
   },
-  // TODO connect broken
   dbNukeConfirm: {getScreen: (): typeof DbNukeConfirm => require('./db-nuke-confirm/container').default},
-  // TODO connect broken
-  deleteConfirm: {getScreen: (): typeof DeleteConfirm => require('./delete-confirm/container').default},
   inviteSent: {getScreen: (): typeof InviteSent => require('./invite-generated/container').default},
-  // TODO connect broken
   removeDevice: {getScreen: (): typeof RemoveDevice => require('../devices/device-revoke/container').default},
 }
-
-class SettingsSubNav extends React.PureComponent<any> {
+const noScreenProps = {}
+class SettingsSubNav extends React.PureComponent<NavigationViewProps<any>> {
   render() {
     const navigation = this.props.navigation
     const index = navigation.state.index
@@ -61,7 +59,7 @@ class SettingsSubNav extends React.PureComponent<any> {
           <SceneView
             navigation={childNav}
             component={descriptor.getComponent()}
-            screenProps={this.props.screenProps}
+            screenProps={this.props.screenProps || noScreenProps}
           />
         </Settings>
       </Kb.Box2>
@@ -79,24 +77,23 @@ SettingsSubNavigator.navigationOptions = {
 }
 
 export const newRoutes = {
-  settingsRoot: {getScreen: () => SettingsSubNavigator, upgraded: true},
+  // MUST use screen and not getScreen for subnavs!
+  settingsRoot: {screen: SettingsSubNavigator},
 }
 export const newModalRoutes = {
-  // TODO connect broken
   [Constants.logOutTab]: {getScreen: (): typeof LogOutTab => require('./logout/container').default},
   // TODO connect broken
   changePassword: {getScreen: (): typeof ChangePassword => require('./password/container').default},
-  // TODO connect broken
+  deleteConfirm: {getScreen: (): typeof DeleteConfirm => require('./delete-confirm/index').default},
   disableCertPinningModal: {
     getScreen: (): typeof DisableCertPinningModal =>
       require('./disable-cert-pinning-modal/container').default,
   },
+  modalFeedback: {getScreen: (): typeof FeedbackTab => require('../signup/feedback/container').default},
   settingsAddEmail: {getScreen: (): typeof Email => require('./account/add-modals').Email},
   settingsAddPhone: {getScreen: (): typeof Phone => require('./account/add-modals').Phone},
   settingsDeleteAddress: {
     getScreen: (): typeof DeleteModal => require('./account/confirm-delete').DeleteModal,
   },
-  settingsVerifyPhone: {
-    getScreen: (): typeof VerifyPhone => require('./account/add-modals').VerifyPhone,
-  },
+  settingsVerifyPhone: {getScreen: (): typeof VerifyPhone => require('./account/add-modals').VerifyPhone},
 }

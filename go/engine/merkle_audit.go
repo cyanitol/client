@@ -27,7 +27,7 @@ var (
 var MerkleAuditSettings = BackgroundTaskSettings{
 	Start:        5 * time.Minute,
 	StartStagger: 1 * time.Hour,
-	Interval:     6 * time.Hour,
+	Interval:     24 * time.Hour,
 	Limit:        1 * time.Minute,
 }
 
@@ -109,8 +109,10 @@ func (e *MerkleAudit) Run(mctx libkb.MetaContext) (err error) {
 	return RunEngine2(mctx, e.task)
 }
 
-func (e *MerkleAudit) Shutdown() {
+func (e *MerkleAudit) Shutdown(mctx libkb.MetaContext) error {
+	mctx.Debug("stopping merkle root background audit engine")
 	e.task.Shutdown()
+	return nil
 }
 
 // randSeqno picks a random number between [low, high) that's different from prev.
@@ -221,7 +223,7 @@ func performMerkleAudit(m libkb.MetaContext, startSeqno keybase1.Seqno) error {
 
 func MerkleAuditRound(m libkb.MetaContext) (err error) {
 	m = m.WithLogTag("MAUDT")
-	defer m.TraceTimed("MerkleAuditRound", func() error { return err })()
+	defer m.Trace("MerkleAuditRound", &err)()
 
 	// Look up any previously requested retries
 	startSeqno, prevSeqno, err := lookupMerkleAuditRetryFromState(m)

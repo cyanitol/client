@@ -1,22 +1,23 @@
 import * as React from 'react'
-import {Box, Icon, Text} from '../../common-adapters'
-import {globalStyles, globalColors, globalMargins} from '../../styles'
+import * as Kb from '../../common-adapters'
+import * as Styles from '../../styles'
 
 const NoConversation = () => (
-  <Box style={containerStyle}>
-    <Icon type="icon-fancy-chat-72-x-52" style={{marginBottom: globalMargins.small}} />
-    <Text type="BodySmallSemibold" negative={true} style={{color: globalColors.black_50}}>
-      All conversations are end-to-end encrypted.
-    </Text>
-  </Box>
+  <Kb.Box2 direction="vertical" gap="xsmall" centerChildren={true} style={styles.noConvoText}>
+    <Kb.Icon type="icon-fancy-encrypted-computer-desktop-150-72" />
+    <Kb.Text type="BodySmall">All conversations are end-to-end encrypted.</Kb.Text>
+  </Kb.Box2>
 )
 
-const containerStyle = {
-  ...globalStyles.flexBoxColumn,
-  alignItems: 'center',
-  backgroundColor: globalColors.white,
-  flex: 1,
-  justifyContent: 'center',
-}
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      noConvoText: {
+        alignSelf: 'center',
+        flex: 1,
+        justifyContent: 'center',
+      },
+    } as const)
+)
 
 export default NoConversation

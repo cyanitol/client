@@ -12,7 +12,7 @@ type OwnProps = {
 
 const NewFolder = props =>
   props.canCreateNewFolder && (
-    <Kb.WithTooltip text="New Folder">
+    <Kb.WithTooltip tooltip="New Folder">
       <Kb.Icon
         type="iconfont-folder-new"
         color={Styles.globalColors.black_50}
@@ -23,14 +23,17 @@ const NewFolder = props =>
     </Kb.WithTooltip>
   )
 
-const styles = Styles.styleSheetCreate({
-  headerIcon: {
-    padding: Styles.globalMargins.tiny,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      headerIcon: {
+        padding: Styles.globalMargins.tiny,
+      },
+    } as const)
+)
 
 const mapStateToProps = (state, {path}) => ({
-  _pathItem: state.fs.pathItems.get(path, Constants.unknownPathItem),
+  _pathItem: Constants.getPathItem(state.fs.pathItems, path),
 })
 
 const mapDispatchToProps = (dispatch, {path}) => ({
@@ -42,7 +45,7 @@ const mapDispatchToProps = (dispatch, {path}) => ({
     ),
 })
 
-const mergeProps = (s, d, o) => ({
+const mergeProps = (s, d, _: OwnProps) => ({
   canCreateNewFolder: s._pathItem.type === Types.PathType.Folder && s._pathItem.writable,
   ...d,
 })

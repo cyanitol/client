@@ -4,7 +4,7 @@ import * as Kb from '../../common-adapters'
 import {Props} from './text-view'
 
 const TextView = (props: Props) => {
-  const {url} = props
+  const {onUrlError, url} = props
   const [content, setContent] = React.useState('')
   React.useEffect(() => {
     const req = new XMLHttpRequest()
@@ -13,13 +13,15 @@ const TextView = (props: Props) => {
         if (req.readyState === XMLHttpRequest.DONE && req.status === 200) {
           setContent(req.responseText)
         }
-      } catch (e) {}
+      } catch (e) {
+        onUrlError && onUrlError('http request failed')
+      }
     }
     try {
       req.open('GET', url)
       req.send()
     } catch (e) {}
-  }, [url])
+  }, [onUrlError, url])
   return (
     <Kb.Box2 fullWidth={true} fullHeight={true} direction="vertical" style={styles.container}>
       <Kb.Box2 style={styles.innerContainer} direction="horizontal" alignItems="flex-start">
@@ -31,27 +33,35 @@ const TextView = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
-  container: {
-    backgroundColor: Styles.globalColors.blueLighter3,
-    overflow: 'scroll',
-    padding: Styles.globalMargins.medium,
-  },
-  innerContainer: {
-    ...Styles.globalStyles.flexGrow,
-    backgroundColor: Styles.globalColors.white,
-    color: Styles.globalColors.black,
-    maxWidth: '100%',
-    paddingBottom: Styles.globalMargins.large,
-    paddingLeft: Styles.globalMargins.xlarge,
-    paddingRight: Styles.globalMargins.xlarge,
-    paddingTop: Styles.globalMargins.large,
-    width: 680,
-  },
-  text: {
-    color: Styles.globalColors.black_on_white,
-    whiteSpace: 'pre',
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: Styles.platformStyles({
+        common: {
+          backgroundColor: Styles.globalColors.blueLighter3,
+          padding: Styles.globalMargins.medium,
+        },
+        isElectron: {overflow: 'scroll'} as const,
+      }),
+      innerContainer: {
+        ...Styles.globalStyles.flexGrow,
+        backgroundColor: Styles.globalColors.white,
+        color: Styles.globalColors.black,
+        maxWidth: '100%',
+        paddingBottom: Styles.globalMargins.large,
+        paddingLeft: Styles.globalMargins.xlarge,
+        paddingRight: Styles.globalMargins.xlarge,
+        paddingTop: Styles.globalMargins.large,
+        width: 800,
+      },
+      text: Styles.platformStyles({
+        isElectron: {
+          color: Styles.globalColors.black_on_white,
+          overflow: 'hidden',
+          whiteSpace: 'pre-wrap',
+        },
+      }),
+    } as const)
+)
 
 export default TextView

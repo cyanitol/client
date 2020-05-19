@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"strings"
 
+	"github.com/keybase/client/go/avatars"
 	"github.com/keybase/client/go/chat/globals"
 	"github.com/keybase/client/go/libkb"
 
@@ -39,7 +40,7 @@ func NewPackager(g *globals.Context, store attachments.Store, s3signer s3.Signer
 	ri func() chat1.RemoteInterface) *Packager {
 	return &Packager{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "Packager", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "Packager", false),
 		cache:        newUnfurlCache(),
 		store:        store,
 		ri:           ri,
@@ -57,7 +58,7 @@ func (p *Packager) assetFilename(url string) string {
 }
 
 func (p *Packager) assetBodyAndLength(ctx context.Context, url string) (body io.ReadCloser, size int64, err error) {
-	resp, err := libkb.ProxyHTTPGet(p.G().Env, url)
+	resp, err := libkb.ProxyHTTPGet(p.G().ExternalG(), p.G().Env, url, "UnfurlPackager")
 	if err != nil {
 		return body, size, err
 	}
@@ -70,7 +71,6 @@ func (p *Packager) assetFromURL(ctx context.Context, url string, uid gregor1.UID
 	if err != nil {
 		return res, err
 	}
-	defer body.Close()
 	return p.assetFromURLWithBody(ctx, body, contentLength, url, uid, convID, usePreview)
 }
 
@@ -230,7 +230,7 @@ func (p *Packager) packageGiphy(ctx context.Context, uid gregor1.UID, convID cha
 		if err == nil && (imgLength == 0 || vidLength < imgLength) && vidLength < p.maxAssetSize {
 			p.Debug(ctx, "Package: found video: len: %d", vidLength)
 			defer vidBody.Close()
-			asset, err := p.uploadVideoWithBody(ctx, uid, convID, vidBody, int64(vidLength),
+			asset, err := p.uploadVideoWithBody(ctx, uid, convID, vidBody, vidLength,
 				*raw.Giphy().Video)
 			if err != nil {
 				p.Debug(ctx, "Package: failed to get video asset URL: %s", err)
@@ -274,27 +274,40 @@ func (p *Packager) packageMaps(ctx context.Context, uid gregor1.UID, convID chat
 		SiteName:    mapsRaw.SiteName,
 		Description: &mapsRaw.Description,
 	}
+
+	// load user avatar for fancy maps
+	username := p.G().ExternalG().GetEnv().GetUsername().String()
+	avatarReader, _, err := avatars.GetBorderedCircleAvatar(ctx, p.G(), username, 48, 8, 8)
+	if err != nil {
+		return res, err
+	}
+	defer avatarReader.Close()
+
 	// load map
 	var reader io.ReadCloser
 	var length int64
+	var isDone bool
 	mapsURL := mapsRaw.ImageUrl
-	locReader, locLength, err := maps.MapReaderFromURL(ctx, mapsURL)
+	locReader, _, err := maps.MapReaderFromURL(ctx, p.G(), mapsURL)
 	if err != nil {
 		return res, err
 	}
 	defer locReader.Close()
 	if mapsRaw.HistoryImageUrl != nil {
-		liveReader, _, err := maps.MapReaderFromURL(ctx, *mapsRaw.HistoryImageUrl)
+		liveReader, _, err := maps.MapReaderFromURL(ctx, p.G(), *mapsRaw.HistoryImageUrl)
 		if err != nil {
 			return res, err
 		}
 		defer liveReader.Close()
-		if reader, length, err = maps.CombineMaps(ctx, locReader, liveReader); err != nil {
+		if reader, length, err = maps.DecorateMap(ctx, avatarReader, liveReader); err != nil {
 			return res, err
 		}
+		isDone = mapsRaw.LiveLocationDone
 	} else {
-		reader = locReader
-		length = locLength
+		if reader, length, err = maps.DecorateMap(ctx, avatarReader, locReader); err != nil {
+			return res, err
+		}
+		isDone = false
 	}
 	asset, err := p.assetFromURLWithBody(ctx, reader, length, mapsURL, uid, convID, true)
 	if err != nil {
@@ -302,6 +315,12 @@ func (p *Packager) packageMaps(ctx context.Context, uid gregor1.UID, convID chat
 		return res, errors.New("image not available for maps unfurl")
 	}
 	g.Image = &asset
+	g.MapInfo = &chat1.UnfurlGenericMapInfo{
+		Coord:               mapsRaw.Coord,
+		LiveLocationEndTime: mapsRaw.LiveLocationEndTime,
+		IsLiveLocationDone:  isDone,
+		Time:                mapsRaw.Time,
+	}
 	return chat1.NewUnfurlWithGeneric(g), nil
 }
 
@@ -319,7 +338,7 @@ func (p *Packager) cacheKey(uid gregor1.UID, convID chat1.ConversationID, raw ch
 
 func (p *Packager) Package(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	raw chat1.UnfurlRaw) (res chat1.Unfurl, err error) {
-	defer p.Trace(ctx, func() error { return err }, "Package")()
+	defer p.Trace(ctx, &err, "Package")()
 
 	cacheKey := p.cacheKey(uid, convID, raw)
 	if item, valid := p.cache.get(cacheKey); cacheKey != "" && valid {

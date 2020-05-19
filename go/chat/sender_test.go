@@ -10,7 +10,6 @@ import (
 
 	"encoding/hex"
 
-	"github.com/keybase/client/go/badges"
 	"github.com/keybase/client/go/chat/commands"
 	"github.com/keybase/client/go/chat/globals"
 	"github.com/keybase/client/go/chat/search"
@@ -24,6 +23,7 @@ import (
 	"github.com/keybase/client/go/protocol/chat1"
 	"github.com/keybase/client/go/protocol/gregor1"
 	"github.com/keybase/client/go/protocol/keybase1"
+	"github.com/keybase/client/go/teambot"
 	"github.com/keybase/client/go/teams"
 	"github.com/stretchr/testify/require"
 	context "golang.org/x/net/context"
@@ -41,7 +41,9 @@ type chatListener struct {
 	failing        chan []chat1.OutboxRecord
 	identifyUpdate chan keybase1.CanonicalTLFNameAndIDWithBreaks
 	inboxStale     chan struct{}
+	convUpdate     chan chat1.ConversationID
 	threadsStale   chan []chat1.ConversationStaleUpdate
+
 	bgConvLoads    chan chat1.ConversationID
 	typingUpdate   chan []chat1.ConvTypingUpdate
 	inboxSynced    chan chat1.ChatSyncResult
@@ -58,6 +60,13 @@ func (n *chatListener) ChatInboxStale(uid keybase1.UID) {
 	case n.inboxStale <- struct{}{}:
 	case <-time.After(5 * time.Second):
 		panic("timeout on the inbox stale channel")
+	}
+}
+func (n *chatListener) ChatConvUpdate(uid keybase1.UID, convID chat1.ConversationID) {
+	select {
+	case n.convUpdate <- convID:
+	case <-time.After(5 * time.Second):
+		panic("timeout on the threads stale channel")
 	}
 }
 func (n *chatListener) ChatThreadsStale(uid keybase1.UID, updates []chat1.ConversationStaleUpdate) {
@@ -118,9 +127,7 @@ func (n *chatListener) NewChatActivity(uid keybase1.UID, activity chat1.ChatActi
 			}
 		case chat1.ChatActivityType_FAILED_MESSAGE:
 			var rmsg []chat1.OutboxRecord
-			for _, obr := range activity.FailedMessage().OutboxRecords {
-				rmsg = append(rmsg, obr)
-			}
+			rmsg = append(rmsg, activity.FailedMessage().OutboxRecords...)
 			select {
 			case n.failing <- rmsg:
 			case <-time.After(5 * time.Second):
@@ -142,12 +149,12 @@ func (n *chatListener) consumeEphemeralPurge(t *testing.T) chat1.EphemeralPurgeN
 	}
 }
 
-func (n *chatListener) consumeThreadsStale(t *testing.T) []chat1.ConversationStaleUpdate {
+func (n *chatListener) consumeConvUpdate(t *testing.T) chat1.ConversationID {
 	select {
-	case x := <-n.threadsStale:
+	case x := <-n.convUpdate:
 		return x
 	case <-time.After(20 * time.Second):
-		require.Fail(t, "failed to get threadsStale notification")
+		require.Fail(t, "failed to get conv update notification")
 		return nil
 	}
 }
@@ -186,6 +193,9 @@ func NewChatMockWorld(t *testing.T, name string, numUsers int) (world *kbtest.Ch
 		teams.ServiceInit(w.G)
 		mctx := libkb.NewMetaContextTODO(w.G)
 		ephemeral.ServiceInit(mctx)
+		err := mctx.G().GetEKLib().KeygenIfNeeded(mctx)
+		require.NoError(t, err)
+		teambot.ServiceInit(mctx)
 		contacts.ServiceInit(w.G)
 	}
 	return res
@@ -194,7 +204,8 @@ func NewChatMockWorld(t *testing.T, name string, numUsers int) (world *kbtest.Ch
 func setupTest(t *testing.T, numUsers int) (context.Context, *kbtest.ChatMockWorld, chat1.RemoteInterface, types.Sender, types.Sender, *chatListener) {
 	var ri chat1.RemoteInterface
 	world := NewChatMockWorld(t, "chatsender", numUsers)
-	ri = kbtest.NewChatRemoteMock(world)
+	mock := kbtest.NewChatRemoteMock(world)
+	ri = mock
 	tlf := kbtest.NewTlfMock(world)
 	u := world.GetUsers()[0]
 	tc := world.Tcs[u.Username]
@@ -203,8 +214,10 @@ func setupTest(t *testing.T, numUsers int) (context.Context, *kbtest.ChatMockWor
 	uid := u.User.GetUID().ToBytes()
 
 	var ctx context.Context
+	var serverConn types.ServerConnection
 	if useRemoteMock {
 		ctx = newTestContextWithTlfMock(tc, tlf)
+		serverConn = kbtest.NewChatRemoteMockServerConnection(mock)
 	} else {
 		ctx = newTestContext(tc)
 		nist, err := tc.G.ActiveDevice.NIST(context.TODO())
@@ -215,6 +228,7 @@ func setupTest(t *testing.T, numUsers int) (context.Context, *kbtest.ChatMockWor
 		gh := newGregorTestConnection(tc.Context(), uid, sessionToken)
 		require.NoError(t, gh.Connect(ctx))
 		ri = gh.GetClient()
+		serverConn = gh
 	}
 	boxer := NewBoxer(g)
 	boxer.SetClock(world.Fc)
@@ -231,6 +245,7 @@ func setupTest(t *testing.T, numUsers int) (context.Context, *kbtest.ChatMockWor
 		failing:        make(chan []chat1.OutboxRecord, 100),
 		identifyUpdate: make(chan keybase1.CanonicalTLFNameAndIDWithBreaks, 10),
 		inboxStale:     make(chan struct{}, 1),
+		convUpdate:     make(chan chat1.ConversationID, 10),
 		threadsStale:   make(chan []chat1.ConversationStaleUpdate, 10),
 		bgConvLoads:    make(chan chat1.ConversationID, 10),
 		typingUpdate:   make(chan []chat1.ConvTypingUpdate, 10),
@@ -242,13 +257,13 @@ func setupTest(t *testing.T, numUsers int) (context.Context, *kbtest.ChatMockWor
 	g.CtxFactory = NewCtxFactory(g)
 	g.ConvSource = NewHybridConversationSource(g, boxer, chatStorage, getRI)
 	chatStorage.SetAssetDeleter(g.ConvSource)
-	g.InboxSource = NewHybridInboxSource(g, badges.NewBadger(g.ExternalG()), getRI)
+	g.InboxSource = NewHybridInboxSource(g, getRI)
 	g.InboxSource.Start(context.TODO(), uid)
 	g.InboxSource.Connected(context.TODO())
 	g.ServerCacheVersions = storage.NewServerVersions(g)
 	g.NotifyRouter.AddListener(&listener)
 
-	deliverer := NewDeliverer(g, baseSender)
+	deliverer := NewDeliverer(g, baseSender, serverConn)
 	deliverer.SetClock(world.Fc)
 	deliverer.setTestingNameInfoSource(tlf)
 
@@ -267,7 +282,9 @@ func setupTest(t *testing.T, numUsers int) (context.Context, *kbtest.ChatMockWor
 	g.ConvLoader = convLoader
 	g.ConvLoader.Start(context.TODO(), uid)
 
-	purger := NewBackgroundEphemeralPurger(g, chatStorage)
+	g.EphemeralTracker = NewEphemeralTracker(g)
+	g.EphemeralTracker.Start(context.TODO(), uid)
+	purger := NewBackgroundEphemeralPurger(g)
 	purger.SetClock(world.Fc)
 	g.EphemeralPurger = purger
 	g.EphemeralPurger.Start(context.TODO(), uid)
@@ -278,6 +295,7 @@ func setupTest(t *testing.T, numUsers int) (context.Context, *kbtest.ChatMockWor
 
 	g.ConnectivityMonitor = &libkb.NullConnectivityMonitor{}
 	pushHandler := NewPushHandler(g)
+	pushHandler.Start(context.TODO(), nil)
 	g.PushHandler = pushHandler
 	g.ChatHelper = NewHelper(g, getRI)
 	g.TeamChannelSource = NewTeamChannelSource(g)
@@ -289,19 +307,25 @@ func setupTest(t *testing.T, numUsers int) (context.Context, *kbtest.ChatMockWor
 	g.RegexpSearcher = searcher
 	indexer := search.NewIndexer(g)
 	ictx := globals.CtxAddIdentifyMode(context.Background(), keybase1.TLFIdentifyBehavior_CHAT_SKIP, nil)
-	indexer.Start(ictx, uid)
 	indexer.SetPageSize(2)
 	indexer.SetStartSyncDelay(0)
+	indexer.Start(ictx, uid)
 	g.Indexer = indexer
 	g.AttachmentURLSrv = types.DummyAttachmentHTTPSrv{}
 	g.Unfurler = types.DummyUnfurler{}
+	g.AttachmentUploader = types.DummyAttachmentUploader{}
 	g.StellarLoader = types.DummyStellarLoader{}
 	g.StellarSender = types.DummyStellarSender{}
 	g.TeamMentionLoader = types.DummyTeamMentionLoader{}
+	g.JourneyCardManager = NewJourneyCardManager(g, getRI)
 	g.BotCommandManager = types.DummyBotCommandManager{}
 	g.CommandsSource = commands.NewSource(g)
 	g.CoinFlipManager = NewFlipManager(g, getRI)
 	g.CoinFlipManager.Start(context.TODO(), uid)
+	g.UIInboxLoader = types.DummyUIInboxLoader{}
+	g.UIThreadLoader = NewUIThreadLoader(g, getRI)
+	g.ParticipantsSource = types.DummyParticipantSource{}
+	g.EmojiSource = NewDevConvEmojiSource(g, getRI)
 
 	return ctx, world, ri, sender, baseSender, &listener
 }
@@ -354,7 +378,7 @@ func checkThread(t *testing.T, thread chat1.ThreadView, ref []sentRecord) {
 			t.Logf("msgID: ref: %d actual: %d", *ref[rindex].msgID, thread.Messages[index].GetMessageID())
 			require.NotZero(t, msg.GetMessageID(), "missing message ID")
 			require.Equal(t, *ref[rindex].msgID, msg.GetMessageID(), "invalid message ID")
-		} else if ref[index].outboxID != nil {
+		} else if ref[rindex].outboxID != nil {
 			t.Logf("obID: ref: %s actual: %s",
 				hex.EncodeToString(*ref[rindex].outboxID),
 				hex.EncodeToString(msg.Outbox().OutboxID))
@@ -437,7 +461,6 @@ func TestNonblockTimer(t *testing.T) {
 		obid := obr.OutboxID
 		t.Logf("generated obid: %s prev: %d", hex.EncodeToString(obid), msgID)
 		require.NoError(t, err)
-		sentRef = append(sentRef, sentRecord{outboxID: &obid})
 		obids = append(obids, obid)
 	}
 
@@ -473,10 +496,16 @@ func TestNonblockTimer(t *testing.T) {
 		sentRef = append(sentRef, sentRecord{msgID: &msgID})
 	}
 
+	// Push the outbox records to the front of the thread.
+	for _, o := range obids {
+		obid := o
+		sentRef = append(sentRef, sentRecord{outboxID: &obid})
+	}
+
 	// Check get thread, make sure it makes sense
 	typs := []chat1.MessageType{chat1.MessageType_TEXT}
 	tres, err := tc.ChatG.ConvSource.Pull(ctx, res.ConvID, u.User.GetUID().ToBytes(),
-		chat1.GetThreadReason_GENERAL,
+		chat1.GetThreadReason_GENERAL, nil,
 		&chat1.GetThreadQuery{MessageTypes: typs}, nil)
 	tres.Messages = utils.FilterByType(tres.Messages, &chat1.GetThreadQuery{MessageTypes: typs}, true)
 	t.Logf("source size: %d", len(tres.Messages))
@@ -1004,10 +1033,11 @@ func TestKBFSFileEditSize(t *testing.T) {
 		uid := u.User.GetUID().ToBytes()
 		tlfName := u.Username
 		tc := userTc(t, world, u)
-		conv, err := NewConversation(ctx, tc.Context(), uid, tlfName, nil, chat1.TopicType_KBFSFILEEDIT,
-			chat1.ConversationMembersType_IMPTEAMNATIVE, keybase1.TLFVisibility_PRIVATE,
+		conv, created, err := NewConversation(ctx, tc.Context(), uid, tlfName, nil, chat1.TopicType_KBFSFILEEDIT,
+			chat1.ConversationMembersType_IMPTEAMNATIVE, keybase1.TLFVisibility_PRIVATE, nil,
 			func() chat1.RemoteInterface { return ri }, NewConvFindExistingNormal)
 		require.NoError(t, err)
+		require.True(t, created)
 
 		body := strings.Repeat("M", 100000)
 		_, _, err = blockingSender.Send(ctx, conv.GetConvID(), chat1.MessagePlaintext{
@@ -1050,7 +1080,7 @@ func TestKBFSCryptKeysBit(t *testing.T) {
 		}, 0, nil, nil, nil)
 		require.NoError(t, err)
 		tv, err := tc.ChatG.ConvSource.Pull(ctx, conv.GetConvID(), uid,
-			chat1.GetThreadReason_GENERAL,
+			chat1.GetThreadReason_GENERAL, nil,
 			&chat1.GetThreadQuery{
 				MessageTypes: []chat1.MessageType{chat1.MessageType_TEXT},
 			}, nil)
@@ -1142,7 +1172,7 @@ func TestPrevPointerAddition(t *testing.T) {
 
 		// Fetch a subset into the cache
 		_, err := tc.ChatG.ConvSource.Pull(ctx, conv.GetConvID(), uid, chat1.GetThreadReason_GENERAL, nil,
-			&chat1.Pagination{
+			nil, &chat1.Pagination{
 				Num: 2,
 			})
 		require.NoError(t, err)
@@ -1417,7 +1447,7 @@ func TestPairwiseMACChecker(t *testing.T) {
 		require.Error(t, err)
 		require.IsType(t, libkb.EphemeralPairwiseMACsMissingUIDsError{}, err)
 		merr := err.(libkb.EphemeralPairwiseMACsMissingUIDsError)
-		require.Equal(t, []keybase1.UID{keybase1.UID(uid2)}, merr.UIDs)
+		require.Equal(t, []keybase1.UID{uid2}, merr.UIDs)
 
 		// Bogus recipients, both uids are missing
 		pairwiseMACRecipients = []keybase1.KID{"012141487209e42c6b39f7d9bcbda02a8e8045e4bcab10b571a5fa250ae72012bd3f0a"}
@@ -1432,7 +1462,7 @@ func TestPairwiseMACChecker(t *testing.T) {
 		require.IsType(t, libkb.EphemeralPairwiseMACsMissingUIDsError{}, err)
 		merr = err.(libkb.EphemeralPairwiseMACsMissingUIDsError)
 		sortUIDs := func(uids []keybase1.UID) { sort.Slice(uids, func(i, j int) bool { return uids[i] < uids[j] }) }
-		expectedUIDs := []keybase1.UID{keybase1.UID(uid1), keybase1.UID(uid2)}
+		expectedUIDs := []keybase1.UID{uid1, uid2}
 		sortUIDs(expectedUIDs)
 		sortUIDs(merr.UIDs)
 		require.Equal(t, expectedUIDs, merr.UIDs)
@@ -1464,7 +1494,8 @@ func TestPairwiseMACChecker(t *testing.T) {
 			require.Fail(t, "no new message")
 		}
 
-		tv, err := tc1.Context().ConvSource.Pull(ctx1, conv.Id, uid1.ToBytes(), chat1.GetThreadReason_GENERAL, nil, nil)
+		tv, err := tc1.Context().ConvSource.Pull(ctx1, conv.Id, uid1.ToBytes(),
+			chat1.GetThreadReason_GENERAL, nil, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, tv.Messages, 3)
 		for _, msg := range tv.Messages {
@@ -1477,8 +1508,10 @@ func TestPairwiseMACChecker(t *testing.T) {
 		require.NoError(t, users[0].Login(tc1.G))
 
 		// Nuke caches so we're forced to reload the deleted user
-		tc1.G.LocalDb.Nuke()
-		tc1.G.LocalChatDb.Nuke()
+		_, err = tc1.G.LocalDb.Nuke()
+		require.NoError(t, err)
+		_, err = tc1.G.LocalChatDb.Nuke()
+		require.NoError(t, err)
 
 		text3 := "hi3"
 		msg3 := textMsgWithSender(t, text3, uid1.ToBytes(), chat1.MessageBoxedVersion_V3)
@@ -1488,15 +1521,52 @@ func TestPairwiseMACChecker(t *testing.T) {
 		_, _, err = blockingSender1.Send(ctx1, conv.Id, msg3, 0, nil, nil, nil)
 		require.NoError(t, err)
 
-		tc1.G.LocalDb.Nuke()
-		tc1.G.LocalChatDb.Nuke()
+		_, err = tc1.G.LocalDb.Nuke()
+		require.NoError(t, err)
+		_, err = tc1.G.LocalChatDb.Nuke()
+		require.NoError(t, err)
 
-		tv, err = tc1.Context().ConvSource.Pull(ctx1, conv.Id, uid1.ToBytes(), chat1.GetThreadReason_GENERAL, nil, nil)
+		tv, err = tc1.Context().ConvSource.Pull(ctx1, conv.Id, uid1.ToBytes(),
+			chat1.GetThreadReason_GENERAL, nil, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, tv.Messages, 4)
 		for _, msg := range tv.Messages {
 			require.True(t, msg.IsValid())
 		}
+	})
+}
+
+func TestEphemeralTopicType(t *testing.T) {
+	runWithMemberTypes(t, func(mt chat1.ConversationMembersType) {
+		switch mt {
+		case chat1.ConversationMembersType_IMPTEAMNATIVE:
+		default:
+			return
+		}
+
+		ctc := makeChatTestContext(t, "TestEphemeralTopicType", 1)
+		defer ctc.cleanup()
+		users := ctc.users()
+
+		conv := mustCreateConversationForTest(t, ctc, users[0], chat1.TopicType_EMOJI, mt)
+		ctx1 := ctc.as(t, users[0]).startCtx
+
+		tc1 := ctc.world.Tcs[users[0].Username]
+		uid1 := users[0].User.GetUID()
+		ri1 := ctc.as(t, users[0]).ri
+		getRI1 := func() chat1.RemoteInterface { return ri1 }
+		boxer1 := NewBoxer(tc1.Context())
+		g1 := globals.NewContext(tc1.G, tc1.ChatG)
+		blockingSender1 := NewBlockingSender(g1, boxer1, getRI1)
+
+		text := "hi"
+		ephemeralMetadata := &chat1.MsgEphemeralMetadata{
+			Lifetime: 100000,
+		}
+		msg := textMsgWithSender(t, text, uid1.ToBytes(), chat1.MessageBoxedVersion_V3)
+		msg.ClientHeader.EphemeralMetadata = ephemeralMetadata
+		_, _, err := blockingSender1.Send(ctx1, conv.Id, msg, 0, nil, nil, nil)
+		require.Error(t, err)
 	})
 }
 
@@ -1567,7 +1637,7 @@ func TestProcessDuplicateReactionMsgs(t *testing.T) {
 	}
 
 	tres, err := tc.ChatG.ConvSource.Pull(ctx, res.ConvID, u.User.GetUID().ToBytes(),
-		chat1.GetThreadReason_GENERAL, nil, nil)
+		chat1.GetThreadReason_GENERAL, nil, nil, nil)
 
 	require.NoError(t, err)
 	texts := utils.FilterByType(tres.Messages, &chat1.GetThreadQuery{MessageTypes: []chat1.MessageType{chat1.MessageType_TEXT}}, false)
@@ -1575,8 +1645,8 @@ func TestProcessDuplicateReactionMsgs(t *testing.T) {
 	txtMsg := texts[0]
 	expectedReactionMap := chat1.ReactionMap{
 		Reactions: map[string]map[string]chat1.Reaction{
-			":+1:": map[string]chat1.Reaction{
-				u.Username: chat1.Reaction{
+			":+1:": {
+				u.Username: {
 					ReactionMsgID: *sentRef[len(sentRef)-1].msgID,
 				},
 			},
@@ -1625,7 +1695,6 @@ func TestProcessDuplicateReactionMsgs(t *testing.T) {
 		obid := obr.OutboxID
 		t.Logf("generated obid: %s prev: %d", hex.EncodeToString(obid), msgID)
 		require.NoError(t, err)
-		sentRef = append(sentRef, sentRecord{outboxID: &obid})
 		obids = append(obids, obid)
 	}
 
@@ -1660,7 +1729,7 @@ func TestProcessDuplicateReactionMsgs(t *testing.T) {
 	}
 
 	tres, err = tc.ChatG.ConvSource.Pull(ctx, res.ConvID, u.User.GetUID().ToBytes(),
-		chat1.GetThreadReason_GENERAL, nil, nil)
+		chat1.GetThreadReason_GENERAL, nil, nil, nil)
 	require.NoError(t, err)
 
 	// we have the same number of messages as before since ultimately we just deleted a reaction

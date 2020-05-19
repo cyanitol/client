@@ -1,23 +1,20 @@
-import * as I from 'immutable'
 import * as Types from './types/fs'
 import * as RPCTypes from './types/rpc-gen'
-import * as ChatConstants from './chat2'
 import * as FsGen from '../actions/fs-gen'
-import * as EngineGen from '../actions/engine-gen-gen'
 import * as Flow from '../util/flow'
 import * as Tabs from './tabs'
 import * as SettingsConstants from './settings'
 import {TypedState} from '../util/container'
 import {isLinux, isMobile} from './platform'
-import uuidv1 from 'uuid/v1'
-import {downloadFilePath, downloadFilePathNoSearch} from '../util/file'
 import * as RouteTreeGen from '../actions/route-tree-gen'
 import {TypedActions} from '../actions/typed-actions-gen'
-import flags from '../util/feature-flags'
 
 export const syncToggleWaitingKey = 'fs:syncToggle'
-export const sendLinkToChatFindConversationWaitingKey = 'fs:sendLinkToChatFindConversation'
-export const sendLinkToChatSendWaitingKey = 'fs:sendLinkToChatSend'
+export const folderListWaitingKey = 'fs:folderList'
+export const statWaitingKey = 'fs:stat'
+export const acceptMacOSFuseExtClosedSourceWaitingKey = 'fs:acceptMacOSFuseExtClosedSourceWaitingKey'
+export const commitEditWaitingKey = 'fs:commitEditWaitingKey'
+export const setSyncOnCellularWaitingKey = 'fs:setSyncOnCellular'
 
 export const defaultPath = Types.stringToPath('/keybase')
 
@@ -28,32 +25,29 @@ export const ExitCodeFuseKextPermissionError = 5
 // See Installer.m: KBExitAuthCanceledError
 export const ExitCodeAuthCanceledError = 6
 
-export const makeNewFolder = I.Record<Types._NewFolder>({
-  hint: 'New Folder',
+export const emptyNewFolder: Types.Edit = {
+  error: undefined,
   name: 'New Folder',
+  originalName: 'New Folder',
   parentPath: Types.stringToPath('/keybase'),
-  status: Types.EditStatusType.Editing,
   type: Types.EditType.NewFolder,
-})
-export const emptyFolder = makeNewFolder()
+}
 
-const makePrefetchNotStarted = I.Record<Types._PrefetchNotStarted>({
+export const prefetchNotStarted: Types.PrefetchNotStarted = {
   state: Types.PrefetchState.NotStarted,
-})
-export const prefetchNotStarted: Types.PrefetchNotStarted = makePrefetchNotStarted()
+}
 
-const makePrefetchComplete = I.Record<Types._PrefetchComplete>({
+export const prefetchComplete: Types.PrefetchComplete = {
   state: Types.PrefetchState.Complete,
-})
-export const prefetchComplete: Types.PrefetchComplete = makePrefetchComplete()
+}
 
-export const makePrefetchInProgress = I.Record<Types._PrefetchInProgress>({
+export const emptyPrefetchInProgress: Types.PrefetchInProgress = {
   bytesFetched: 0,
   bytesTotal: 0,
   endEstimate: 0,
   startTime: 0,
   state: Types.PrefetchState.InProgress,
-})
+}
 
 const pathItemMetadataDefault = {
   lastModifiedTimestamp: 0,
@@ -64,290 +58,215 @@ const pathItemMetadataDefault = {
   writable: false,
 }
 
-export const makeFolder = I.Record<Types._FolderPathItem>({
+export const emptyFolder: Types.FolderPathItem = {
   ...pathItemMetadataDefault,
-  children: I.Set(),
+  children: new Set(),
   progress: Types.ProgressType.Pending,
   type: Types.PathType.Folder,
-})
+}
 
-export const makeMime = I.Record<Types._Mime>({
-  displayPreview: false,
-  mimeType: '',
-})
-
-export const makeFile = I.Record<Types._FilePathItem>({
+export const emptyFile: Types.FilePathItem = {
   ...pathItemMetadataDefault,
-  mimeType: null,
   type: Types.PathType.File,
-})
+}
 
-export const makeSymlink = I.Record<Types._SymlinkPathItem>({
+export const emptySymlink: Types.SymlinkPathItem = {
   ...pathItemMetadataDefault,
   linkTarget: '',
   type: Types.PathType.Symlink,
-})
+}
 
-export const makeUnknownPathItem = I.Record<Types._UnknownPathItem>({
+export const unknownPathItem: Types.UnknownPathItem = {
   ...pathItemMetadataDefault,
   type: Types.PathType.Unknown,
-})
+}
 
-export const unknownPathItem = makeUnknownPathItem()
-
-const makeTlfSyncEnabled = I.Record<Types._TlfSyncEnabled>({
+export const tlfSyncEnabled: Types.TlfSyncEnabled = {
   mode: Types.TlfSyncMode.Enabled,
-})
-export const tlfSyncEnabled: Types.TlfSyncEnabled = makeTlfSyncEnabled()
+}
 
-const makeTlfSyncDisabled = I.Record<Types._TlfSyncDisabled>({
+export const tlfSyncDisabled: Types.TlfSyncDisabled = {
   mode: Types.TlfSyncMode.Disabled,
-})
-export const tlfSyncDisabled: Types.TlfSyncDisabled = makeTlfSyncDisabled()
+}
 
-export const makeTlfSyncPartial = I.Record<Types._TlfSyncPartial>({
-  enabledPaths: I.List(),
+export const makeTlfSyncPartial = ({
+  enabledPaths,
+}: {
+  enabledPaths?: Types.TlfSyncPartial['enabledPaths']
+}): Types.TlfSyncPartial => ({
+  enabledPaths: [...(enabledPaths || [])],
   mode: Types.TlfSyncMode.Partial,
 })
 
-export const makeConflictStateNormalView = I.Record<Types._ConflictStateNormalView>({
-  localViewTlfPaths: I.List(),
-  resolvingConflict: false,
-  stuckInConflict: false,
+export const makeConflictStateNormalView = ({
+  localViewTlfPaths,
+  resolvingConflict,
+  stuckInConflict,
+}: Partial<Types.ConflictStateNormalView>): Types.ConflictStateNormalView => ({
+  localViewTlfPaths: [...(localViewTlfPaths || [])],
+  resolvingConflict: resolvingConflict || false,
+  stuckInConflict: stuckInConflict || false,
   type: Types.ConflictStateType.NormalView,
 })
 
-export const tlfNormalViewWithNoConflict = makeConflictStateNormalView()
+export const tlfNormalViewWithNoConflict = makeConflictStateNormalView({})
 
-export const makeConflictStateManualResolvingLocalView = I.Record<
-  Types._ConflictStateManualResolvingLocalView
->({
-  normalViewTlfPath: defaultPath,
+export const makeConflictStateManualResolvingLocalView = ({
+  normalViewTlfPath,
+}: Partial<Types.ConflictStateManualResolvingLocalView>): Types.ConflictStateManualResolvingLocalView => ({
+  normalViewTlfPath: normalViewTlfPath || defaultPath,
   type: Types.ConflictStateType.ManualResolvingLocalView,
 })
 
-export const makeTlf = I.Record<Types._Tlf>({
-  conflictState: tlfNormalViewWithNoConflict,
-  isFavorite: false,
-  isIgnored: false,
-  isNew: false,
-  name: '',
-  resetParticipants: I.List(),
-  syncConfig: tlfSyncDisabled,
-  teamId: '',
-  tlfMtime: 0,
-  /* See comment in constants/types/fs.js
+export const makeTlf = (p: Partial<Types.Tlf>): Types.Tlf => {
+  const {
+    conflictState,
+    isFavorite,
+    isIgnored,
+    isNew,
+    name,
+    resetParticipants,
+    syncConfig,
+    teamId,
+    tlfMtime,
+  } = p
+  return {
+    conflictState: conflictState || tlfNormalViewWithNoConflict,
+    isFavorite: isFavorite || false,
+    isIgnored: isIgnored || false,
+    isNew: isNew || false,
+    name: name || '',
+    resetParticipants: [...(resetParticipants || [])],
+    syncConfig: syncConfig || tlfSyncDisabled,
+    teamId: teamId || '',
+    tlfMtime: tlfMtime || 0,
+    /* See comment in constants/types/fs.js
   needsRekey: false,
   waitingForParticipantUnlock: I.List(),
   youCanUnlock: I.List(),
   */
-})
+  }
+}
 
-export const makeSyncingFoldersProgress = I.Record<Types._SyncingFoldersProgress>({
+export const emptySyncingFoldersProgress: Types.SyncingFoldersProgress = {
   bytesFetched: 0,
   bytesTotal: 0,
   endEstimate: 0,
   start: 0,
-})
+}
 
-export const makeOverallSyncStatus = I.Record<Types._OverallSyncStatus>({
+export const emptyOverallSyncStatus: Types.OverallSyncStatus = {
   diskSpaceStatus: Types.DiskSpaceStatus.Ok,
   showingBanner: false,
-  syncingFoldersProgress: makeSyncingFoldersProgress(),
-})
+  syncingFoldersProgress: emptySyncingFoldersProgress,
+}
 
-export const makePathUserSetting = I.Record<Types._PathUserSetting>({
+export const defaultPathUserSetting: Types.PathUserSetting = {
   sort: Types.SortSetting.NameAsc,
-})
+}
 
-export const defaultPathUserSetting = makePathUserSetting({
-  sort: Types.SortSetting.NameAsc,
-})
-
-export const defaultTlfListPathUserSetting = makePathUserSetting({
+export const defaultTlfListPathUserSetting: Types.PathUserSetting = {
   sort: Types.SortSetting.TimeAsc,
-})
+}
 
-export const makeDownloadMeta = I.Record<Types._DownloadMeta>({
-  entryType: Types.PathType.Unknown,
-  intent: Types.DownloadIntent.None,
-  localPath: '',
-  opID: null,
-  path: Types.stringToPath(''),
-})
-
-export const makeDownloadState = I.Record<Types._DownloadState>({
+export const emptyDownloadState: Types.DownloadState = {
   canceled: false,
-  completePortion: 0,
-  endEstimate: undefined,
-  error: undefined,
-  isDone: false,
-  startedAt: 0,
-})
-
-export const makeDownload = I.Record<Types._Download>({
-  meta: makeDownloadMeta(),
-  state: makeDownloadState(),
-})
-
-export const makeLocalHTTPServer = I.Record<Types._LocalHTTPServer>({
-  address: '',
-  token: '',
-})
-
-export const makeUploads = I.Record<Types._Uploads>({
-  endEstimate: undefined,
-  errors: I.Map(),
-
-  syncingPaths: I.Set(),
-  totalSyncingBytes: 0,
-  writingToJournal: I.Set(),
-})
-
-export const makeTlfs = I.Record<Types._Tlfs>({
-  loaded: false,
-  private: I.Map(),
-  public: I.Map(),
-  team: I.Map(),
-})
-
-const placeholderAction = FsGen.createPlaceholderAction()
-
-const _makeError = I.Record<Types._FsError>({
-  errorMessage: 'unknown error',
-  erroredAction: placeholderAction,
-  retriableAction: undefined,
-  time: 0,
-})
-
-type _MakeErrorArgs = {
-  time?: number
-  error: any
-  erroredAction: FsGen.Actions | EngineGen.Actions
-  retriableAction?: FsGen.Actions | EngineGen.Actions
-}
-export const makeError = (args?: _MakeErrorArgs): I.RecordOf<Types._FsError> => {
-  // TS Issue: https://github.com/microsoft/TypeScript/issues/26235
-  let {time, error, erroredAction, retriableAction} = (args || {}) as Partial<NonNullable<_MakeErrorArgs>>
-  return _makeError({
-    errorMessage: !error ? 'unknown error' : error.message || JSON.stringify(error),
-    erroredAction,
-    retriableAction,
-    time: time || Date.now(),
-  })
+  done: false,
+  endEstimate: 0,
+  error: '',
+  localPath: '',
+  progress: 0,
 }
 
-export const makeMoveOrCopySource = I.Record<Types._MoveOrCopySource>({
-  path: Types.stringToPath(''),
-  type: Types.DestinationPickerSource.MoveOrCopy,
-})
+export const emptyDownloadInfo: Types.DownloadInfo = {
+  filename: '',
+  isRegularDownload: false,
+  path: defaultPath,
+  startTime: 0,
+}
 
-export const makeIncomingShareSource = I.Record<Types._IncomingShareSource>({
-  localPath: Types.stringToLocalPath(''),
-  type: Types.DestinationPickerSource.IncomingShare,
-})
-
-export const makeNoSource = I.Record<Types._NoSource>({
-  type: Types.DestinationPickerSource.None,
-})
-
-export const makeDestinationPicker = I.Record<Types._DestinationPicker>({
-  destinationParentPath: I.List(),
-  source: makeNoSource(),
-})
-
-export const makeSendAttachmentToChat = I.Record<Types._SendAttachmentToChat>({
-  convID: ChatConstants.noConversationIDKey,
-  filter: '',
-  path: Types.stringToPath('/keybase'),
-  state: Types.SendAttachmentToChatState.None,
-  title: '',
-})
-
-export const makeSendLinkToChat = I.Record<Types._SendLinkToChat>({
-  channels: I.Map(),
-  convID: ChatConstants.noConversationIDKey,
-  path: Types.stringToPath('/keybase'),
-  state: Types.SendLinkToChatState.None,
-})
-
-export const makePathItemActionMenu = I.Record<Types._PathItemActionMenu>({
-  downloadKey: null,
+export const emptyPathItemActionMenu: Types.PathItemActionMenu = {
+  downloadID: null,
+  downloadIntent: null,
   previousView: Types.PathItemActionMenuView.Root,
   view: Types.PathItemActionMenuView.Root,
-})
+}
 
-export const makeDriverStatusUnknown = I.Record<Types._DriverStatusUnknown>({
+export const driverStatusUnknown: Types.DriverStatusUnknown = {
   type: Types.DriverStatusType.Unknown,
-})
+} as const
 
-export const makeDriverStatusEnabled = I.Record<Types._DriverStatusEnabled>({
+export const emptyDriverStatusEnabled: Types.DriverStatusEnabled = {
   dokanOutdated: false,
   dokanUninstallExecPath: null,
   isDisabling: false,
-  isNew: false,
   type: Types.DriverStatusType.Enabled,
-})
+} as const
 
-export const makeDriverStatusDisabled = I.Record<Types._DriverStatusDisabled>({
-  isDismissed: false,
+export const emptyDriverStatusDisabled: Types.DriverStatusDisabled = {
   isEnabling: false,
   kextPermissionError: false,
   type: Types.DriverStatusType.Disabled,
-})
+} as const
 
-export const defaultDriverStatus = isLinux ? makeDriverStatusEnabled() : makeDriverStatusUnknown()
+export const defaultDriverStatus: Types.DriverStatus = isLinux
+  ? emptyDriverStatusEnabled
+  : driverStatusUnknown
 
-export const makeSystemFileManagerIntegration = I.Record<Types._SystemFileManagerIntegration>({
-  driverStatus: defaultDriverStatus,
-  showingBanner: false,
-})
+export const unknownKbfsDaemonStatus: Types.KbfsDaemonStatus = {
+  onlineStatus: Types.KbfsDaemonOnlineStatus.Unknown,
+  rpcStatus: Types.KbfsDaemonRpcStatus.Waiting,
+}
 
-export const makeKbfsDaemonStatus = I.Record<Types._KbfsDaemonStatus>({
-  online: false,
-  rpcStatus: Types.KbfsDaemonRpcStatus.Unknown,
-})
-
-export const makeSoftErrors = I.Record<Types._SoftErrors>({
-  pathErrors: I.Map(),
-  tlfErrors: I.Map(),
-})
-
-export const makeSettings = I.Record<Types._Settings>({
+export const emptySettings: Types.Settings = {
   isLoading: false,
+  loaded: false,
+  sfmiBannerDismissed: false,
   spaceAvailableNotificationThreshold: 0,
-})
+  syncOnCellular: false,
+}
 
-export const makeState = I.Record<Types._State>({
-  destinationPicker: makeDestinationPicker(),
-  downloads: I.Map(),
-  edits: I.Map(),
-  errors: I.Map(),
-  folderViewFilter: '',
-  kbfsDaemonStatus: makeKbfsDaemonStatus(),
-  lastPublicBannerClosedTlf: '',
-  localHTTPServerInfo: makeLocalHTTPServer(),
-  overallSyncStatus: makeOverallSyncStatus(),
-  pathItemActionMenu: makePathItemActionMenu(),
-  pathItems: I.Map([[Types.stringToPath('/keybase'), makeFolder()]]),
-  pathUserSettings: I.Map(),
-  sendAttachmentToChat: makeSendAttachmentToChat(),
-  sendLinkToChat: makeSendLinkToChat(),
-  settings: makeSettings(),
-  sfmi: makeSystemFileManagerIntegration(),
-  softErrors: makeSoftErrors(),
-  tlfUpdates: I.List(),
-  tlfs: makeTlfs(),
-  uploads: makeUploads(),
-})
+export const emptyPathInfo: Types.PathInfo = {
+  deeplinkPath: '',
+  platformAfterMountPath: '',
+}
 
-// RPC expects a string that's interpreted as [16]byte on Go side.
-export const makeUUID = () => uuidv1({}, Buffer.alloc(16), 0).toString()
+export const emptyFileContext: Types.FileContext = {
+  contentType: '',
+  url: '',
+  viewType: RPCTypes.GUIViewType.default,
+}
 
-export const pathToRPCPath = (path: Types.Path): RPCTypes.Path => ({
+export const getPathItem = (pathItems: Map<Types.Path, Types.PathItem>, path: Types.Path): Types.PathItem =>
+  pathItems.get(path) || (unknownPathItem as Types.PathItem)
+
+// RPC expects a string that's interpreted as [16]byte on Go side and it has to
+// be unique among all ongoing ops at any given time. uuidv1 may exceed 16
+// bytes, so just roll something simple that's seeded with time.
+//
+// MAX_SAFE_INTEGER after toString(36) is 11 characters, so this should take <=
+// 12 chars
+const uuidSeed = Date.now().toString(36) + '-'
+let counter = 0
+// We have 36^4=1,679,616 of space to work with in order to not exceed 16
+// bytes.
+const counterMod = 36 * 36 * 36 * 36
+export const makeUUID = () => {
+  counter = (counter + 1) % counterMod
+  return uuidSeed + counter.toString(36)
+}
+
+export const pathToRPCPath = (
+  path: Types.Path
+): {PathType: RPCTypes.PathType.kbfs; kbfs: RPCTypes.KBFSPath} => ({
   PathType: RPCTypes.PathType.kbfs,
-  kbfs: Types.pathToString(path).substring('/keybase'.length) || '/',
+  kbfs: {
+    identifyBehavior: RPCTypes.TLFIdentifyBehavior.fsGui,
+    path: Types.pathToString(path).substring('/keybase'.length) || '/',
+  },
 })
+
+export const rpcPathToPath = (rpcPath: RPCTypes.KBFSPath) => Types.pathConcat(defaultPath, rpcPath.path)
 
 export const pathTypeToTextType = (type: Types.PathType) =>
   type === Types.PathType.Folder ? 'BodySemibold' : 'Body'
@@ -357,6 +276,11 @@ export const splitTlfIntoUsernames = (tlf: string): Array<string> =>
     .split(' ')[0]
     .replace(/#/g, ',')
     .split(',')
+
+export const getUsernamesFromPath = (path: Types.Path): Array<string> => {
+  const elems = Types.getPathElements(path)
+  return elems.length < 3 ? [] : splitTlfIntoUsernames(elems[2])
+}
 
 export const humanReadableFileSize = (size: number) => {
   const kib = 1024
@@ -372,17 +296,9 @@ export const humanReadableFileSize = (size: number) => {
   return `${size} B`
 }
 
-export const editTypeToPathType = (type: Types.EditType): Types.PathType => {
-  switch (type) {
-    case Types.EditType.NewFolder:
-      return Types.PathType.Folder
-    default:
-      Flow.ifFlowComplainsAboutThisFunctionYouHaventHandledAllCasesInASwitch(type)
-      return Types.PathType.Unknown
-  }
-}
+export const downloadIsOngoing = (dlState: Types.DownloadState) =>
+  dlState !== emptyDownloadState && !dlState.error && !dlState.done && !dlState.canceled
 
-export const makeDownloadKey = (path: Types.Path) => `download:${Types.pathToString(path)}:${makeUUID()}`
 export const getDownloadIntentFromAction = (
   action: FsGen.DownloadPayload | FsGen.ShareNativePayload | FsGen.SaveMediaPayload
 ): Types.DownloadIntent =>
@@ -392,23 +308,38 @@ export const getDownloadIntentFromAction = (
     ? Types.DownloadIntent.Share
     : Types.DownloadIntent.CameraRoll
 
-export const downloadFilePathFromPath = (p: Types.Path): Promise<Types.LocalPath> =>
-  downloadFilePath(Types.getPathName(p))
-export const downloadFilePathFromPathNoSearch = (p: Types.Path): string =>
-  downloadFilePathNoSearch(Types.getPathName(p))
+export const getDownloadIntent = (
+  path: Types.Path,
+  downloads: Types.Downloads,
+  pathItemActionMenu: Types.PathItemActionMenu
+): Types.DownloadIntent | null => {
+  const found = [...downloads.info].find(([_, info]) => info.path === path)
+  if (!found) {
+    return null
+  }
+  const [downloadID] = found
+  const dlState = downloads.state.get(downloadID) || emptyDownloadState
+  if (!downloadIsOngoing(dlState)) {
+    return null
+  }
+  if (pathItemActionMenu.downloadID === downloadID) {
+    return pathItemActionMenu.downloadIntent
+  }
+  return Types.DownloadIntent.None
+}
 
-export const makeTlfUpdate = I.Record<Types._TlfUpdate>({
-  history: I.List(),
+export const emptyTlfUpdate: Types.TlfUpdate = {
+  history: [],
   path: Types.stringToPath(''),
   serverTime: 0,
   writer: '',
-})
+}
 
-export const makeTlfEdit = I.Record<Types._TlfEdit>({
+export const emptyTlfEdit: Types.TlfEdit = {
   editType: Types.FileEditType.Unknown,
   filename: '',
   serverTime: 0,
-})
+}
 
 const fsNotificationTypeToEditType = (fsNotificationType: number): Types.FileEditType => {
   switch (fsNotificationType) {
@@ -433,94 +364,32 @@ export const userTlfHistoryRPCToState = (
     const updateServerTime = folder.serverTime
     const path = pathFromFolderRPC(folder.folder)
     const tlfUpdates = folder.history
-      ? folder.history.map(({writerName, edits}) =>
-          makeTlfUpdate({
-            history: I.List(
-              edits
-                ? edits.map(({filename, notificationType, serverTime}) =>
-                    makeTlfEdit({
-                      editType: fsNotificationTypeToEditType(notificationType),
-                      filename,
-                      serverTime,
-                    })
-                  )
-                : []
-            ),
-            path,
-            serverTime: updateServerTime,
-            writer: writerName,
-          })
-        )
+      ? folder.history.map(({writerName, edits}) => ({
+          history: edits
+            ? edits.map(({filename, notificationType, serverTime}) => ({
+                editType: fsNotificationTypeToEditType(notificationType),
+                filename,
+                serverTime,
+              }))
+            : [],
+          path,
+          serverTime: updateServerTime,
+          writer: writerName,
+        }))
       : []
     updates = updates.concat(tlfUpdates)
   })
-  return I.List(updates)
+  return updates
 }
 
-const supportedImgMimeTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
-export const viewTypeFromMimeType = (mime: Types.Mime | null): Types.FileViewType => {
-  if (mime && mime.displayPreview) {
-    const mimeType = mime.mimeType
-    if (mimeType === 'text/plain') {
-      return Types.FileViewType.Text
-    }
-    if (supportedImgMimeTypes.has(mimeType)) {
-      return Types.FileViewType.Image
-    }
-    if (mimeType.startsWith('audio/') || mimeType.startsWith('video/')) {
-      return Types.FileViewType.Av
-    }
-    if (mimeType === 'application/pdf') {
-      return Types.FileViewType.Pdf
-    }
-  }
-  return Types.FileViewType.Default
-}
-
-export const canSaveMedia = (pathItem: Types.PathItem): boolean => {
-  if (pathItem.type !== Types.PathType.File || !pathItem.mimeType) {
+export const canSaveMedia = (pathItem: Types.PathItem, fileContext: Types.FileContext): boolean => {
+  if (pathItem.type !== Types.PathType.File || fileContext === emptyFileContext) {
     return false
   }
-  const mime = pathItem.mimeType
   return (
-    viewTypeFromMimeType(mime) === Types.FileViewType.Image ||
-    // Can't rely on viewType === av here because audios can't be saved to
-    // the camera roll.
-    mime.mimeType.startsWith('video/')
+    fileContext.viewType === RPCTypes.GUIViewType.image || fileContext.viewType === RPCTypes.GUIViewType.video
   )
 }
-
-const encodePathForURL = (path: Types.Path) =>
-  encodeURIComponent(Types.pathToString(path).slice(slashKeybaseSlashLength))
-    .replace(
-      // We need to do this because otherwise encodeURIComponent would encode
-      // "/"s.  If we get a relative redirect (e.g. when requested resource is
-      // index.html, we get redirected to "./"), we'd end up redirect to a wrong
-      // resource.
-      /%2F/g,
-      '/'
-    )
-    // Additional characters that encodeURIComponent doesn't escape
-    .replace(
-      /[-_.!~*'()]/g,
-      old =>
-        `%${old
-          .charCodeAt(0)
-          .toString(16)
-          .toUpperCase()}`
-    )
-
-const slashKeybaseSlashLength = '/keybase/'.length
-export const generateFileURL = (path: Types.Path, localHTTPServerInfo: Types.LocalHTTPServer): string => {
-  const {address, token} = localHTTPServerInfo
-  if (!address || !token) {
-    return 'about:blank'
-  }
-  const encoded = encodePathForURL(path)
-  return `http://${address}/files/${encoded}?token=${token}`
-}
-
-export const invalidTokenTitle = 'KBFS HTTP Token Invalid'
 
 export const folderRPCFromPath = (path: Types.Path): RPCTypes.FolderHandle | null => {
   const pathElems = Types.getPathElements(path)
@@ -559,7 +428,7 @@ export const syntheticEventToTargetRect = (evt?: React.SyntheticEvent): ClientRe
 export const invalidTokenError = new Error('invalid token')
 export const notFoundError = new Error('not found')
 
-export const makeEditID = (): Types.EditID => Types.stringToEditID(uuidv1())
+export const makeEditID = (): Types.EditID => Types.stringToEditID(makeUUID())
 
 export const getTlfListFromType = (tlfs: Types.Tlfs, tlfType: Types.TlfType): Types.TlfList => {
   switch (tlfType) {
@@ -571,17 +440,22 @@ export const getTlfListFromType = (tlfs: Types.Tlfs, tlfType: Types.TlfType): Ty
       return tlfs.team
     default:
       Flow.ifFlowComplainsAboutThisFunctionYouHaventHandledAllCasesInASwitch(tlfType)
-      return I.Map()
+      return new Map()
   }
 }
 
 export const computeBadgeNumberForTlfList = (tlfList: Types.TlfList): number =>
-  tlfList.reduce((accumulator, tlf) => (tlfIsBadged(tlf) ? accumulator + 1 : accumulator), 0)
+  [...tlfList.values()].reduce((accumulator, tlf) => (tlfIsBadged(tlf) ? accumulator + 1 : accumulator), 0)
 
 export const computeBadgeNumberForAll = (tlfs: Types.Tlfs): number =>
   [Types.TlfType.Private, Types.TlfType.Public, Types.TlfType.Team]
     .map(tlfType => computeBadgeNumberForTlfList(getTlfListFromType(tlfs, tlfType)))
     .reduce((sum, count) => sum + count, 0)
+
+export const getTlfPath = (path: Types.Path): Types.Path | null => {
+  const elems = Types.getPathElements(path)
+  return elems.length > 2 ? Types.pathConcat(Types.pathConcat(defaultPath, elems[1]), elems[2]) : null
+}
 
 export const getTlfListAndTypeFromPath = (
   tlfs: Types.Tlfs,
@@ -599,31 +473,38 @@ export const getTlfListAndTypeFromPath = (
       return {tlfList: getTlfListFromType(tlfs, tlfType), tlfType}
     }
     default:
-      return {tlfList: I.Map(), tlfType: Types.TlfType.Private}
+      return {tlfList: new Map(), tlfType: Types.TlfType.Private}
   }
 }
 
-export const unknownTlf = makeTlf()
-export const getTlfFromPath = (tlfs: Types.Tlfs, path: Types.Path): Types.Tlf => {
+export const unknownTlf = makeTlf({})
+export const getTlfFromPathInFavoritesOnly = (tlfs: Types.Tlfs, path: Types.Path): Types.Tlf => {
   const elems = Types.getPathElements(path)
   if (elems.length < 3) {
     return unknownTlf
   }
   const {tlfList} = getTlfListAndTypeFromPath(tlfs, path)
-  return tlfList.get(elems[2], unknownTlf)
+  return tlfList.get(elems[2]) || unknownTlf
+}
+
+export const getTlfFromPath = (tlfs: Types.Tlfs, path: Types.Path): Types.Tlf => {
+  const fromFavorites = getTlfFromPathInFavoritesOnly(tlfs, path)
+  return fromFavorites !== unknownTlf
+    ? fromFavorites
+    : tlfs.additionalTlfs.get(getTlfPath(path)) || unknownTlf
 }
 
 export const getTlfFromTlfs = (tlfs: Types.Tlfs, tlfType: Types.TlfType, name: string): Types.Tlf => {
   switch (tlfType) {
     case Types.TlfType.Private:
-      return tlfs.private.get(name, makeTlf())
+      return tlfs.private.get(name) || unknownTlf
     case Types.TlfType.Public:
-      return tlfs.public.get(name, makeTlf())
+      return tlfs.public.get(name) || unknownTlf
     case Types.TlfType.Team:
-      return tlfs.team.get(name, makeTlf())
+      return tlfs.team.get(name) || unknownTlf
     default:
       Flow.ifFlowComplainsAboutThisFunctionYouHaventHandledAllCasesInASwitch(tlfType)
-      return makeTlf()
+      return unknownTlf
   }
 }
 
@@ -632,17 +513,14 @@ export const tlfTypeAndNameToPath = (tlfType: Types.TlfType, name: string): Type
 
 export const resetBannerType = (state: TypedState, path: Types.Path): Types.ResetBannerType => {
   const resetParticipants = getTlfFromPath(state.fs.tlfs, path).resetParticipants
-  if (resetParticipants.size === 0) {
+  if (resetParticipants.length === 0) {
     return Types.ResetBannerNoOthersType.None
   }
   if (resetParticipants.findIndex(username => username === state.config.username) >= 0) {
     return Types.ResetBannerNoOthersType.Self
   }
-  return resetParticipants.size
+  return resetParticipants.length
 }
-
-export const isPendingDownload = (download: Types.Download, path: Types.Path, intent: Types.DownloadIntent) =>
-  download.meta.path === path && download.meta.intent === intent && !download.state.isDone
 
 export const getUploadedPath = (parentPath: Types.Path, localPath: string) =>
   Types.pathConcat(parentPath, Types.getLocalPathName(localPath))
@@ -652,9 +530,9 @@ export const usernameInPath = (username: string, path: Types.Path) => {
   return elems.length >= 3 && elems[2].split(',').includes(username)
 }
 
-export const getUsernamesFromTlfName = (tlfName: string): I.List<string> => {
+export const getUsernamesFromTlfName = (tlfName: string): Array<string> => {
   const split = splitTlfIntoReadersAndWriters(tlfName)
-  return split.writers.concat(split.readers || I.List([]))
+  return split.writers.concat(split.readers || [])
 }
 
 export const isOfflineUnsynced = (
@@ -662,8 +540,7 @@ export const isOfflineUnsynced = (
   pathItem: Types.PathItem,
   path: Types.Path
 ) =>
-  flags.kbfsOfflineMode &&
-  !daemonStatus.online &&
+  daemonStatus.onlineStatus === Types.KbfsDaemonOnlineStatus.Offline &&
   Types.getPathLevel(path) > 2 &&
   pathItem.prefetchStatus !== prefetchComplete
 
@@ -683,68 +560,44 @@ export const pathsInSameTlf = (a: Types.Path, b: Types.Path): boolean => {
   return elemsA.length >= 3 && elemsB.length >= 3 && elemsA[1] === elemsB[1] && elemsA[2] === elemsB[2]
 }
 
+const slashKeybaseSlashLength = '/keybase/'.length
+// TODO: move this to Go
 export const escapePath = (path: Types.Path): string =>
-  Types.pathToString(path).replace(/(\\)|( )/g, (match, p1, p2) => `\\${p1 || p2}`)
-export const unescapePath = (escaped: string): Types.Path =>
-  Types.stringToPath(escaped.replace(/\\(\\)|\\( )/g, (match, p1, p2) => p1 || p2)) // turns "\\" into "\", and "\ " into " "
+  'keybase://' +
+  encodeURIComponent(Types.pathToString(path).slice(slashKeybaseSlashLength)).replace(
+    // We need to do this because otherwise encodeURIComponent would encode
+    // "/"s.
+    /%2F/g,
+    '/'
+  )
 
-const makeParsedPathRoot = I.Record<Types._ParsedPathRoot>({kind: Types.PathKind.Root})
-export const parsedPathRoot: Types.ParsedPathRoot = makeParsedPathRoot()
+export const parsedPathRoot: Types.ParsedPathRoot = {kind: Types.PathKind.Root}
 
-const makeParsedPathTlfList = I.Record<Types._ParsedPathTlfList>({
+export const parsedPathPrivateList: Types.ParsedPathTlfList = {
   kind: Types.PathKind.TlfList,
   tlfType: Types.TlfType.Private,
-})
-export const parsedPathPrivateList: Types.ParsedPathTlfList = makeParsedPathTlfList()
-export const parsedPathPublicList: Types.ParsedPathTlfList = makeParsedPathTlfList({
+}
+
+export const parsedPathPublicList: Types.ParsedPathTlfList = {
+  kind: Types.PathKind.TlfList,
   tlfType: Types.TlfType.Public,
-})
-export const parsedPathTeamList: Types.ParsedPathTlfList = makeParsedPathTlfList({
+}
+
+export const parsedPathTeamList: Types.ParsedPathTlfList = {
+  kind: Types.PathKind.TlfList,
   tlfType: Types.TlfType.Team,
-})
-
-const makeParsedPathGroupTlf = I.Record<Types._ParsedPathGroupTlf>({
-  kind: Types.PathKind.GroupTlf,
-  readers: null,
-  tlfName: '',
-  tlfType: Types.TlfType.Private,
-  writers: I.List(),
-})
-
-const makeParsedPathTeamTlf = I.Record<Types._ParsedPathTeamTlf>({
-  kind: Types.PathKind.TeamTlf,
-  team: '',
-  tlfName: '',
-  tlfType: Types.TlfType.Team,
-})
-
-const makeParsedPathInGroupTlf = I.Record<Types._ParsedPathInGroupTlf>({
-  kind: Types.PathKind.InGroupTlf,
-  readers: null,
-  rest: I.List(),
-  tlfName: '',
-  tlfType: Types.TlfType.Private,
-  writers: I.List(),
-})
-
-const makeParsedPathInTeamTlf = I.Record<Types._ParsedPathInTeamTlf>({
-  kind: Types.PathKind.InTeamTlf,
-  rest: I.List(),
-  team: '',
-  tlfName: '',
-  tlfType: Types.TlfType.Team,
-})
+}
 
 const splitTlfIntoReadersAndWriters = (
   tlf: string
 ): {
-  readers: I.List<string> | null
-  writers: I.List<string>
+  readers?: Array<string>
+  writers: Array<string>
 } => {
   const [w, r] = tlf.split('#')
   return {
-    readers: r ? I.List(r.split(',').filter(i => !!i)) : null,
-    writers: I.List(w.split(',').filter(i => !!i)),
+    readers: r ? r.split(',').filter(i => !!i) : undefined,
+    writers: w.split(',').filter(i => !!i),
   }
 }
 
@@ -760,54 +613,60 @@ export const parsePath = (path: Types.Path): Types.ParsedPath => {
         case 2:
           return parsedPathPrivateList
         case 3:
-          return makeParsedPathGroupTlf({
-            ...splitTlfIntoReadersAndWriters(elems[2]),
+          return {
+            kind: Types.PathKind.GroupTlf,
             tlfName: elems[2],
             tlfType: Types.TlfType.Private,
-          })
+            ...splitTlfIntoReadersAndWriters(elems[2]),
+          }
         default:
-          return makeParsedPathInGroupTlf({
-            ...splitTlfIntoReadersAndWriters(elems[2]),
-            rest: I.List(elems.slice(3)),
+          return {
+            kind: Types.PathKind.InGroupTlf,
+            rest: elems.slice(3),
             tlfName: elems[2],
             tlfType: Types.TlfType.Private,
-          })
+            ...splitTlfIntoReadersAndWriters(elems[2]),
+          }
       }
     case 'public':
       switch (elems.length) {
         case 2:
           return parsedPathPublicList
         case 3:
-          return makeParsedPathGroupTlf({
-            ...splitTlfIntoReadersAndWriters(elems[2]),
+          return {
+            kind: Types.PathKind.GroupTlf,
             tlfName: elems[2],
             tlfType: Types.TlfType.Public,
-          })
+            ...splitTlfIntoReadersAndWriters(elems[2]),
+          }
         default:
-          return makeParsedPathInGroupTlf({
-            ...splitTlfIntoReadersAndWriters(elems[2]),
-            rest: I.List(elems.slice(3)),
+          return {
+            kind: Types.PathKind.InGroupTlf,
+            rest: elems.slice(3),
             tlfName: elems[2],
             tlfType: Types.TlfType.Public,
-          })
+            ...splitTlfIntoReadersAndWriters(elems[2]),
+          }
       }
     case 'team':
       switch (elems.length) {
         case 2:
           return parsedPathTeamList
         case 3:
-          return makeParsedPathTeamTlf({
+          return {
+            kind: Types.PathKind.TeamTlf,
             team: elems[2],
             tlfName: elems[2],
             tlfType: Types.TlfType.Team,
-          })
+          }
         default:
-          return makeParsedPathInTeamTlf({
-            rest: I.List(elems.slice(3)),
+          return {
+            kind: Types.PathKind.InTeamTlf,
+            rest: elems.slice(3),
             team: elems[2],
             tlfName: elems[2],
             tlfType: Types.TlfType.Team,
-          })
+          }
       }
     default:
       return parsedPathRoot
@@ -821,23 +680,6 @@ export const rebasePathToDifferentTlf = (path: Types.Path, newTlfPath: Types.Pat
       .slice(3)
       .join('/')
   )
-
-export const canSendLinkToChat = (parsedPath: Types.ParsedPath) => {
-  switch (parsedPath.kind) {
-    case Types.PathKind.Root:
-    case Types.PathKind.TlfList:
-      return false
-    case Types.PathKind.GroupTlf:
-    case Types.PathKind.TeamTlf:
-      return false
-    case Types.PathKind.InGroupTlf:
-    case Types.PathKind.InTeamTlf:
-      return parsedPath.tlfType !== Types.TlfType.Public
-    default:
-      Flow.ifFlowComplainsAboutThisFunctionYouHaventHandledAllCasesInASwitch(parsedPath)
-      return false
-  }
-}
 
 export const canChat = (path: Types.Path) => {
   const parsedPath = parsePath(path)
@@ -868,13 +710,13 @@ export const getChatTarget = (path: Types.Path, me: string): string => {
     return 'team conversation'
   }
   if (parsedPath.kind === Types.PathKind.GroupTlf || parsedPath.kind === Types.PathKind.InGroupTlf) {
-    if (parsedPath.writers.size === 1 && !parsedPath.readers && parsedPath.writers.first() === me) {
+    if (parsedPath.writers.length === 1 && !parsedPath.readers && parsedPath.writers[0] === me) {
       return 'yourself'
     }
-    if (parsedPath.writers.size + (parsedPath.readers ? parsedPath.readers.size : 0) === 2) {
+    if (parsedPath.writers.length + (parsedPath.readers ? parsedPath.readers.length : 0) === 2) {
       const notMe = parsedPath.writers.concat(parsedPath.readers || []).filter(u => u !== me)
-      if (notMe.size === 1) {
-        return notMe.first()
+      if (notMe.length === 1) {
+        return notMe[0] as string
       }
     }
     return 'group conversation'
@@ -882,25 +724,21 @@ export const getChatTarget = (path: Types.Path, me: string): string => {
   return 'conversation'
 }
 
-const humanizeDownloadIntent = (intent: Types.DownloadIntent) => {
-  switch (intent) {
-    case Types.DownloadIntent.CameraRoll:
-      return 'save'
-    case Types.DownloadIntent.Share:
-      return 'prepare to share'
-    case Types.DownloadIntent.None:
-      return 'download'
-    default:
-      Flow.ifFlowComplainsAboutThisFunctionYouHaventHandledAllCasesInASwitch(intent)
-      return ''
-  }
+export const getSharePathArrayDescription = (paths: Array<Types.LocalPath | string>): string => {
+  return !paths.length ? '' : paths.length === 1 ? Types.getPathName(paths[0]) : `${paths.length} items`
 }
 
 export const getDestinationPickerPathName = (picker: Types.DestinationPicker): string =>
   picker.source.type === Types.DestinationPickerSource.MoveOrCopy
     ? Types.getPathName(picker.source.path)
     : picker.source.type === Types.DestinationPickerSource.IncomingShare
-    ? Types.getLocalPathName(picker.source.localPath)
+    ? Array.isArray(picker.source.source)
+      ? getSharePathArrayDescription(
+          picker.source.source
+            .map(({originalPath}) => (originalPath ? Types.getLocalPathName(originalPath) : ''))
+            .filter(Boolean)
+        )
+      : picker.source.source
     : ''
 
 const isPathEnabledForSync = (syncConfig: Types.TlfSyncConfig, path: Types.Path): boolean => {
@@ -919,28 +757,79 @@ const isPathEnabledForSync = (syncConfig: Types.TlfSyncConfig, path: Types.Path)
   }
 }
 
-export const getSyncStatusInMergeProps = (
+export const getUploadIconForTlfType = (
+  kbfsDaemonStatus: Types.KbfsDaemonStatus,
+  uploads: Types.Uploads,
+  tlfList: Types.TlfList,
+  tlfType: Types.TlfType
+): Types.UploadIcon | undefined => {
+  if (
+    [...tlfList].some(
+      ([_, tlf]) =>
+        tlf.conflictState.type === Types.ConflictStateType.NormalView && tlf.conflictState.stuckInConflict
+    )
+  ) {
+    return Types.UploadIcon.UploadingStuck
+  }
+
+  const prefix = Types.pathToString(Types.getTlfTypePathFromTlfType(tlfType))
+  if (
+    [...uploads.syncingPaths].some(p => Types.pathToString(p).startsWith(prefix)) ||
+    [...uploads.writingToJournal.keys()].some(p => Types.pathToString(p).startsWith(prefix))
+  ) {
+    return kbfsDaemonStatus.onlineStatus === Types.KbfsDaemonOnlineStatus.Offline
+      ? Types.UploadIcon.AwaitingToUpload
+      : Types.UploadIcon.Uploading
+  }
+
+  return undefined
+}
+
+export const tlfIsStuckInConflict = (tlf: Types.Tlf) =>
+  tlf.conflictState.type === Types.ConflictStateType.NormalView && tlf.conflictState.stuckInConflict
+
+export const getUploadIconForFilesTab = (badge: RPCTypes.FilesTabBadge): Types.UploadIcon | undefined => {
+  switch (badge) {
+    case RPCTypes.FilesTabBadge.awaitingUpload:
+      return Types.UploadIcon.AwaitingToUpload
+    case RPCTypes.FilesTabBadge.uploadingStuck:
+      return Types.UploadIcon.UploadingStuck
+    case RPCTypes.FilesTabBadge.uploading:
+      return Types.UploadIcon.Uploading
+    case RPCTypes.FilesTabBadge.none:
+      return undefined
+  }
+}
+
+export const getPathStatusIconInMergeProps = (
   kbfsDaemonStatus: Types.KbfsDaemonStatus,
   tlf: Types.Tlf,
   pathItem: Types.PathItem,
-  uploadingPaths: I.Set<Types.Path>,
+  uploadingPaths: Set<Types.Path>,
   path: Types.Path
-): Types.SyncStatus => {
+): Types.PathStatusIcon => {
+  // There's no upload or sync for local conflict view.
+  if (tlf.conflictState.type === Types.ConflictStateType.ManualResolvingLocalView) {
+    return Types.LocalConflictStatus
+  }
+
+  // uploading state has higher priority
+  if (uploadingPaths.has(path)) {
+    return tlf.conflictState.type === Types.ConflictStateType.NormalView && tlf.conflictState.stuckInConflict
+      ? Types.UploadIcon.UploadingStuck
+      : kbfsDaemonStatus.onlineStatus === Types.KbfsDaemonOnlineStatus.Offline
+      ? Types.UploadIcon.AwaitingToUpload
+      : Types.UploadIcon.Uploading
+  }
+  if (!isPathEnabledForSync(tlf.syncConfig, path)) {
+    return Types.NonUploadStaticSyncStatus.OnlineOnly
+  }
+
   if (
     !tlf.syncConfig ||
     (pathItem === unknownPathItem && tlf.syncConfig.mode !== Types.TlfSyncMode.Disabled)
   ) {
-    return Types.SyncStatusStatic.Unknown
-  }
-  const tlfSyncConfig: Types.TlfSyncConfig = tlf.syncConfig
-  // uploading state has higher priority
-  if (uploadingPaths.has(path)) {
-    return kbfsDaemonStatus.online
-      ? Types.SyncStatusStatic.Uploading
-      : Types.SyncStatusStatic.AwaitingToUpload
-  }
-  if (!isPathEnabledForSync(tlfSyncConfig, path)) {
-    return Types.SyncStatusStatic.OnlineOnly
+    return Types.NonUploadStaticSyncStatus.Unknown
   }
 
   // TODO: what about 'sync-error'?
@@ -948,36 +837,37 @@ export const getSyncStatusInMergeProps = (
   // We don't have an upload state, and sync is enabled for this path.
   switch (pathItem.prefetchStatus.state) {
     case Types.PrefetchState.NotStarted:
-      return Types.SyncStatusStatic.AwaitingToSync
+      return Types.NonUploadStaticSyncStatus.AwaitingToSync
     case Types.PrefetchState.Complete:
-      return Types.SyncStatusStatic.Synced
+      return Types.NonUploadStaticSyncStatus.Synced
     case Types.PrefetchState.InProgress: {
-      if (!kbfsDaemonStatus.online) {
-        return Types.SyncStatusStatic.AwaitingToSync
+      if (kbfsDaemonStatus.onlineStatus === Types.KbfsDaemonOnlineStatus.Offline) {
+        return Types.NonUploadStaticSyncStatus.AwaitingToSync
       }
       const inProgress: Types.PrefetchInProgress = pathItem.prefetchStatus
       if (inProgress.bytesTotal === 0) {
-        return Types.SyncStatusStatic.AwaitingToSync
+        return Types.NonUploadStaticSyncStatus.AwaitingToSync
       }
       return inProgress.bytesFetched / inProgress.bytesTotal
     }
     default:
       Flow.ifFlowComplainsAboutThisFunctionYouHaventHandledAllCasesInASwitch(pathItem.prefetchStatus)
-      return Types.SyncStatusStatic.Unknown
+      return Types.NonUploadStaticSyncStatus.Unknown
   }
 }
 
 export const makeActionsForDestinationPickerOpen = (
   index: number,
   path: Types.Path,
-  navigateAppend
+  navigateAppend: typeof RouteTreeGen.createNavigateAppend,
+  headerRightButton?: React.ReactNode
 ): Array<TypedActions> => [
   FsGen.createSetDestinationPickerParentPath({
     index,
     path,
   }),
   navigateAppend({
-    path: [{props: {index}, selected: 'destinationPicker'}],
+    path: [{props: {headerRightButton, index}, selected: 'destinationPicker'}],
   }),
 ]
 
@@ -988,48 +878,27 @@ export const makeActionForOpenPathInFilesTab = (
   path: Types.Path
 ): TypedActions => RouteTreeGen.createNavigateAppend({path: [{props: {path}, selected: 'fsRoot'}]})
 
-export const putActionIfOnPathForNav1 = (action: TypedActions, routePath?: I.List<string> | null) => action
-
-export const makeActionsForShowSendLinkToChat = (
-  path: Types.Path,
-  routePath?: I.List<string> | null
-): Array<TypedActions> => [
-  FsGen.createInitSendLinkToChat({path}),
-  putActionIfOnPathForNav1(
-    RouteTreeGen.createNavigateAppend({
-      path: [{props: {path}, selected: 'sendLinkToChat'}],
-    }),
-    routePath
-  ),
-]
-
-export const makeActionsForShowSendAttachmentToChat = (
-  path: Types.Path,
-  routePath?: I.List<string> | null
-): Array<TypedActions> => [
-  FsGen.createInitSendAttachmentToChat({path}),
-  putActionIfOnPathForNav1(
-    RouteTreeGen.createNavigateAppend({
-      path: [{props: {path}, selected: 'sendAttachmentToChat'}],
-    }),
-    routePath
-  ),
-]
+export const putActionIfOnPathForNav1 = (action: TypedActions) => action
 
 export const getMainBannerType = (
   kbfsDaemonStatus: Types.KbfsDaemonStatus,
   overallSyncStatus: Types.OverallSyncStatus
-): Types.MainBannerType =>
-  kbfsDaemonStatus.online
-    ? overallSyncStatus.diskSpaceStatus === 'error'
-      ? Types.MainBannerType.OutOfSpace
-      : Types.MainBannerType.None
-    : flags.kbfsOfflineMode
-    ? Types.MainBannerType.Offline
-    : Types.MainBannerType.None
+): Types.MainBannerType => {
+  if (kbfsDaemonStatus.onlineStatus === Types.KbfsDaemonOnlineStatus.Offline) {
+    return Types.MainBannerType.Offline
+  } else if (kbfsDaemonStatus.onlineStatus === Types.KbfsDaemonOnlineStatus.Trying) {
+    return Types.MainBannerType.TryingToConnect
+  } else if (overallSyncStatus.diskSpaceStatus === 'error') {
+    return Types.MainBannerType.OutOfSpace
+  } else {
+    return Types.MainBannerType.None
+  }
+}
 
 export const isFolder = (path: Types.Path, pathItem: Types.PathItem) =>
   Types.getPathLevel(path) <= 3 || pathItem.type === Types.PathType.Folder
+
+export const isInTlf = (path: Types.Path) => Types.getPathLevel(path) > 2
 
 export const humanizeBytes = (n: number, numDecimals: number): string => {
   const kb = 1024
@@ -1061,11 +930,6 @@ export const humanizeBytesOfTotal = (n: number, d: number): string => {
   return `${(n / gb).toFixed(2)} of ${(d / gb).toFixed(2)} GB`
 }
 
-export const getTlfPath = (path: Types.Path): Types.Path | null => {
-  const elems = Types.getPathElements(path)
-  return elems.length > 2 ? Types.pathConcat(Types.pathConcat(defaultPath, elems[1]), elems[2]) : null
-}
-
 export const hasPublicTag = (path: Types.Path): boolean => {
   const publicPrefix = '/keybase/public/'
   // The slash after public in `publicPrefix` prevents /keybase/public from counting.
@@ -1073,13 +937,11 @@ export const hasPublicTag = (path: Types.Path): boolean => {
 }
 
 export const getPathUserSetting = (
-  pathUserSettings: I.Map<Types.Path, Types.PathUserSetting>,
+  pathUserSettings: Map<Types.Path, Types.PathUserSetting>,
   path: Types.Path
 ): Types.PathUserSetting =>
-  pathUserSettings.get(
-    path,
-    Types.getPathLevel(path) < 3 ? defaultTlfListPathUserSetting : defaultPathUserSetting
-  )
+  pathUserSettings.get(path) ||
+  (Types.getPathLevel(path) < 3 ? defaultTlfListPathUserSetting : defaultPathUserSetting)
 
 export const showSortSetting = (
   path: Types.Path,
@@ -1106,53 +968,16 @@ export const getSoftError = (softErrors: Types.SoftErrors, path: Types.Path): Ty
 export const hasSpecialFileElement = (path: Types.Path): boolean =>
   Types.getPathElements(path).some(elem => elem.startsWith('.kbfs'))
 
-export const erroredActionToMessage = (action: FsGen.Actions | EngineGen.Actions, error: string): string => {
-  // We have FsError.expectedIfOffline now to take care of real offline
-  // scenarios, but we still need to keep this timeout check here in case we
-  // get a timeout error when we think we think we're online. In this case it's
-  // likely bad network condition.
-  const errorIsTimeout = error.includes('context deadline exceeded')
-  const timeoutExplain = 'An operation took too long to complete. Are you connected to the Internet?'
-  const suffix = errorIsTimeout ? ` ${timeoutExplain}` : ''
-  switch (action.type) {
-    case FsGen.move:
-      return 'Failed to move file(s).' + suffix
-    case FsGen.copy:
-      return 'Failed to copy file(s).' + suffix
-    case FsGen.favoritesLoad:
-      return 'Failed to load TLF lists.' + suffix
-    case FsGen.refreshLocalHTTPServerInfo:
-      return 'Failed to get information about internal HTTP server.' + suffix
-    case FsGen.loadPathMetadata:
-      return `Failed to load file metadata: ${Types.getPathName(action.payload.path)}.` + suffix
-    case FsGen.folderListLoad:
-      return `Failed to list folder: ${Types.getPathName(action.payload.path)}.` + suffix
-    case FsGen.download:
-      return `Failed to download: ${Types.getPathName(action.payload.path)}.` + suffix
-    case FsGen.shareNative:
-      return `Failed to share: ${Types.getPathName(action.payload.path)}.` + suffix
-    case FsGen.saveMedia:
-      return `Failed to save: ${Types.getPathName(action.payload.path)}.` + suffix
-    case FsGen.upload:
-      return `Failed to upload: ${Types.getLocalPathName(action.payload.localPath)}.` + suffix
-    case FsGen.favoriteIgnore:
-      return `Failed to ignore: ${Types.pathToString(action.payload.path)}.` + suffix
-    case FsGen.openPathInSystemFileManager:
-      return `Failed to open path: ${Types.pathToString(action.payload.path)}.` + suffix
-    case FsGen.openLocalPathInSystemFileManager:
-      return `Failed to open path: ${action.payload.localPath}.` + suffix
-    case FsGen.deleteFile:
-      return `Failed to delete file: ${Types.pathToString(action.payload.path)}.` + suffix
-    case FsGen.downloadSuccess:
-      return (
-        `Failed to ${humanizeDownloadIntent(action.payload.intent)}. ` +
-        (errorIsTimeout ? timeoutExplain : `Error: ${error}.`)
-      )
-    case FsGen.pickAndUpload:
-      return 'Failed to upload. ' + (errorIsTimeout ? timeoutExplain : `Error: ${error}.`)
-    case FsGen.driverEnable:
-      return 'Failed to enable driver.'
-    default:
-      return errorIsTimeout ? timeoutExplain : 'An unexplainable error has occurred.'
-  }
-}
+export const sfmiInfoLoaded = (settings: Types.Settings, driverStatus: Types.DriverStatus): boolean =>
+  settings.loaded && driverStatus !== driverStatusUnknown
+
+// This isn't perfect since it doesn't cover the case of multi-writer public
+// TLFs or where a team TLF is readonly to the user. But to do that we'd need
+// some new caching in KBFS to plumb it into the Tlfs structure without
+// awful overhead.
+export const hideOrDisableInDestinationPicker = (
+  tlfType: Types.TlfType,
+  name: string,
+  username: string,
+  destinationPickerIndex?: number
+) => typeof destinationPickerIndex === 'number' && tlfType === Types.TlfType.Public && name !== username

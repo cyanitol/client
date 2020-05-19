@@ -9,10 +9,10 @@ export default function() {
   }
   const rqPath = binPath.replace('keybase.exe', 'keybaserq.exe')
   const wdLogPath = binPath.replace('keybase.exe', 'watchdog.')
-  const args = [binPath, '--log-format=file', '--log-prefix=' + wdLogPath, 'ctl', 'watchdog2']
+  const args = [binPath, '--log-format=file', '--log-prefix=' + wdLogPath, 'ctl', 'watchdog']
 
   spawn(rqPath, args, {
     detached: true,
-    stdio: 'ignore',
+    stdio: 'inherit',
   })
 }

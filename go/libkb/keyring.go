@@ -18,7 +18,6 @@ import (
 type KeyringFile struct {
 	filename         string
 	Entities         openpgp.EntityList
-	isPublic         bool
 	indexID          map[string](*openpgp.Entity) // Map of 64-bit uppercase-hex KeyIds
 	indexFingerprint map[PGPFingerprint](*openpgp.Entity)
 	Contextified
@@ -40,20 +39,20 @@ func NewKeyrings(g *GlobalContext) *Keyrings {
 func (g *GlobalContext) SKBFilenameForUser(un NormalizedUsername) string {
 	tmp := g.Env.GetSecretKeyringTemplate()
 	token := "%u"
-	if strings.Index(tmp, token) < 0 {
+	if !strings.Contains(tmp, token) {
 		return tmp
 	}
 
 	return strings.Replace(tmp, token, un.String(), -1)
 }
 
-func LoadSKBKeyring(un NormalizedUsername, g *GlobalContext) (*SKBKeyringFile, error) {
+func LoadSKBKeyring(m MetaContext, un NormalizedUsername) (*SKBKeyringFile, error) {
 	if un.IsNil() {
 		return nil, NewNoUsernameError()
 	}
 
-	skbfile := NewSKBKeyringFile(g, un)
-	err := skbfile.LoadAndIndex()
+	skbfile := NewSKBKeyringFile(m.G(), un)
+	err := skbfile.LoadAndIndex(m.Ctx())
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
@@ -61,7 +60,7 @@ func LoadSKBKeyring(un NormalizedUsername, g *GlobalContext) (*SKBKeyringFile, e
 }
 
 func LoadSKBKeyringFromMetaContext(m MetaContext) (*SKBKeyringFile, error) {
-	return LoadSKBKeyring(m.CurrentUsername(), m.G())
+	return LoadSKBKeyring(m, m.CurrentUsername())
 }
 
 func StatSKBKeyringMTime(un NormalizedUsername, g *GlobalContext) (mtime time.Time, err error) {
@@ -115,7 +114,6 @@ func (k *KeyringFile) Load() error {
 	file, err := os.Open(k.filename)
 	if os.IsNotExist(err) {
 		k.G().Log.Warning(fmt.Sprintf("No PGP Keyring found at %s", k.filename))
-		err = nil
 	} else if err != nil {
 		k.G().Log.Errorf("Cannot open keyring %s: %s\n", k.filename, err)
 		return err
@@ -268,7 +266,7 @@ func LockedLocalSecretKey(m MetaContext, ska SecretKeyArg) (*SKB, error) {
 // those in the local Keyring that are also active for the user.
 // In any case, the key will be locked.
 func (k *Keyrings) GetSecretKeyLocked(m MetaContext, ska SecretKeyArg) (ret *SKB, err error) {
-	defer m.Trace("Keyrings#GetSecretKeyLocked()", func() error { return err })()
+	defer m.Trace("Keyrings#GetSecretKeyLocked()", &err)()
 	m.Debug("| LoadMe w/ Secrets on")
 
 	if ska.Me == nil {
@@ -397,7 +395,7 @@ type SecretKeyPromptArg struct {
 
 // TODO: Figure out whether and how to dep-inject the SecretStore.
 func (k *Keyrings) GetSecretKeyWithPrompt(m MetaContext, arg SecretKeyPromptArg) (key GenericKey, err error) {
-	defer m.Trace(fmt.Sprintf("Keyrings#GetSecretKeyWithPrompt(%s)", arg.Reason), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("Keyrings#GetSecretKeyWithPrompt(%s)", arg.Reason), &err)()
 
 	key = k.cachedSecretKey(m, arg.Ska)
 	if key != nil {
@@ -407,14 +405,17 @@ func (k *Keyrings) GetSecretKeyWithPrompt(m MetaContext, arg SecretKeyPromptArg)
 	key, _, err = k.GetSecretKeyAndSKBWithPrompt(m, arg)
 
 	if key != nil && err == nil {
-		setCachedSecretKey(m, arg.Ska, key, nil)
+		err := setCachedSecretKey(m, arg.Ska, key, nil)
+		if err != nil {
+			m.Debug("GetSecretKeyWithPrompt: error setting cached key: %+v", err)
+		}
 	}
 
 	return key, err
 }
 
 func (k *Keyrings) GetSecretKeyAndSKBWithPrompt(m MetaContext, arg SecretKeyPromptArg) (key GenericKey, skb *SKB, err error) {
-	defer m.Trace(fmt.Sprintf("GetSecretKeyAndSKBWithPrompt(%s)", arg.Reason), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("GetSecretKeyAndSKBWithPrompt(%s)", arg.Reason), &err)()
 	if skb, err = k.GetSecretKeyLocked(m, arg.Ska); err != nil {
 		skb = nil
 		return nil, nil, err
@@ -422,18 +423,16 @@ func (k *Keyrings) GetSecretKeyAndSKBWithPrompt(m MetaContext, arg SecretKeyProm
 	var secretStore SecretStore
 	if arg.Ska.Me != nil {
 		skb.SetUID(arg.Ska.Me.GetUID())
-		secretStore = NewSecretStore(m.G(), arg.Ska.Me.GetNormalizedName())
+		secretStore = NewSecretStore(m, arg.Ska.Me.GetNormalizedName())
 	}
 	if key, err = skb.PromptAndUnlock(m, arg, secretStore, arg.Ska.Me); err != nil {
-		key = nil
-		skb = nil
 		return nil, nil, err
 	}
 	return key, skb, nil
 }
 
 func (k *Keyrings) GetSecretKeyWithStoredSecret(m MetaContext, ska SecretKeyArg, me *User, secretRetriever SecretRetriever) (key GenericKey, err error) {
-	defer m.Trace("Keyrings#GetSecretKeyWithStoredSecret()", func() error { return err })()
+	defer m.Trace("Keyrings#GetSecretKeyWithStoredSecret()", &err)()
 	var skb *SKB
 	skb, err = k.GetSecretKeyLocked(m, ska)
 	if err != nil {
@@ -444,7 +443,7 @@ func (k *Keyrings) GetSecretKeyWithStoredSecret(m MetaContext, ska SecretKeyArg,
 }
 
 func (k *Keyrings) GetSecretKeyWithPassphrase(m MetaContext, me *User, passphrase string, secretStorer SecretStorer) (key GenericKey, err error) {
-	defer m.Trace("Keyrings#GetSecretKeyWithPassphrase()", func() error { return err })()
+	defer m.Trace("Keyrings#GetSecretKeyWithPassphrase()", &err)()
 	ska := SecretKeyArg{
 		Me:      me,
 		KeyType: DeviceSigningKeyType,

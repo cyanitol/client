@@ -1,10 +1,12 @@
 import * as React from 'react'
-import * as I from 'immutable'
+import * as Constants from '../../../constants/wallets'
 import * as Kb from '../../../common-adapters'
 import * as Styles from '../../../styles'
+import * as Container from '../../../util/container'
 import * as Types from '../../../constants/types/wallets'
 import {AccountPageHeader} from '../../common'
 import DisplayCurrencyDropdown from './display-currency-dropdown'
+import {IconType} from '../../../common-adapters/icon.constants-gen'
 import WalletSettingTrustline from './trustline/container'
 import openUrl from '../../../util/open-url'
 
@@ -12,11 +14,10 @@ export type SettingsProps = {
   accountID: Types.AccountID
   name: string
   user: string
-  inflationDestination: string
   isDefault: boolean
   currencyWaiting: boolean
   currency: Types.Currency
-  currencies: I.List<Types.Currency>
+  currencies: Array<Types.Currency>
   canSubmitTx: boolean
   externalPartners: Array<Types.PartnerUrl & {showDivider: boolean}>
   mobileOnlyMode: boolean
@@ -24,11 +25,10 @@ export type SettingsProps = {
   mobileOnlyWaiting: boolean
   onBack: () => void
   onDelete: () => void
-  onLoadSecretKey: () => void
-  onSecretKeySeen: () => void
+  onLoadSecretKey?: () => void
+  onSecretKeySeen?: () => void
   onSetDefault: () => void
   onEditName: () => void
-  onSetupInflation: () => void
   onCurrencyChange: (currency: Types.CurrencyCode) => void
   onMobileOnlyModeChange: (enabled: boolean) => void
   refresh: () => void
@@ -38,24 +38,23 @@ export type SettingsProps = {
   thisDeviceIsLockedOut: boolean
 }
 
-const HoverText = Styles.isMobile
-  ? Kb.Text
-  : Styles.styled(Kb.Text)({
-      ':hover': {backgroundColor: Styles.globalColors.yellowLight},
-    })
-
 const Divider = () => <Kb.Divider style={styles.divider} />
 
 type PartnerRowProps = {
   extra: string
   description: string
-  iconFilename: string
+  iconFilename: IconType
   title: string
   url: string
 }
 const PartnerRow = (props: PartnerRowProps) => (
   <Kb.Box2 direction="horizontal" fullWidth={true} gap="tiny">
-    <Kb.Icon type="icon-stellar-logo-grey-32" style={styles.partnerIcon} />
+    <Kb.Icon
+      type={props.iconFilename}
+      colorOverride={Styles.globalColors.black}
+      fontSize={32}
+      style={styles.partnerIcon}
+    />
     <Kb.Box2 direction="vertical" fullWidth={true} style={styles.yesShrink}>
       <Kb.ClickableBox
         className="hover-underline-container"
@@ -73,24 +72,37 @@ const PartnerRow = (props: PartnerRowProps) => (
   </Kb.Box2>
 )
 
+const ConnectedHeader = () => {
+  const name = Container.useSelector(state => {
+    const accountID = Constants.getSelectedAccount(state)
+    return Constants.getAccount(state, accountID).name
+  })
+
+  return <AccountPageHeader accountName={name} title="Settings" />
+}
+
 class AccountSettings extends React.Component<SettingsProps> {
+  static navigationOptions = {
+    header: undefined,
+    headerTitle: () => <ConnectedHeader />,
+  }
+
   componentDidMount() {
     this.props.refresh()
-    this.props.onLoadSecretKey()
   }
   componentWillUnmount() {
-    this.props.onSecretKeySeen()
+    this.clearKey()
+  }
+
+  private clearKey = () => {
+    this.props.onSecretKeySeen && this.props.onSecretKeySeen()
   }
 
   render() {
     const props = this.props
     return (
       <Kb.Box2 direction="vertical" fullWidth={true} fullHeight={true}>
-        <Kb.HeaderHocHeader
-          customComponent={<AccountPageHeader accountName={props.name} title="Settings" />}
-          onBack={props.onBack}
-          headerStyle={styles.header}
-        />
+        {Styles.isMobile && <Kb.NavigationEvents onWillBlur={this.clearKey} />}
         <Kb.ScrollView style={styles.scrollView} contentContainerStyle={{flexGrow: 1}}>
           <Kb.Box2
             direction="vertical"
@@ -103,12 +115,13 @@ class AccountSettings extends React.Component<SettingsProps> {
               <Kb.Box2 direction="vertical" gap="xtiny" style={styles.section} fullWidth={true}>
                 <Kb.Text type="BodySmallSemibold">Account name</Kb.Text>
                 <Kb.Box2 direction="horizontal" fullWidth={true}>
-                  <HoverText type="BodySemibold">{props.name}</HoverText>
-                  <Kb.Icon
-                    style={Kb.iconCastPlatformStyles(styles.icon)}
-                    type="iconfont-edit"
-                    fontSize={Styles.isMobile ? 22 : 16}
-                  />
+                  <Kb.Text
+                    className="hover_color_blackOrBlack hover_background_color_yellowLight"
+                    type="BodySemibold"
+                  >
+                    {props.name}
+                  </Kb.Text>
+                  <Kb.Icon style={styles.icon} type="iconfont-edit" fontSize={Styles.isMobile ? 22 : 16} />
                 </Kb.Box2>
               </Kb.Box2>
             </Kb.ClickableBox>
@@ -119,17 +132,31 @@ class AccountSettings extends React.Component<SettingsProps> {
             </Kb.Box2>
             <Divider />
             <Kb.Box2 direction="vertical" gap="tiny" style={styles.section} fullWidth={true}>
-              <Kb.Text type="BodySmallSemibold">Secret Key</Kb.Text>
-              <Kb.Banner color="yellow" inline={true}>Only paste your secret key in 100% safe places. Anyone with this key could steal your Stellar&nbsp;account.</Kb.Banner>
-              <Kb.Box2 direction="vertical" fullWidth={true} style={styles.secretKeyContainer}>
-                <Kb.CopyText containerStyle={styles.copyTextContainer} multiline={true} withReveal={true} text={this.props.secretKey} />
-                {!this.props.secretKey && (
-                  <Kb.Box2 direction="horizontal" gap="tiny" fullWidth={true} style={styles.progressContainer}>
-                    <Kb.ProgressIndicator style={styles.progressIndicator} type="Small" />
-                    <Kb.Text type="BodySmall">fetching and decrypting secret key...</Kb.Text>
+              <Kb.Text type="BodySmallSemibold">Secret key</Kb.Text>
+              {!props.thisDeviceIsLockedOut ? (
+                <>
+                  <Kb.Banner color="yellow" inline={true}>
+                    Only paste your secret key in 100% safe places. Anyone with this key could steal your
+                    Stellar&nbsp;account.
+                  </Kb.Banner>
+                  <Kb.Box2 direction="vertical" fullWidth={true} style={styles.secretKeyContainer}>
+                    <Kb.CopyText
+                      containerStyle={styles.copyTextContainer}
+                      multiline={true}
+                      withReveal={true}
+                      loadText={() => this.props.onLoadSecretKey && this.props.onLoadSecretKey()}
+                      hideOnCopy={true}
+                      onCopy={this.clearKey}
+                      text={this.props.secretKey}
+                      placeholderText="fetching and decrypting secret key..."
+                    />
                   </Kb.Box2>
-                )}
-              </Kb.Box2>
+                </>
+              ) : (
+                <Kb.Text type="Body">
+                  You can only view your secret key on mobile devices because this is a mobile-only account.
+                </Kb.Text>
+              )}
             </Kb.Box2>
             <Divider />
             <Kb.Box2 direction="vertical" style={styles.section} fullWidth={true}>
@@ -231,6 +258,11 @@ class AccountSettings extends React.Component<SettingsProps> {
                   gapEnd={true}
                 >
                   <Kb.Text type="BodySmallSemibold">External tools and partners</Kb.Text>
+                  <Kb.Text style={styles.externalPartnersText} type="BodySmall">
+                    Note: Partners listed here are not affiliated with Keybase and are listed for convenience
+                    only. If you choose to visit a partner, that partner will see your Keybase username and
+                    Stellar address.
+                  </Kb.Text>
                   {props.externalPartners.map(partner => (
                     <Kb.Box2
                       key={partner.url}
@@ -241,7 +273,7 @@ class AccountSettings extends React.Component<SettingsProps> {
                       <PartnerRow
                         description={partner.description}
                         extra={partner.extra}
-                        iconFilename={partner.iconFilename}
+                        iconFilename={partner.iconFilename as IconType}
                         title={partner.title}
                         url={partner.url}
                       />
@@ -254,37 +286,6 @@ class AccountSettings extends React.Component<SettingsProps> {
 
             <WalletSettingTrustline accountID={props.accountID} />
 
-            <Kb.Box2 direction="vertical" gap="tiny" style={styles.section} fullWidth={true}>
-              <Kb.Box2 direction="horizontal" style={styles.alignSelfFlexStart} gap="xtiny" fullWidth={true}>
-                <Kb.Text type="BodySmallSemibold">Inflation destination</Kb.Text>
-                {!Styles.isMobile && (
-                  <Kb.WithTooltip
-                    text="Every year, the total Lumens grows by 1% due to inflation, and you can cast a vote for who gets it."
-                    multiline={true}
-                  >
-                    <Kb.Icon type="iconfont-question-mark" sizeType="Small" />
-                  </Kb.WithTooltip>
-                )}
-              </Kb.Box2>
-              {!!props.inflationDestination && (
-                <Kb.Text type="BodySemibold" selectable={true}>
-                  {props.inflationDestination}
-                </Kb.Text>
-              )}
-              {!!props.canSubmitTx && (
-                <Kb.Button
-                  mode="Secondary"
-                  label={props.inflationDestination ? 'Change' : 'Set up'}
-                  onClick={props.onSetupInflation}
-                  style={styles.setupInflation}
-                />
-              )}
-              {!props.canSubmitTx && (
-                <Kb.Text type="BodySmall">
-                  Your account needs more funds to set an inflation destination.
-                </Kb.Text>
-              )}
-            </Kb.Box2>
             <Kb.Box2
               direction="vertical"
               noShrink={true}
@@ -293,7 +294,6 @@ class AccountSettings extends React.Component<SettingsProps> {
               fullWidth={true}
               style={styles.removeContainer}
             >
-              <Kb.Divider />
               <Kb.Box2
                 direction="vertical"
                 fullWidth={true}
@@ -327,120 +327,118 @@ class AccountSettings extends React.Component<SettingsProps> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  alignSelfFlexStart: {alignSelf: 'flex-start'},
-  copyTextContainer: {
-    alignSelf: 'flex-start',
-    maxWidth: '100%',
-  },
-  deleteOpacity: {opacity: 0.3},
-  divider: {
-    marginBottom: Styles.globalMargins.tiny,
-    marginTop: Styles.globalMargins.tiny,
-  },
-  header: {
-    ...(!Styles.isMobile ? {minHeight: 48} : {}),
-    borderBottomColor: Styles.globalColors.black_10,
-    borderBottomWidth: 1,
-    borderStyle: 'solid',
-  },
-  icon: {marginLeft: Styles.globalMargins.xtiny},
-  identity: {
-    paddingBottom: Styles.globalMargins.tiny,
-  },
-  identityBox: {
-    flexGrow: 1,
-    flexShrink: 1,
-  },
-  mobileOnlySpinner: {
-    backgroundColor: Styles.globalColors.white_90,
-  },
-  noShrink: {flexShrink: 0},
-  openIcon: Styles.platformStyles({
-    common: {
-      left: Styles.globalMargins.xtiny,
-      position: 'relative',
-    },
-    isElectron: {
-      top: Styles.globalMargins.xtiny,
-    },
-  }),
-  partnerDivider: {
-    marginBottom: Styles.globalMargins.tiny,
-    marginLeft: 40,
-    marginTop: Styles.globalMargins.tiny,
-  },
-  partnerIcon: {flexShrink: 0, height: 32, width: 32},
-  partnerLink: {color: Styles.globalColors.black},
-  partnerLinkContainer: {
-    ...Styles.globalStyles.flexBoxRow,
-    alignSelf: 'flex-start',
-  },
-  progressContainer: Styles.platformStyles({
-    common: {
-      ...Styles.globalStyles.fillAbsolute,
-      alignItems: 'center',
-      backgroundColor: Styles.globalColors.white_90,
-      display: 'flex',
-      justifyContent: 'center',
-    },
-  }),
-  progressIndicator: Styles.platformStyles({
-    isElectron: {
-      height: 17,
-      width: 17,
-    },
-    isMobile: {
-      height: 22,
-      width: 22,
-    },
-  }),
-  red: {color: Styles.globalColors.redDark},
-  remove: {
-    ...Styles.globalStyles.flexBoxRow,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  removeContainer: Styles.platformStyles({
-    isElectron: {marginTop: 'auto'},
-    isMobile: {marginTop: Styles.globalMargins.medium},
-  }),
-  removeContentContainer: {...Styles.padding(0, Styles.globalMargins.small)},
-  rightMargin: {
-    marginRight: Styles.globalMargins.tiny,
-  },
-  scrollView: {
-    display: 'flex',
-    flexGrow: 1,
-    paddingTop: Styles.isMobile ? 0 : Styles.globalMargins.xsmall,
-    width: '100%',
-  },
-  secretKeyContainer: {
-    position: 'relative',
-  },
-  section: {
-    alignItems: 'flex-start',
-    flexShrink: 0,
-    paddingLeft: Styles.globalMargins.small,
-    paddingRight: Styles.globalMargins.small,
-  },
-  sectionLabel: {
-    alignSelf: 'flex-start',
-    marginBottom: Styles.globalMargins.tiny,
-  },
-  setAsDefaultError: {
-    paddingTop: Styles.globalMargins.tiny,
-  },
-  settingsPage: {
-    alignSelf: 'flex-start',
-    backgroundColor: Styles.globalColors.white,
-    flexShrink: 0,
-    paddingTop: Styles.isMobile ? Styles.globalMargins.small : 0,
-  },
-  setupInflation: {
-    alignSelf: 'flex-start',
-  },
-  yesShrink: {flexShrink: 1},
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      alignSelfFlexStart: {alignSelf: 'flex-start'},
+      copyTextContainer: {
+        alignSelf: 'flex-start',
+        maxWidth: '100%',
+      },
+      deleteOpacity: {opacity: 0.3},
+      divider: {
+        marginBottom: Styles.globalMargins.tiny,
+        marginTop: Styles.globalMargins.tiny,
+      },
+      externalPartnersText: {
+        marginBottom: Styles.globalMargins.tiny,
+      },
+      icon: {marginLeft: Styles.globalMargins.xtiny},
+      identity: {
+        paddingBottom: Styles.globalMargins.tiny,
+      },
+      identityBox: {
+        flexGrow: 1,
+        flexShrink: 1,
+      },
+      mobileOnlySpinner: {
+        backgroundColor: Styles.globalColors.white_90,
+      },
+      noShrink: {flexShrink: 0},
+      openIcon: Styles.platformStyles({
+        common: {
+          left: Styles.globalMargins.xtiny,
+          position: 'relative',
+        },
+        isElectron: {
+          top: Styles.globalMargins.xtiny,
+        },
+      }),
+      partnerDivider: {
+        marginBottom: Styles.globalMargins.tiny,
+        marginLeft: 40,
+        marginTop: Styles.globalMargins.tiny,
+      },
+      partnerIcon: {flexShrink: 0, height: 32, width: 32},
+      partnerLink: {color: Styles.globalColors.black},
+      partnerLinkContainer: {
+        ...Styles.globalStyles.flexBoxRow,
+        alignSelf: 'flex-start',
+      },
+      progressContainer: Styles.platformStyles({
+        common: {
+          ...Styles.globalStyles.fillAbsolute,
+          alignItems: 'center',
+          backgroundColor: Styles.globalColors.white_90,
+          display: 'flex',
+          justifyContent: 'center',
+        },
+      }),
+      progressIndicator: Styles.platformStyles({
+        isElectron: {
+          height: 17,
+          width: 17,
+        },
+        isMobile: {
+          height: 22,
+          width: 22,
+        },
+      }),
+      red: {color: Styles.globalColors.redDark},
+      remove: {
+        ...Styles.globalStyles.flexBoxRow,
+        alignItems: 'center',
+        justifyContent: 'center',
+      },
+      removeContainer: Styles.platformStyles({
+        isElectron: {marginTop: 'auto'},
+        isMobile: {marginTop: Styles.globalMargins.medium},
+      }),
+      removeContentContainer: {...Styles.padding(0, Styles.globalMargins.small)},
+      rightMargin: {
+        marginRight: Styles.globalMargins.tiny,
+      },
+      scrollView: {
+        display: 'flex',
+        flexGrow: 1,
+        paddingTop: Styles.isMobile ? 0 : Styles.globalMargins.xsmall,
+        width: '100%',
+      },
+      secretKeyContainer: {
+        marginTop: Styles.globalMargins.tiny,
+        position: 'relative',
+      },
+      section: {
+        alignItems: 'flex-start',
+        flexShrink: 0,
+        paddingLeft: Styles.globalMargins.small,
+        paddingRight: Styles.globalMargins.small,
+      },
+      sectionLabel: {
+        alignSelf: 'flex-start',
+        marginBottom: Styles.globalMargins.tiny,
+      },
+      setAsDefaultError: {
+        paddingTop: Styles.globalMargins.tiny,
+      },
+      settingsPage: {
+        alignSelf: 'flex-start',
+        backgroundColor: Styles.globalColors.white,
+        flexShrink: 0,
+        paddingTop: Styles.isMobile ? Styles.globalMargins.small : 0,
+      },
+      yesShrink: {flexShrink: 1},
+    } as const)
+)
 
 export default AccountSettings

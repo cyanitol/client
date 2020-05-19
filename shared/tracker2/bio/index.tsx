@@ -1,93 +1,22 @@
 import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
-import flags from '../../util/feature-flags'
 
-type Props = {
-  airdropIsLive: boolean | null
-  bio: string | null
-  followThem: boolean | null
-  followersCount: number | null
-  followingCount: number | null
-  followsYou: boolean | null
-  fullname: string | null
+export type Props = {
+  bio?: string
+  blocked: boolean
+  followThem?: boolean
+  followersCount?: number
+  followingCount?: number
+  followsYou?: boolean
+  fullname?: string
+  hidFromFollowers: boolean
   inTracker: boolean
-  location: string | null
+  location?: string
   onBack?: () => void
-  onLearnMore?: () => void
-  registeredForAirdrop: boolean | null
-  youAreInAirdrop: boolean | null
+  username: string
+  sbsDescription?: string
 }
-
-// Here we're using FloatingMenu, but we want to customize the button to match
-// Zeplin, so there's a hack -- desktop renders everything as a custom header,
-// whereas mobile uses `items` prop as normal.
-type AirdropPopupProps = {
-  onBack?: () => void
-  onLearnMore?: () => void
-}
-
-const _AirdropPopup = (p: Kb.PropsWithOverlay<AirdropPopupProps>) => (
-  <Kb.ClickableBox
-    ref={p.setAttachmentRef}
-    onClick={p.toggleShowingMenu}
-    onMouseEnter={p.toggleShowingMenu}
-    onMouseLeave={p.toggleShowingMenu}
-  >
-    <Kb.Icon type="icon-airdrop-star-16" style={styles.star} />
-    <Kb.FloatingMenu
-      attachTo={p.getAttachmentRef}
-      closeOnSelect={false}
-      containerStyle={styles.floatingContainer}
-      listStyle={styles.floatingContainer}
-      backgroundColor={Styles.globalColors.purple}
-      textColor={Styles.globalColors.white}
-      onHidden={p.toggleShowingMenu}
-      visible={p.showingMenu}
-      propagateOutsideClicks={true}
-      header={{
-        title: 'header',
-        view: (
-          <Kb.Box2
-            direction="vertical"
-            centerChildren={true}
-            fullWidth={true}
-            gap="tiny"
-            style={{backgroundColor: Styles.globalColors.purple, padding: Styles.globalMargins.small}}
-          >
-            <Kb.Icon type="icon-airdrop-star-64" style={styles.star} />
-            <Kb.Text style={styles.airdropText} type="BodySemibold">
-              Join the airdrop
-            </Kb.Text>
-            <Kb.Text style={styles.airdropText} type="BodySmall">
-              Airdropees get free Lumens every month.
-            </Kb.Text>
-            {!Styles.isMobile && (
-              <Kb.Button
-                backgroundColor="purple"
-                label="Learn more"
-                onClick={p.onLearnMore}
-                style={styles.learnButton}
-              />
-            )}
-          </Kb.Box2>
-        ),
-      }}
-      items={
-        Styles.isMobile
-          ? [
-              'Divider',
-              {
-                onClick: p.onLearnMore,
-                title: 'Learn more',
-              },
-            ]
-          : []
-      }
-    />
-  </Kb.ClickableBox>
-)
-const AirdropPopup = Kb.OverlayParentHOC(_AirdropPopup)
 
 const FollowText = ({followThem, followsYou}) => {
   let text: string = ''
@@ -106,19 +35,9 @@ const FollowText = ({followThem, followsYou}) => {
 const Bio = (p: Props) => (
   <Kb.Box2 direction="vertical" fullWidth={true} style={styles.container} centerChildren={true} gap="xtiny">
     <Kb.Box2 direction="horizontal" style={styles.fullNameContainer} gap="tiny">
-      <Kb.Text type="BodyBig" lineClamp={p.inTracker ? 1 : undefined} selectable={true}>
+      <Kb.Text center={true} type="BodyBig" lineClamp={p.inTracker ? 1 : undefined} selectable={true}>
         {p.fullname}
       </Kb.Text>
-      {flags.airdrop &&
-        p.airdropIsLive &&
-        p.registeredForAirdrop &&
-        (p.youAreInAirdrop ? (
-          <Kb.WithTooltip text="Lucky airdropee">
-            <Kb.Icon type="icon-airdrop-star-16" style={styles.star} />
-          </Kb.WithTooltip>
-        ) : (
-          <AirdropPopup onBack={p.onBack} onLearnMore={p.onLearnMore} />
-        ))}
     </Kb.Box2>
     <FollowText followThem={p.followThem} followsYou={p.followsYou} />
     {p.followersCount !== null && (
@@ -161,45 +80,79 @@ const Bio = (p: Props) => (
         {p.location}
       </Kb.Text>
     )}
+    {!!p.sbsDescription && (
+      <Kb.Text
+        type="BodySmall"
+        center={true}
+        lineClamp={p.inTracker ? 1 : undefined}
+        style={styles.text}
+        selectable={true}
+      >
+        {p.sbsDescription}
+      </Kb.Text>
+    )}
+    {p.blocked ? (
+      <Kb.Text type="BodySmallError" center={true} style={styles.blockedBackgroundText}>
+        <Kb.Text type="BodySmallError" center={true} style={styles.text} selectable={true}>
+          You blocked them.{' '}
+        </Kb.Text>
+        <Kb.Text type="BodySmallError" center={true} style={styles.text} selectable={true}>
+          {p.username} won’t be able to chat with you or add you to teams.
+        </Kb.Text>
+      </Kb.Text>
+    ) : (
+      p.hidFromFollowers && (
+        <Kb.Text type="BodySmallError" center={true} style={styles.blockedBackgroundText}>
+          <Kb.Text type="BodySmallError" center={true} style={styles.text} selectable={true}>
+            You hid them from your followers.
+          </Kb.Text>
+        </Kb.Text>
+      )
+    )}
   </Kb.Box2>
 )
 
-const styles = Styles.styleSheetCreate({
-  airdropText: Styles.platformStyles({
-    common: {color: Styles.globalColors.white},
-    isElectron: {textAlign: 'center'},
-  }),
-  bold: {...Styles.globalStyles.fontBold},
-  container: {backgroundColor: Styles.globalColors.white, flexShrink: 0},
-  floatingContainer: Styles.platformStyles({
-    common: {
-      backgroundColor: Styles.globalColors.purple,
-    },
-    isElectron: {
-      maxWidth: 200,
-    },
-  }),
-  fullName: Styles.platformStyles({
-    isElectron: {wordBreak: 'break-any'},
-  }),
-  fullNameContainer: {
-    paddingLeft: Styles.globalMargins.mediumLarge,
-    paddingRight: Styles.globalMargins.mediumLarge,
-  },
-  learnButton: {alignSelf: 'center', marginTop: Styles.globalMargins.tiny},
-  star: {alignSelf: 'center', marginBottom: Styles.globalMargins.tiny},
-  text: Styles.platformStyles({
-    common: {
-      paddingLeft: Styles.globalMargins.mediumLarge,
-      paddingRight: Styles.globalMargins.mediumLarge,
-    },
-    isElectron: {
-      wordBreak: 'break-word',
-    },
-    isMobile: {
-      lineHeight: 21,
-    },
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      blockedBackgroundText: {
+        backgroundColor: Styles.globalColors.red_20,
+        borderRadius: Styles.borderRadius,
+        margin: Styles.globalMargins.small,
+        paddingBottom: Styles.globalMargins.tiny,
+        paddingLeft: Styles.globalMargins.small,
+        paddingRight: Styles.globalMargins.small,
+        paddingTop: Styles.globalMargins.tiny,
+      },
+      bold: {...Styles.globalStyles.fontBold},
+      container: {backgroundColor: Styles.globalColors.white, flexShrink: 0},
+      floatingContainer: Styles.platformStyles({
+        common: {
+          backgroundColor: Styles.globalColors.purple,
+        },
+        isElectron: {
+          maxWidth: 200,
+        },
+      }),
+      fullName: Styles.platformStyles({
+        isElectron: {wordBreak: 'break-all'} as const,
+      }),
+      fullNameContainer: {
+        paddingLeft: Styles.globalMargins.mediumLarge,
+        paddingRight: Styles.globalMargins.mediumLarge,
+      },
+      learnButton: {alignSelf: 'center', marginTop: Styles.globalMargins.tiny},
+      star: {alignSelf: 'center', marginBottom: Styles.globalMargins.tiny},
+      text: Styles.platformStyles({
+        common: {
+          paddingLeft: Styles.globalMargins.mediumLarge,
+          paddingRight: Styles.globalMargins.mediumLarge,
+        },
+        isElectron: {
+          wordBreak: 'break-word',
+        } as const,
+      }),
+    } as const)
+)
 
 export default Bio

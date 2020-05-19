@@ -1,146 +1,107 @@
-import {invert} from 'lodash-es'
 import * as React from 'react'
 import * as RPCTypes from '../../../../constants/types/rpc-gen'
 import * as Types from '../../../../constants/types/chat2'
+import * as Kb from '../../../../common-adapters'
+import * as Styles from '../../../../styles'
 import UserNotice from '../user-notice'
-import {Box, Text, ConnectedUsernames, TimelineMarker, Icon} from '../../../../common-adapters'
-import {globalStyles, globalColors, globalMargins, isMobile, platformStyles} from '../../../../styles'
-import SystemMessageTimestamp from '../system-message-timestamp'
 
 const branchRefPrefix = 'refs/heads/'
 
 type Props = {
   message: Types.MessageSystemGitPush
+  you?: string
   onClickCommit: (commitHash: string) => void
   onClickUserAvatar: (username: string) => void
   onViewGitRepo: (repoID: string, teamname: string) => void
 }
 
-// Map [int] -> 'push type string'
-const gitPushType = invert(RPCTypes.GitPushType)
-
-const connectedUsernamesProps = {
-  colorFollowing: true,
-  inline: true,
-  onUsernameClicked: 'profile',
-  type: 'BodySmallSemibold',
-  underline: true,
-} as const
-
-const GitPushCreate = ({pusher, repo, repoID, team, onViewGitRepo}) => {
+type CreateProps = {
+  pusher: string
+  repo: string
+  repoID: string
+  team: string
+  onViewGitRepo: Props['onViewGitRepo']
+  you: Props['you']
+}
+const GitPushCreate = (props: CreateProps) => {
+  const {you, pusher, repo, repoID, team, onViewGitRepo} = props
   return (
-    <Box style={globalStyles.flexBoxColumn}>
-      <Text center={true} type="BodySmallSemibold" style={{marginBottom: globalMargins.xtiny}}>
-        <ConnectedUsernames {...connectedUsernamesProps} usernames={[pusher]} />
-        {` `}created a new team repository called{` `}
-        <Text
-          type="BodySmallSemibold"
-          style={repoID ? {color: globalColors.black_50} : undefined}
-          onClick={repoID ? () => onViewGitRepo(repoID, team) : undefined}
-        >
-          {repo}
-        </Text>
-        .
-      </Text>
-    </Box>
+    <Kb.Text type="BodySmall">
+      {pusher === you ? 'You ' : ''}created a new team repository called{` `}
+      <Kb.Text type="BodySmallPrimaryLink" onClick={repoID ? () => onViewGitRepo(repoID, team) : undefined}>
+        {repo}
+      </Kb.Text>
+      .
+    </Kb.Text>
   )
 }
 
-const GitPushDefault = ({
-  pusher,
-  commitRef,
-  repo,
-  repoID,
-  team,
-  branchName,
-  onViewGitRepo,
-  onClickCommit,
-}) => {
+type PushDefaultProps = {
+  pusher: string
+  commitRef: RPCTypes.GitRefMetadata
+  repo: string
+  repoID: string
+  team: string
+  branchName: string
+  onViewGitRepo: Props['onViewGitRepo']
+  onClickCommit: Props['onClickCommit']
+  you: Props['you']
+}
+const GitPushDefault = (props: PushDefaultProps) => {
+  const {pusher, you, commitRef, repo, repoID, team, branchName, onViewGitRepo, onClickCommit} = props
   return (
-    <Box style={globalStyles.flexBoxColumn}>
-      <Text center={true} type="BodySmallSemibold" style={{marginBottom: globalMargins.xtiny}}>
-        <ConnectedUsernames {...connectedUsernamesProps} usernames={[pusher]} /> pushed{' '}
-        {!!commitRef.commits && commitRef.commits.length}{' '}
+    <Kb.Box2 direction="vertical" gap="xtiny" alignSelf="flex-start">
+      <Kb.Text type="BodySmall">
+        {pusher === you ? 'You ' : ''}pushed {!!commitRef.commits && commitRef.commits.length}{' '}
         {`commit${!!commitRef.commits && commitRef.commits.length !== 1 ? 's' : ''}`} to
-        <Text
-          type="BodySmallSemibold"
-          style={repoID ? {color: globalColors.black_50} : undefined}
+        <Kb.Text
+          type="BodySmall"
+          style={repoID ? styles.repoText : undefined}
           onClick={repoID ? () => onViewGitRepo(repoID, team) : undefined}
-        >{` ${repo}/${branchName}`}</Text>
+        >{` ${repo}/${branchName}`}</Kb.Text>
         :
-      </Text>
-      <Box style={globalStyles.flexBoxColumn}>
+      </Kb.Text>
+      <Kb.Box2 direction="vertical" alignSelf="flex-start">
         {(commitRef.commits || []).map((commit, i) => (
-          <Box style={globalStyles.flexBoxRow} key={commit.commitHash}>
-            <TimelineMarker
+          <Kb.Box2 direction="horizontal" key={commit.commitHash} alignSelf="flex-start">
+            <Kb.TimelineMarker
               idx={i}
               max={commitRef.commits ? commitRef.commits.length - 1 : 0}
-              style={{marginRight: globalMargins.xtiny, ...(isMobile ? {marginTop: -3} : null)}}
+              style={styles.marker}
             />
-            <Box style={{...globalStyles.flexBoxRow, alignItems: 'flex-start', flex: 1}}>
-              <Box
-                style={{
-                  backgroundColor: globalColors.blueLighter_20,
-                  borderRadius: 3,
-                  display: 'flex',
-                  height: 18,
-                  marginBottom: 1,
-                  marginRight: globalMargins.xtiny,
-                  padding: 2,
-                }}
-              >
-                <Text
+            <Kb.Box2 direction="horizontal" alignItems="flex-start" style={styles.hashAndMessage}>
+              <Kb.Box2 direction="vertical" style={styles.dot}>
+                <Kb.Text
                   type="Terminal"
-                  style={platformStyles({
-                    common: {
-                      color: globalColors.blueDark,
-                      fontSize: 12,
-                      lineHeight: 16,
-                    },
-                  })}
+                  style={styles.commitHash}
                   onClick={() => onClickCommit(commit.commitHash)}
                 >
                   {commit.commitHash.substr(0, 8)}
-                </Text>
-              </Box>
-              <Box style={{display: 'flex', flex: 1}}>
-                <Text type="BodySmall" selectable={true} style={{textAlign: 'left'}} lineClamp={2}>
+                </Kb.Text>
+              </Kb.Box2>
+              <Kb.Box2 direction="vertical">
+                <Kb.Text type="BodySmall" selectable={true} style={styles.commitMessage} lineClamp={1}>
                   {commit.message}
-                </Text>
-              </Box>
-            </Box>
-          </Box>
+                </Kb.Text>
+              </Kb.Box2>
+            </Kb.Box2>
+          </Kb.Box2>
         ))}
-      </Box>
-    </Box>
+      </Kb.Box2>
+    </Kb.Box2>
   )
 }
 
 type PushCommonProps = {
   children: React.ReactNode
-  pusher: string
-  timestamp: number
-  onClickUserAvatar: (arg0: string) => void
 }
 
-const GitPushCommon = ({children, pusher, timestamp, onClickUserAvatar}: PushCommonProps) => (
-  <UserNotice
-    username={pusher}
-    style={{marginTop: globalMargins.small}}
-    bgColor={globalColors.blueLighter2}
-    onClickAvatar={() => onClickUserAvatar(pusher)}
-  >
-    {!isMobile && <Icon type="icon-team-git-16" style={{marginLeft: 20, marginTop: -12, zIndex: 999}} />}
-    <SystemMessageTimestamp timestamp={timestamp} />
-    {children}
-  </UserNotice>
-)
+const GitPushCommon = ({children}: PushCommonProps) => <UserNotice>{children}</UserNotice>
 
 class GitPush extends React.PureComponent<Props> {
   render() {
-    const {timestamp, repo, repoID, refs, pushType, pusher, team} = this.props.message
-
-    const gitType = gitPushType[pushType]
+    const {repo, repoID, refs, pushType, pusher, team} = this.props.message
+    const gitType = RPCTypes.GitPushType[pushType]
 
     switch (gitType) {
       case 'default':
@@ -152,12 +113,7 @@ class GitPush extends React.PureComponent<Props> {
                 branchName = branchName.substring(branchRefPrefix.length)
               } // else show full ref
               return (
-                <GitPushCommon
-                  key={branchName}
-                  timestamp={timestamp}
-                  pusher={pusher}
-                  onClickUserAvatar={this.props.onClickUserAvatar}
-                >
+                <GitPushCommon key={branchName}>
                   <GitPushDefault
                     commitRef={ref}
                     branchName={branchName}
@@ -167,6 +123,7 @@ class GitPush extends React.PureComponent<Props> {
                     team={team}
                     onViewGitRepo={this.props.onViewGitRepo}
                     onClickCommit={this.props.onClickCommit}
+                    you={this.props.you}
                   />
                 </GitPushCommon>
               )
@@ -175,17 +132,14 @@ class GitPush extends React.PureComponent<Props> {
         )
       case 'createrepo':
         return (
-          <GitPushCommon
-            timestamp={timestamp}
-            pusher={pusher}
-            onClickUserAvatar={this.props.onClickUserAvatar}
-          >
+          <GitPushCommon>
             <GitPushCreate
               pusher={pusher}
               repo={repo}
               repoID={repoID}
               team={team}
               onViewGitRepo={this.props.onViewGitRepo}
+              you={this.props.you}
             />
           </GitPushCommon>
         )
@@ -195,5 +149,42 @@ class GitPush extends React.PureComponent<Props> {
     }
   }
 }
+
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      commitHash: Styles.platformStyles({
+        common: {
+          color: Styles.globalColors.blueDarkOrBlueLight,
+          fontSize: 12,
+          lineHeight: 16,
+        },
+      }),
+      commitMessage: {
+        height: '100%',
+        textAlign: 'left',
+      },
+      dot: {
+        backgroundColor: Styles.globalColors.blueLighter_20,
+        borderRadius: 3,
+        height: '100%',
+        marginBottom: 1,
+        marginRight: Styles.globalMargins.xtiny,
+        padding: 2,
+      },
+      hashAndMessage: {
+        height: 18,
+        marginBottom: Styles.globalMargins.xtiny,
+        marginTop: Styles.globalMargins.xtiny,
+      },
+      marker: {
+        flexShrink: 0,
+        marginRight: Styles.globalMargins.xtiny,
+        ...(Styles.isMobile ? {marginTop: -3} : null),
+        minWidth: 0,
+      },
+      repoText: {color: Styles.globalColors.black_50},
+    } as const)
+)
 
 export default GitPush

@@ -24,11 +24,7 @@ const Footer = (props: Props) => {
       fullWidth={true}
       style={styles.button}
       children={
-        <Kb.Icon
-          type="iconfont-stellar-send"
-          style={Kb.iconCastPlatformStyles(styles.icon)}
-          color={Styles.globalColors.white}
-        />
+        <Kb.Icon type="iconfont-stellar-send" style={styles.icon} color={Styles.globalColors.whiteOrWhite} />
       }
     />
   )
@@ -58,7 +54,7 @@ const Footer = (props: Props) => {
             color={Styles.globalColors.black_20}
             hoverColor={Styles.globalColors.black_50}
             fontSize={12}
-            style={Kb.iconCastPlatformStyles(styles.questionIcon)}
+            style={styles.questionIcon}
             onClick={() => {
               TODO
           }/> */}
@@ -77,15 +73,15 @@ const Footer = (props: Props) => {
               children={
                 <Kb.Icon
                   type="iconfont-stellar-request"
-                  style={Kb.iconCastPlatformStyles(styles.icon)}
-                  color={Styles.globalColors.white}
+                  style={styles.icon}
+                  color={Styles.globalColors.whiteOrWhite}
                 />
               }
             />
           )}
           {!!props.onClickSend &&
             (props.thisDeviceIsLockedOut ? (
-              <Kb.WithTooltip text="This is a mobile-only wallet." containerStyle={styles.fullWidth}>
+              <Kb.WithTooltip tooltip="This is a mobile-only wallet." containerStyle={styles.fullWidth}>
                 {sendButton}
               </Kb.WithTooltip>
             ) : (
@@ -97,7 +93,7 @@ const Footer = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   background: Styles.platformStyles({
     common: {
       backgroundColor: Styles.globalColors.blueLighter3,
@@ -132,6 +128,6 @@ const styles = Styles.styleSheetCreate({
   questionIcon: {
     marginLeft: 1,
   },
-})
+}))
 
 export default Footer

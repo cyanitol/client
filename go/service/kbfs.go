@@ -87,6 +87,16 @@ func (h *KBFSHandler) FSFavoritesChangedEvent(_ context.Context) (err error) {
 	return nil
 }
 
+func (h *KBFSHandler) FSSubscriptionNotifyEvent(_ context.Context, arg keybase1.FSSubscriptionNotifyEventArg) error {
+	h.G().NotifyRouter.HandleFSSubscriptionNotify(keybase1.FSSubscriptionNotifyArg(arg))
+	return nil
+}
+
+func (h *KBFSHandler) FSSubscriptionNotifyPathEvent(_ context.Context, arg keybase1.FSSubscriptionNotifyPathEventArg) error {
+	h.G().NotifyRouter.HandleFSSubscriptionNotifyPath(keybase1.FSSubscriptionNotifyPathArg(arg))
+	return nil
+}
+
 // checkConversationRekey looks for rekey finished notifications and tries to
 // find any conversations associated with the rekeyed TLF.  If it finds any,
 // it will send ChatThreadsStale notifications for them.
@@ -160,7 +170,7 @@ func (h *KBFSHandler) UpgradeTLF(ctx context.Context, arg keybase1.UpgradeTLFArg
 // favorites.
 func (h *KBFSHandler) getKeyFn() func(context.Context) ([32]byte, error) {
 	keyFn := func(ctx context.Context) ([32]byte, error) {
-		return encrypteddb.GetSecretBoxKey(ctx, h.G(), encrypteddb.DefaultSecretUI,
+		return encrypteddb.GetSecretBoxKey(ctx, h.G(),
 			libkb.EncryptionReasonKBFSFavorites, "encrypting kbfs favorites")
 	}
 	return keyFn
@@ -175,6 +185,6 @@ func (h *KBFSHandler) EncryptFavorites(ctx context.Context,
 // DecryptFavorites decrypts cached favorites stored on disk.
 func (h *KBFSHandler) DecryptFavorites(ctx context.Context,
 	dataToEncrypt []byte) (res []byte, err error) {
-	err = encrypteddb.DecodeBox(ctx, dataToEncrypt, h.getKeyFn(), res)
+	err = encrypteddb.DecodeBox(ctx, dataToEncrypt, h.getKeyFn(), &res)
 	return res, err
 }

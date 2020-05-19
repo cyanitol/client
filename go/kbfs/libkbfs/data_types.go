@@ -5,6 +5,7 @@
 package libkbfs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/keybase/client/go/kbfs/kbfscodec"
 	"github.com/keybase/client/go/kbfs/kbfscrypto"
 	"github.com/keybase/client/go/kbfs/kbfsmd"
+	"github.com/keybase/client/go/kbfs/tlf"
 	kbname "github.com/keybase/client/go/kbun"
 	kbgitkbfs "github.com/keybase/client/go/protocol/kbgitkbfs1"
 	"github.com/keybase/client/go/protocol/keybase1"
@@ -174,11 +176,12 @@ type OpSummary struct {
 
 // UpdateSummary describes the operations done by a single MD revision.
 type UpdateSummary struct {
-	Revision  kbfsmd.Revision
-	Date      time.Time
-	Writer    string
-	LiveBytes uint64 // the "DiskUsage" for the TLF as of this revision
-	Ops       []OpSummary
+	Revision    kbfsmd.Revision
+	Date        time.Time
+	Writer      string
+	LiveBytes   uint64 // the "DiskUsage" for the TLF as of this revision
+	Ops         []OpSummary
+	RootBlockID string
 }
 
 // TLFUpdateHistory gives all the summaries of all updates in a TLF's
@@ -263,6 +266,14 @@ const (
 	// InitMemoryLimited is a mode where KBFS reads and writes data, but
 	// constrains its memory use even further.
 	InitMemoryLimited
+	// InitTestSearch is the same as the default mode, but with search
+	// enabled for synced TLFs.
+	InitTestSearch
+	// InitSingleOpWithQR is the same as InitSingleOp, except quota
+	// reclamation is enabled.  That way if the user of the mode
+	// writes data to a TLF that exclusive to the mode, it will still
+	// be QR'd.  (Example: the indexer.)
+	InitSingleOpWithQR
 )
 
 func (im InitModeType) String() string {
@@ -277,6 +288,10 @@ func (im InitModeType) String() string {
 		return InitConstrainedString
 	case InitMemoryLimited:
 		return InitMemoryLimitedString
+	case InitTestSearch:
+		return InitTestSearchString
+	case InitSingleOpWithQR:
+		return InitSingleOpWithQRString
 	default:
 		return "unknown"
 	}
@@ -445,8 +460,10 @@ const (
 	blockRequestPrefetch
 	blockRequestSync
 	blockRequestStopIfFull
+	blockRequestStopPrefetchIfFull
 	blockRequestDeepSync
 	blockRequestDelayCacheCheck
+	blockRequestNonMasterBranch
 
 	// BlockRequestSolo indicates that no action should take place
 	// after fetching the block.  However, a TLF that is configured to
@@ -502,12 +519,17 @@ func (bra BlockRequestAction) String() string {
 		attrs = append(attrs, "sync")
 	}
 
-	if bra.StopIfFull() {
+	if bra.StopPrefetchIfFull() {
+		attrs = append(attrs, "stop-prefetch-if-full")
+	} else if bra.StopIfFull() {
 		attrs = append(attrs, "stop-if-full")
 	}
 
 	if bra.DelayCacheCheck() {
 		attrs = append(attrs, "delay-cache-check")
+	}
+	if bra.NonMasterBranch() {
+		attrs = append(attrs, "non-master-branch")
 	}
 
 	return strings.Join(attrs, "|")
@@ -520,7 +542,7 @@ func (bra BlockRequestAction) Combine(
 	// If the actions don't agree on stop-if-full, we should remove it
 	// from the combined result.
 	if bra.StopIfFull() != other.StopIfFull() {
-		combined = combined &^ blockRequestStopIfFull
+		combined &^= blockRequestStopIfFull
 	}
 	return combined
 }
@@ -550,13 +572,15 @@ func (bra BlockRequestAction) PrefetchTracked() bool {
 // Sync returns true if the action indicates the block should go into
 // the sync cache.
 func (bra BlockRequestAction) Sync() bool {
-	return bra&blockRequestSync > 0
+	return bra&blockRequestSync > 0 && bra&blockRequestNonMasterBranch == 0
 }
 
 // DeepSync returns true if the action indicates a deep-syncing of the
 // block tree rooted at the given block.
 func (bra BlockRequestAction) DeepSync() bool {
-	// The delayed cache check doesn't affect deep-syncing.
+	// The delayed cache check doesn't affect deep-syncing.  Note that
+	// if the mnon-master branch check attribute is set, we want
+	// deep-syncing to fail.
 	return bra.WithoutDelayedCacheCheckAction() == BlockRequestWithDeepSync
 }
 
@@ -575,6 +599,12 @@ func (bra BlockRequestAction) ChildAction(block data.Block) BlockRequestAction {
 	// multi-block object.
 	if bra.DeepPrefetch() || (block.IsIndirect() && bra.Sync()) {
 		return bra
+	}
+	// If it's been configured for stop-prefetch-if-full, move to the
+	// stop-if-full action for the child actions.
+	if bra&blockRequestStopPrefetchIfFull > 0 {
+		bra &^= blockRequestStopPrefetchIfFull
+		bra |= blockRequestStopIfFull
 	}
 	return bra &^ (blockRequestPrefetch | blockRequestSync)
 }
@@ -599,6 +629,30 @@ func (bra BlockRequestAction) AddSync() BlockRequestAction {
 	return bra | blockRequestSync
 }
 
+// AddPrefetch returns a new action that adds prefetching in addition
+// to the original request.  For sync requests, it returns a
+// deep-sync request (unlike `Combine`, which just adds the regular
+// prefetch bit).
+func (bra BlockRequestAction) AddPrefetch() BlockRequestAction {
+	if bra.Sync() {
+		return BlockRequestWithDeepSync
+	}
+
+	return bra | blockRequestPrefetch | blockRequestTrackedInPrefetch
+}
+
+// AddNonMasterBranch returns a new action that indicates the request
+// is for a block on a non-master branch.
+func (bra BlockRequestAction) AddNonMasterBranch() BlockRequestAction {
+	return bra | blockRequestNonMasterBranch
+}
+
+// NonMasterBranch returns true if the block is being fetched for a
+// branch other than the master branch.
+func (bra BlockRequestAction) NonMasterBranch() bool {
+	return bra&blockRequestNonMasterBranch > 0
+}
+
 // CacheType returns the disk block cache type that should be used,
 // according to the type of action.
 func (bra BlockRequestAction) CacheType() DiskBlockCacheType {
@@ -612,6 +666,26 @@ func (bra BlockRequestAction) CacheType() DiskBlockCacheType {
 // not get rescheduled) when the corresponding disk cache is full.
 func (bra BlockRequestAction) StopIfFull() bool {
 	return bra&blockRequestStopIfFull > 0
+}
+
+// StopPrefetchIfFull returns true if prefetching _after this request_
+// should stop for good (i.e., not get rescheduled) when the
+// corresponding disk cache is full.  This request, however, will be
+// processed even when the cache is full.
+func (bra BlockRequestAction) StopPrefetchIfFull() bool {
+	return bra&blockRequestStopPrefetchIfFull > 0
+}
+
+// AddStopIfFull returns a new action that adds the "stop-if-full"
+// behavior in addition to the original request.
+func (bra BlockRequestAction) AddStopIfFull() BlockRequestAction {
+	return bra | blockRequestStopIfFull
+}
+
+// AddStopPrefetchIfFull returns a new action that adds the
+// "stop-prefetch-if-full" behavior in addition to the original request.
+func (bra BlockRequestAction) AddStopPrefetchIfFull() BlockRequestAction {
+	return bra | blockRequestStopPrefetchIfFull
 }
 
 // DelayedCacheCheckAction returns a new action that adds the
@@ -674,4 +748,72 @@ func (p PrefetchProgress) ToProtocolStatus() keybase1.PrefetchStatus {
 		return keybase1.PrefetchStatus_COMPLETE
 	}
 	return keybase1.PrefetchStatus_IN_PROGRESS
+}
+
+type parsedPath struct {
+	tlfType      tlf.Type
+	tlfName      string
+	rawInTlfPath string
+	rawFullPath  userPath
+}
+
+func parsePath(path userPath) (parsed *parsedPath, err error) {
+	if !strings.HasPrefix(string(path), "/keybase") {
+		return nil, errors.New("not a KBFS path")
+	}
+	parsed = &parsedPath{tlfType: tlf.Unknown, rawFullPath: path}
+	elems := strings.Split(string(path[1:]), "/")
+	if len(elems) < 2 {
+		return parsed, nil
+	}
+	parsed.tlfType, err = tlf.ParseTlfTypeFromPath(elems[1])
+	if err != nil {
+		return nil, err
+	}
+	if len(elems) < 3 {
+		return parsed, nil
+	}
+	parsed.tlfName = elems[2]
+	if len(elems) == 3 {
+		parsed.rawInTlfPath = "/"
+		return parsed, nil
+	}
+	parsed.rawInTlfPath = "/" + strings.Join(elems[3:], "/")
+	return parsed, nil
+}
+
+func (p *parsedPath) getRootNode(ctx context.Context, config Config) (Node, error) {
+	if p.tlfType == tlf.Unknown || len(p.tlfName) == 0 {
+		return nil, errors.New("path does not have a TLF")
+	}
+	tlfHandle, err := GetHandleFromFolderNameAndType(
+		ctx, config.KBPKI(), config.MDOps(), config, p.tlfName, p.tlfType)
+	if err != nil {
+		return nil, err
+	}
+	branch := data.MasterBranch
+	if tlfHandle.IsLocalConflict() {
+		b, ok := data.MakeConflictBranchName(tlfHandle)
+		if ok {
+			branch = b
+		}
+	}
+	// Get the root node first to initialize the TLF.
+	node, _, err := config.KBFSOps().GetRootNode(
+		ctx, tlfHandle, branch)
+	if err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+func (p *parsedPath) getFolderBranch(ctx context.Context, config Config) (data.FolderBranch, error) {
+	node, err := p.getRootNode(ctx, config)
+	if err != nil {
+		return data.FolderBranch{}, err
+	}
+	if node == nil {
+		return data.FolderBranch{}, nil
+	}
+	return node.GetFolderBranch(), nil
 }

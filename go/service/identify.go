@@ -47,7 +47,7 @@ func NewIdentifyHandler(xp rpc.Transporter, g *libkb.GlobalContext, s *Service) 
 func (h *IdentifyHandler) Identify2(netCtx context.Context, arg keybase1.Identify2Arg) (res keybase1.Identify2Res, err error) {
 	netCtx = libkb.WithLogTag(netCtx, "ID2")
 	m := libkb.NewMetaContext(netCtx, h.G())
-	defer h.G().CTrace(netCtx, "IdentifyHandler#Identify2", func() error { return err })()
+	defer h.G().CTrace(netCtx, "IdentifyHandler#Identify2", &err)()
 
 	iui := h.NewRemoteIdentifyUI(arg.SessionID, h.G())
 	logui := h.getLogUI(arg.SessionID)
@@ -74,7 +74,7 @@ func (h *IdentifyHandler) Identify2(netCtx context.Context, arg keybase1.Identif
 
 func (h *IdentifyHandler) IdentifyLite(netCtx context.Context, arg keybase1.IdentifyLiteArg) (ret keybase1.IdentifyLiteRes, err error) {
 	mctx := libkb.NewMetaContext(netCtx, h.G()).WithLogTag("IDL")
-	defer mctx.Trace("IdentifyHandler#IdentifyLite", func() error { return err })()
+	defer mctx.Trace("IdentifyHandler#IdentifyLite", &err)()
 	loader := func(mctx libkb.MetaContext) (interface{}, error) {
 		return h.identifyLite(mctx, arg)
 	}
@@ -85,7 +85,10 @@ func (h *IdentifyHandler) IdentifyLite(netCtx context.Context, arg keybase1.Iden
 	}
 	servedRet, err := h.service.offlineRPCCache.Serve(mctx, arg.Oa, offline.Version(1), "identify.identifyLite", false, cacheArg, &ret, loader)
 	if err != nil {
-		return servedRet.(keybase1.IdentifyLiteRes), err
+		if s, ok := servedRet.(keybase1.IdentifyLiteRes); ok {
+			ret = s
+		}
+		return ret, err
 	}
 	if s, ok := servedRet.(keybase1.IdentifyLiteRes); ok {
 		ret = s
@@ -171,7 +174,7 @@ func (h *IdentifyHandler) identifyLiteUser(netCtx context.Context, arg keybase1.
 
 func (h *IdentifyHandler) Resolve3(ctx context.Context, arg keybase1.Resolve3Arg) (ret keybase1.UserOrTeamLite, err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G()).WithLogTag("RSLV")
-	defer mctx.Trace(fmt.Sprintf("IdentifyHandler#Resolve3(%+v)", arg), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("IdentifyHandler#Resolve3(%+v)", arg), &err)()
 	servedRet, err := h.service.offlineRPCCache.Serve(mctx, arg.Oa, offline.Version(1), "identify.resolve3", false, arg, &ret, func(mctx libkb.MetaContext) (interface{}, error) {
 		return h.resolveUserOrTeam(mctx.Ctx(), arg.Assertion)
 	})
@@ -196,7 +199,7 @@ func (h *IdentifyHandler) resolveUserOrTeam(ctx context.Context, arg string) (u 
 
 func (h *IdentifyHandler) ResolveIdentifyImplicitTeam(ctx context.Context, arg keybase1.ResolveIdentifyImplicitTeamArg) (res keybase1.ResolveIdentifyImplicitTeamRes, err error) {
 	mctx := libkb.NewMetaContext(ctx, h.G()).WithLogTag("RIIT")
-	defer mctx.Trace(fmt.Sprintf("IdentifyHandler#ResolveIdentifyImplicitTeam(%+v)", arg), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("IdentifyHandler#ResolveIdentifyImplicitTeam(%+v)", arg), &err)()
 
 	writerAssertions, readerAssertions, err := externals.ParseAssertionsWithReaders(h.MetaContext(ctx), arg.Assertions)
 	if err != nil {
@@ -317,6 +320,8 @@ func (h *IdentifyHandler) resolveIdentifyImplicitTeamDoIdentifies(ctx context.Co
 	// lock guarding res.TrackBreaks
 	var trackBreaksLock sync.Mutex
 
+	var okUsernames, brokenUsernames []string
+
 	// Identify everyone who resolved in parallel, checking that they match their resolved UID and original assertions.
 	for _, resolvedAssertion := range resolvedAssertions {
 		resolvedAssertion := resolvedAssertion // https://golang.org/doc/faq#closures_and_goroutines
@@ -352,19 +357,24 @@ func (h *IdentifyHandler) resolveIdentifyImplicitTeamDoIdentifies(ctx context.Co
 			m := libkb.NewMetaContext(subctx, h.G()).WithUIs(uis)
 			err := engine.RunEngine2(m, eng)
 			idRes, idErr := eng.Result(m)
-			if err != nil {
-				h.G().Log.CDebugf(subctx, "identify failed (IDres %v, TrackBreaks %v): %v", idRes != nil, idRes != nil && idRes.TrackBreaks != nil, err)
-				if idRes != nil && idRes.TrackBreaks != nil && idErr == nil {
-					trackBreaksLock.Lock()
-					defer trackBreaksLock.Unlock()
+			if idErr != nil {
+				h.G().Log.CDebugf(subctx, "Failed to convert result from Identify2: %s", idErr)
+			}
+			if idRes != nil {
+				trackBreaksLock.Lock()
+				defer trackBreaksLock.Unlock()
+				if idRes.TrackBreaks != nil && idErr == nil {
 					if res.TrackBreaks == nil {
 						res.TrackBreaks = make(map[keybase1.UserVersion]keybase1.IdentifyTrackBreaks)
 					}
 					res.TrackBreaks[idRes.Upk.ToUserVersion()] = *idRes.TrackBreaks
+					brokenUsernames = append(brokenUsernames, idRes.Upk.GetName())
+				} else {
+					okUsernames = append(okUsernames, idRes.Upk.GetName())
 				}
-				if idErr != nil {
-					h.G().Log.CDebugf(subctx, "Failed to convert result from Identify2: %s", idErr)
-				}
+			}
+			if err != nil {
+				h.G().Log.CDebugf(subctx, "identify failed (IDres %v, TrackBreaks %v): %v", idRes != nil, idRes != nil && idRes.TrackBreaks != nil, err)
 				return err
 			}
 			return nil
@@ -376,18 +386,23 @@ func (h *IdentifyHandler) resolveIdentifyImplicitTeamDoIdentifies(ctx context.Co
 		// Return the masked error together with a populated response.
 		return res, libkb.NewIdentifiesFailedError()
 	}
+
+	if arg.IdentifyBehavior.NotifyGUIAboutBreaks() && len(res.TrackBreaks) > 0 {
+		h.G().NotifyRouter.HandleIdentifyUpdate(ctx, okUsernames, brokenUsernames)
+	}
+
 	return res, err
 }
 
 func (h *IdentifyHandler) ResolveImplicitTeam(ctx context.Context, arg keybase1.ResolveImplicitTeamArg) (res keybase1.Folder, err error) {
 	ctx = libkb.WithLogTag(ctx, "RIT")
-	defer h.G().CTraceTimed(ctx, fmt.Sprintf("ResolveImplicitTeam(%s)", arg.Id), func() error { return err })()
+	defer h.G().CTrace(ctx, fmt.Sprintf("ResolveImplicitTeam(%s)", arg.Id), &err)()
 	return teams.MapImplicitTeamIDToDisplayName(ctx, h.G(), arg.Id, arg.Id.IsPublic())
 }
 
 func (h *IdentifyHandler) NormalizeSocialAssertion(ctx context.Context, assertion string) (socialAssertion keybase1.SocialAssertion, err error) {
 	ctx = libkb.WithLogTag(ctx, "NSA")
-	defer h.G().CTrace(ctx, fmt.Sprintf("IdentifyHandler#NormalizeSocialAssertion(%s)", assertion), func() error { return err })()
+	defer h.G().CTrace(ctx, fmt.Sprintf("IdentifyHandler#NormalizeSocialAssertion(%s)", assertion), &err)()
 	socialAssertion, isSocialAssertion := libkb.NormalizeSocialAssertion(h.G().MakeAssertionContext(h.MetaContext(ctx)), assertion)
 	if !isSocialAssertion {
 		return keybase1.SocialAssertion{}, fmt.Errorf("Invalid social assertion")

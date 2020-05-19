@@ -4,7 +4,13 @@
     "import * as More from '../constants/types/more'"
   ],
   "actions": {
-    "addProof": {"platform": "string"},
+    "addProof": {
+      "platform": "string",
+      "reason": [
+        "'appLink'", // keybase:// URL
+        "'profile'" // from profile tab
+      ]
+    },
     "proofParamsReceived": {"params": "Types.ProveGenericParams"},
     "updatePlatformGenericURL": {"url": "string"},
     "updatePlatformGenericChecking": {"checking": "boolean"},
@@ -26,16 +32,19 @@
       "location": "string"
     },
     "revokeFinish": {
-      "canError": {"error": "string"}
+      "error?": "string"
     },
     "finishRevoking": {},
     "finishedWithKeyGen": {
       "shouldStoreKeyOnServer": "boolean"
     },
     "generatePgp": {},
+    "hideStellar": {
+      "hidden": "boolean"
+    },
     "onClickAvatar": {
       "username": "string",
-      "openWebsite?": "boolean | null"
+      "openWebsite?": "boolean"
     },
     "showUserProfile": {"username": "string"},
     "submitZcashAddress": {},
@@ -48,11 +57,11 @@
       "guiID": "string"
     },
     "finishBlockUser": {
-      "canError": {"error": "string"}
+      "error?": "string"
     },
     "updateErrorText": {
       "errorText": "string",
-      "errorCode": "number | null"
+      "errorCode?": "number"
     },
     "updatePgpInfo": {
       "_description": "Update any fields",
@@ -70,7 +79,16 @@
       "status": "RPCTypes.ProofStatus"
     },
     "updateProofText": {"proof": "string"},
-    "updateSigID": {"sigID": "RPCTypes.SigID | null"},
-    "updateUsername": {"username": "string"}
+    "updateSigID": {"sigID?": "RPCTypes.SigID"},
+    "updateUsername": {"username": "string"},
+    "wotVouch": {
+      "username": "string",
+      "guiID": "string", // Identify3 ID to pin the user version
+      "verificationType": "string",
+      "statement": "string",
+      "otherText": "string",
+      "proofs": "Array<RPCTypes.WotProof>"
+    },
+    "wotVouchSetError": {"error": "string"}
   }
 }

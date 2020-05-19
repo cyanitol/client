@@ -2,12 +2,10 @@ import * as React from 'react'
 import {Box2} from '../../common-adapters'
 import AccountReloader from '../common/account-reloader'
 import WalletList from '../wallet-list/container'
-import {globalColors, styleSheetCreate} from '../../styles'
+import * as Styles from '../../styles'
 
 type Props = {
   children: React.ReactNode
-  navigateAppend: (append: any) => void
-  navigateUp: () => void
 }
 
 const WalletsAndDetails = (props: Props) => (
@@ -16,19 +14,25 @@ const WalletsAndDetails = (props: Props) => (
       <Box2 direction="vertical" fullHeight={true} style={styles.walletListContainer}>
         <WalletList style={{height: '100%'}} />
       </Box2>
-      {props.children}
+      <Box2 direction="vertical" fullHeight={true} style={Styles.globalStyles.flexOne}>
+        {props.children}
+      </Box2>
     </Box2>
   </AccountReloader>
 )
 
-const styles = styleSheetCreate({
-  walletListContainer: {
-    backgroundColor: globalColors.blueGrey,
-    borderStyle: 'solid',
-    flexGrow: 0,
-    flexShrink: 0,
-    width: 240,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      walletListContainer: {
+        backgroundColor: Styles.globalColors.blueGrey,
+        borderStyle: 'solid',
+        flexGrow: 0,
+        flexShrink: 0,
+        minWidth: Styles.globalStyles.mediumSubNavWidth,
+        width: Styles.globalStyles.mediumSubNavWidth,
+      },
+    } as const)
+)
 
 export default WalletsAndDetails

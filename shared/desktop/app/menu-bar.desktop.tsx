@@ -1,128 +1,181 @@
 // Entrypoint for the menubar node part
-import menubar from 'menubar'
-import * as SafeElectron from '../../util/safe-electron.desktop'
-import {isDarwin, isWindows, isLinux} from '../../constants/platform'
-import {resolveImage, resolveRootAsURL} from './resolve-root.desktop'
-import {showDevTools, skipSecondaryDevtools} from '../../local-debug.desktop'
+import * as ConfigGen from '../../actions/config-gen'
+import * as Chat2Gen from '../../actions/chat2-gen'
+import * as Electron from 'electron'
 import logger from '../../logger'
+import {isDarwin, isWindows, isLinux} from '../../constants/platform'
+import {mainWindowDispatch, getMainWindow} from '../remote/util.desktop'
+import {menubar} from 'menubar'
+import {resolveRoot, resolveImage, resolveRootAsURL} from './resolve-root.desktop'
+import {showDevTools, skipSecondaryDevtools} from '../../local-debug.desktop'
+import getIcons from '../../menubar/icons'
+import {workingIsDarkMode} from '../../util/safe-electron.desktop'
 
-const htmlFile = resolveRootAsURL('dist', `menubar${__DEV__ ? '.dev' : ''}.html`)
+const htmlFile = resolveRootAsURL('dist', `menubar${__DEV__ ? '.dev' : ''}.html?param=menubar`)
 
-let icon = ''
-let selectedIcon = ''
+let iconPath = getIcons('regular', false, workingIsDarkMode())
 
-export default function(menubarWindowIDCallback: (id: number) => void) {
+type Bounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export default (menubarWindowIDCallback: (id: number) => void) => {
   const mb = menubar({
-    hasShadow: true,
-    height: 480,
-    icon: resolveImage(
-      'menubarIcon',
-      isWindows
-        ? 'icon-windows-keybase-menubar-regular-black-16@2x.png'
-        : 'icon-keybase-menubar-regular-white-22@2x.png'
-    ),
+    browserWindow: {
+      hasShadow: true,
+      height: 640,
+      resizable: false,
+      transparent: true,
+      webPreferences: {
+        nodeIntegration: true,
+        nodeIntegrationInWorker: false,
+        preload: resolveRoot('dist', `preload-main${__DEV__ ? '.dev' : ''}.bundle.js`),
+      },
+      width: 360,
+    },
+    icon: resolveImage('menubarIcon', iconPath),
     index: htmlFile,
     preloadWindow: true,
-    resizable: false,
     // Without this flag set, menubar will hide the dock icon when the app
     // ready event fires. We manage the dock icon ourselves, so this flag
     // prevents menubar from changing the state.
     showDockIcon: true,
-    transparent: true,
-    webPreferences: {
-      nodeIntegration: true,
-      nodeIntegrationInWorker: false,
-    },
-    width: 360,
   })
 
-  const updateIcon = selected => {
-    mb.tray.setImage(resolveImage('menubarIcon', selected ? selectedIcon : icon))
-  }
-  const setIcons = (regular, selected) => {
-    icon = regular
-    selectedIcon = selected
-    updateIcon(false)
+  const updateIcon = () => {
+    try {
+      const resolved = resolveImage('menubarIcon', iconPath)
+      mb.tray.setImage(resolved)
+    } catch (err) {
+      console.error('menu icon err: ' + err)
+    }
   }
 
-  SafeElectron.getIpcMain().on('showTray', (event, regular, selected, count) => {
-    setIcons(regular, selected)
-    const dock = SafeElectron.getApp().dock
-    if (dock && dock.isVisible()) {
-      SafeElectron.getApp().setBadgeCount(count)
+  type Action = {
+    type: 'showTray'
+    payload: {
+      icon: string
+      iconSelected: string
+      desktopAppBadgeCount: number
+    }
+  }
+
+  Electron.ipcMain.handle('KBmenu', (_: any, action: Action) => {
+    switch (action.type) {
+      case 'showTray': {
+        iconPath = action.payload.icon
+        updateIcon()
+        const dock = Electron.app.dock
+        if (dock && dock.isVisible()) {
+          Electron.app.badgeCount = action.payload.desktopAppBadgeCount
+        }
+
+        // Windows just lets us set (or unset, with null) a single 16x16 icon
+        // to be used as an overlay in the bottom right of the taskbar icon.
+        if (isWindows) {
+          const mw = getMainWindow()
+          const overlay =
+            action.payload.desktopAppBadgeCount > 0 ? resolveImage('icons', 'icon-windows-badge.png') : null
+          // @ts-ignore setOverlayIcon docs say null overlay's fine, TS disagrees
+          mw && mw.setOverlayIcon(overlay, 'new activity')
+        }
+
+        break
+      }
     }
   })
 
   mb.on('ready', () => {
-    menubarWindowIDCallback(mb.window.id)
+    // ask for an update in case we missed one
+    mainWindowDispatch(
+      ConfigGen.createRemoteWindowWantsProps({
+        component: 'menubar',
+        param: '',
+      })
+    )
+
+    mb.tray.setIgnoreDoubleClickEvents(true)
+
+    mb.window && menubarWindowIDCallback(mb.window.id)
 
     if (showDevTools && !skipSecondaryDevtools) {
-      mb.window.webContents.openDevTools({mode: 'detach'})
+      mb.window && mb.window.webContents.openDevTools({mode: 'detach'})
     }
 
     // Hack: open widget when left/right/double clicked
-    mb.tray.on('right-click', (e, bounds) => {
+    mb.tray.on('right-click', (e: Electron.Event, bounds: Bounds) => {
       e.preventDefault()
-      setImmediate(() => mb.tray.emit('click', {...e}, {...bounds}))
+      setTimeout(() => mb.tray.emit('click', {...e}, {...bounds}), 0)
     })
-    mb.tray.on('double-click', e => e.preventDefault())
+    mb.tray.on('double-click', (e: Electron.Event) => e.preventDefault())
 
     // prevent the menubar's window from dying when we quit
     // We remove any existing listeners to close because menubar has one that deletes the reference to mb.window
-    mb.window.removeAllListeners('close')
-    mb.window.on('close', event => {
-      event.preventDefault()
-      mb.hideWindow()
-    })
+
+    mb.window && mb.window.removeAllListeners('close')
+    mb.window &&
+      mb.window.on('close', event => {
+        event.preventDefault()
+        mb.hideWindow()
+      })
 
     if (isLinux) {
       mb.tray.setToolTip('Show Keybase')
     }
 
-    mb.on('show', () => {
+    const adjustForWindows = () => {
       // Account for different taskbar positions on Windows
-      if (isWindows && mb.window && mb.tray) {
-        const cursorPoint = SafeElectron.getScreen().getCursorScreenPoint()
-        const screenSize = SafeElectron.getScreen().getDisplayNearestPoint(cursorPoint).workArea
-        let menuBounds = mb.window.getBounds()
-        logger.info('Showing menu:', cursorPoint, screenSize)
-        let iconBounds = mb.tray.getBounds()
-        let x = iconBounds.x
-        let y = iconBounds.y - iconBounds.height - menuBounds.height
-
-        // rough guess where the menu bar is, since it's not
-        // available on electron
-        if (cursorPoint.x < screenSize.width / 2) {
-          if (cursorPoint.y > screenSize.height / 2) {
-            logger.info('- start menu on left -')
-            // start menu on left
-            x += iconBounds.width
-          }
-        } else {
-          // start menu on top or bottom
-          x -= menuBounds.width
-          if (cursorPoint.y < screenSize.height / 2) {
-            logger.info('- start menu on top -')
-            // start menu on top
-            y = iconBounds.y + iconBounds.height
-          } else {
-            // start menu on right/bottom
-            logger.info('- start menu on bottom -')
-          }
-        }
-        mb.setOption('x', x)
-        mb.setOption('y', y)
+      if (!isWindows || !mb.window || !mb.tray) {
+        return
       }
+      const cursorPoint = Electron.screen.getCursorScreenPoint()
+      const screenSize = Electron.screen.getDisplayNearestPoint(cursorPoint).workArea
+      const menuBounds = mb.window.getBounds()
+      logger.info('Showing menu:', cursorPoint, screenSize)
+      let iconBounds = mb.tray.getBounds()
+      let x = iconBounds.x
+      let y = iconBounds.y - iconBounds.height - menuBounds.height
 
-      isDarwin && updateIcon(true)
+      // rough guess where the menu bar is, since it's not
+      // available on electron
+      if (cursorPoint.x < screenSize.width / 2) {
+        if (cursorPoint.y > screenSize.height / 2) {
+          logger.info('- start menu on left -')
+          // start menu on left
+          x += iconBounds.width
+        }
+      } else {
+        // start menu on top or bottom
+        x -= menuBounds.width
+        if (cursorPoint.y < screenSize.height / 2) {
+          logger.info('- start menu on top -')
+          // start menu on top
+          y = iconBounds.y + iconBounds.height
+        } else {
+          // start menu on right/bottom
+          logger.info('- start menu on bottom -')
+        }
+      }
+      mb.setOption('x', x)
+      mb.setOption('y', y)
+    }
+
+    mb.on('show', () => {
+      mainWindowDispatch(
+        Chat2Gen.createInboxRefresh({
+          reason: 'widgetRefresh',
+        })
+      )
+      adjustForWindows()
     })
-    mb.on('hide', () => {
-      isDarwin && updateIcon(false)
-    })
+    mb.on('hide', () => {})
     mb.on('after-show', () => {
       logger.info('Showing menubar at', mb.window && mb.window.getBounds())
     })
-    mb.tray.on('click', (e, bounds) => {
+    mb.tray.on('click', (_: Electron.Event, bounds: Bounds) => {
       logger.info('Clicked tray icon:', bounds)
     })
   })

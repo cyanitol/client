@@ -37,6 +37,7 @@ const ConfirmSend = (props: ConfirmSendProps) => {
         />
         {(props.banners || []).map(banner => (
           <Banner
+            actionText={banner.actionText}
             background={banner.bannerBackground}
             key={banner.bannerText}
             onAction={banner.action}
@@ -69,11 +70,11 @@ const ConfirmSend = (props: ConfirmSendProps) => {
               fullWidth={true}
               style={styles.button}
               children={
-                <React.Fragment>
+                <>
                   <Kb.Icon
                     type="iconfont-stellar-send"
-                    style={Kb.iconCastPlatformStyles(styles.buttonIcon)}
-                    color={Styles.globalColors.white}
+                    style={styles.buttonIcon}
+                    color={Styles.globalColors.whiteOrWhite}
                   />
                   <Kb.Text type="BodyBig" style={styles.buttonText}>
                     Send{' '}
@@ -81,7 +82,7 @@ const ConfirmSend = (props: ConfirmSendProps) => {
                       {props.displayAmountXLM}
                     </Kb.Text>
                   </Kb.Text>
-                </React.Fragment>
+                </>
               }
             />
           )}
@@ -91,7 +92,7 @@ const ConfirmSend = (props: ConfirmSendProps) => {
     </Kb.MaybePopup>
   )
 }
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   backgroundColorPurple: {backgroundColor: Styles.globalColors.purpleDark},
   button: {
     marginBottom: Styles.globalMargins.small,
@@ -112,7 +113,7 @@ const styles = Styles.styleSheetCreate({
   buttonIcon: {
     marginRight: Styles.globalMargins.xtiny,
   },
-  buttonText: {color: Styles.globalColors.white},
+  buttonText: {color: Styles.globalColors.whiteOrWhite},
   container: Styles.platformStyles({
     isElectron: {
       height: 560,
@@ -131,6 +132,6 @@ const styles = Styles.styleSheetCreate({
     flexGrow: 0,
     flexShrink: 1,
   },
-})
+}))
 
 export default ConfirmSend

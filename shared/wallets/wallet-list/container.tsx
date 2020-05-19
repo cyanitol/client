@@ -9,44 +9,28 @@ type OwnProps = {
   style: Styles.StylesCrossPlatform
 }
 
-const mapStateToProps = (state: Container.TypedState) => ({
-  accounts: Constants.getAccountIDs(state),
-  airdropIsLive: state.wallets.airdropDetails.isPromoted,
-  airdropSelected: Constants.getAirdropSelected(state),
-  inAirdrop: state.wallets.airdropState === 'accepted',
-  loading: anyWaiting(state, Constants.loadAccountsWaitingKey),
-})
-
-const mapDispatchToProps = (dispatch: Container.TypedDispatch) => ({
-  onAddNew: () => {
-    dispatch(
-      RouteTreeGen.createNavigateAppend({
-        path: [{props: {backButton: false, showOnCreation: true}, selected: 'createNewAccount'}],
-      })
-    )
-  },
-  onJoinAirdrop: () => {
-    dispatch(RouteTreeGen.createNavigateAppend({path: ['airdrop'], replace: true}))
-  },
-  onLinkExisting: () => {
-    dispatch(
-      RouteTreeGen.createNavigateAppend({path: [{props: {showOnCreation: true}, selected: 'linkExisting'}]})
-    )
-  },
-  onWhatIsStellar: () => dispatch(RouteTreeGen.createNavigateAppend({path: ['whatIsStellarModal']})),
-})
-
 export default Container.connect(
-  mapStateToProps,
-  mapDispatchToProps,
+  state => ({
+    accounts: Constants.getAccountIDs(state),
+    loading: anyWaiting(state, Constants.loadAccountsWaitingKey),
+  }),
+  dispatch => ({
+    onAddNew: () =>
+      dispatch(
+        RouteTreeGen.createNavigateAppend({
+          path: [{props: {backButton: false, showOnCreation: true}, selected: 'createNewAccount'}],
+        })
+      ),
+    onLinkExisting: () =>
+      dispatch(
+        RouteTreeGen.createNavigateAppend({path: [{props: {showOnCreation: true}, selected: 'linkExisting'}]})
+      ),
+    onWhatIsStellar: () => dispatch(RouteTreeGen.createNavigateAppend({path: ['whatIsStellarModal']})),
+  }),
   (stateProps, dispatchProps, ownProps: OwnProps) => ({
-    accountIDs: stateProps.accounts.toArray(),
-    airdropIsLive: stateProps.airdropIsLive,
-    airdropSelected: stateProps.airdropSelected,
-    inAirdrop: stateProps.inAirdrop,
+    accountIDs: stateProps.accounts,
     loading: stateProps.loading,
     onAddNew: dispatchProps.onAddNew,
-    onJoinAirdrop: stateProps.airdropIsLive ? dispatchProps.onJoinAirdrop : null,
     onLinkExisting: dispatchProps.onLinkExisting,
     onWhatIsStellar: dispatchProps.onWhatIsStellar,
     style: ownProps.style,

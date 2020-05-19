@@ -7,30 +7,13 @@ import {Props as MarkdownProps} from '.'
 import {emojiIndexByChar, emojiRegex, commonTlds} from './emoji-gen'
 import {reactOutput, previewOutput, bigEmojiOutput, markdownStyles, serviceOnlyOutput} from './react'
 
-function createKbfsPathRegex(): RegExp | null {
-  const username = `(?:[a-zA-Z0-9]+_?)+` // from go/kbun/username.go
-  const socialAssertion = `[-_a-zA-Z0-9.]+@[a-zA-Z.]+`
-  const user = `(?:(?:${username})|(?:${socialAssertion}))`
-  const usernames = `${user}(?:,${user})*`
-  const teamName = `${username}(?:\\.${username})*`
-  const tlfType = `/(?:private|public|team)`
-  const tlf = `/(?:(?:private|public)/${usernames}(#${usernames})?|team/${teamName})`
-  const inTlf = `/(?:\\\\\\\\|\\\\ |\\S)+`
-  const specialFiles = `/(?:.kbfs_.+)`
-  return new RegExp(`^(/keybase(?:(?:${tlf}(${inTlf})?)|(?:${tlfType})|(?:${specialFiles}))?/?)(?=\\s|$)`)
-}
-
-const kbfsPathMatcher = SimpleMarkdown.inlineRegex(createKbfsPathRegex())
-
 const serviceBeginDecorationTag = '\\$\\>kb\\$'
 const serviceEndDecorationTag = '\\$\\<kb\\$'
-function createServiceDecorationRegex(): RegExp | null {
-  return new RegExp(
-    `^${serviceBeginDecorationTag}(((?!${serviceEndDecorationTag}).)*)${serviceEndDecorationTag}`
-  )
-}
+const serviceDecorationRegex = new RegExp(
+  `^${serviceBeginDecorationTag}(((?!${serviceEndDecorationTag}).)*)${serviceEndDecorationTag}`
+)
 
-const serviceDecorationMatcher = SimpleMarkdown.inlineRegex(createServiceDecorationRegex())
+const serviceDecorationMatcher = SimpleMarkdown.inlineRegex(serviceDecorationRegex)
 
 // Only allow a small set of characters before a url
 const textMatch = SimpleMarkdown.anyScopeRegex(
@@ -51,7 +34,11 @@ const textMatch = SimpleMarkdown.anyScopeRegex(
   )
 )
 
-const wrapInParagraph = (parse, content, state) => [
+const wrapInParagraph = (
+  parse: SimpleMarkdown.Parser,
+  content: string,
+  state: SimpleMarkdown.State
+): Array<SimpleMarkdown.SingleASTNode> => [
   {
     content: SimpleMarkdown.parseInline(parse, content, {...state, inParagraph: true}),
     type: 'paragraph',
@@ -61,17 +48,19 @@ const wrapInParagraph = (parse, content, state) => [
 const wordBoundaryLookBehind = /\B$/
 // Wraps the match to also check that the behind is not a text, but a boundary (like a space)
 // i.e. "foo" fails but "foo " passes.
-const wordBoundryLookBehindMatch = matchFn => (source, state, lookbehind) => {
-  if (wordBoundaryLookBehind.exec(lookbehind)) {
-    return matchFn(source, state, lookbehind)
+const wordBoundryLookBehindMatch = (matchFn: SimpleMarkdown.MatchFunction) => (
+  source: string,
+  state: SimpleMarkdown.State,
+  prevCapture: string
+) => {
+  if (wordBoundaryLookBehind.exec(prevCapture)) {
+    return matchFn(source, state, prevCapture)
   }
+  return null
 }
 
 // Rules are defined here, the react components for these types are defined in markdown-react.js
-//
-// TODO: Type rules. In particular, use a better type for State than
-// that provided by simple-markdown, which is {[string]: any}.
-const rules = {
+const rules: {[type: string]: SimpleMarkdown.ParserRule} = {
   blockQuote: {
     ...SimpleMarkdown.defaultRules.blockQuote,
     // match: blockRegex(/^( *>[^\n]+(\n[^\n]+)*\n*)+\n{2,}/),
@@ -80,7 +69,11 @@ const rules = {
     // ours: Everything in the quote has to be preceded by >
     // unless it has the start of a fence
     // e.g. https://regex101.com/r/ZiDBsO/8
-    match: (source, state, lookbehind) => {
+    match: (
+      source: string,
+      state: SimpleMarkdown.State,
+      prevCapture: string
+    ): SimpleMarkdown.Capture | null => {
       if (state.blockQuoteRecursionLevel > 6) {
         return null
       }
@@ -89,19 +82,20 @@ const rules = {
       const emptyLookbehind = /^$|\n *$/
 
       const match = regex.exec(source)
-      if (match && emptyLookbehind.exec(lookbehind)) {
+      if (match && emptyLookbehind.exec(prevCapture)) {
         return match
       }
       return null
     },
-    parse: (capture, parse, state) => {
+    parse: (
+      capture: SimpleMarkdown.Capture,
+      nestedParse: SimpleMarkdown.Parser,
+      state: SimpleMarkdown.State
+    ) => {
       const content = capture[0].replace(/^ *> */gm, '')
       const blockQuoteRecursionLevel = state.blockQuoteRecursionLevel || 0
       const nextState = {...state, blockQuoteRecursionLevel: blockQuoteRecursionLevel + 1}
-
-      return {
-        content: parse(content, nextState),
-      }
+      return {content: nestedParse(content, nextState)}
     },
   },
   del: {
@@ -120,7 +114,11 @@ const rules = {
   emoji: {
     match: SimpleMarkdown.inlineRegex(emojiRegex),
     order: SimpleMarkdown.defaultRules.text.order - 0.5,
-    parse: function(capture, parse, state) {
+    parse: (
+      capture: SimpleMarkdown.Capture,
+      _nestedParse: SimpleMarkdown.Parser,
+      _state: SimpleMarkdown.State
+    ) => {
       // If it's a unicode emoji, let's get it's shortname
       const shortName = emojiIndexByChar[capture[0]]
       return {content: shortName || capture[0]}
@@ -136,10 +134,14 @@ const rules = {
   // a paragraph and tries to match again. Won't fallback on itself. If it's already in a paragraph,
   // it won't match.
   fallbackParagraph: {
-    // $FlowIssue - tricky to get this to type properly
-    match: (source, state, lookBehind) => (Styles.isMobile && !state.inParagraph ? [source] : null),
+    match: (source: string, state: SimpleMarkdown.State, _prevCapture: string) =>
+      Styles.isMobile && !state.inParagraph ? [source] : null,
     order: 10000,
-    parse: (capture, parse, state) => wrapInParagraph(parse, capture[0], state),
+    parse: (
+      capture: SimpleMarkdown.Capture,
+      nestedParse: SimpleMarkdown.Parser,
+      state: SimpleMarkdown.State
+    ) => wrapInParagraph(nestedParse, capture[0], state),
   },
   fence: {
     // aka the ``` code blocks
@@ -149,7 +151,11 @@ const rules = {
     // match: SimpleMarkdown.blockRegex(/^ *(`{3,}|~{3,}) *(\S+)? *\n([\s\S]+?)\s*\1 *(?:\n *)+\n/),
     // ours: three ticks (anywhere) and remove any newlines in front and one in back
     order: 0,
-    parse: function(capture, parse, state) {
+    parse: function(
+      capture: SimpleMarkdown.Capture,
+      _nestedParse: SimpleMarkdown.Parser,
+      _state: SimpleMarkdown.State
+    ) {
       return {
         content: capture[1],
         lang: undefined,
@@ -163,21 +169,6 @@ const rules = {
     // match: inlineRegex(/^(`+)\s*([\s\S]*?[^`])\s*\1(?!`)/),
     // ours: only allow a single backtick
     match: SimpleMarkdown.inlineRegex(/^(`)(?!`)\s*(?!`)([\s\S]*?[^`\n])\s*\1(?!`)/),
-  },
-  kbfsPath: {
-    match: (source, state, lookBehind) => {
-      const matches = kbfsPathMatcher(source, state, lookBehind)
-      // Also check that the lookBehind is not text
-      if (matches && (!lookBehind || lookBehind.match(/\B$/))) {
-        return matches
-      }
-      return null
-    }, // lower than mention
-    order: SimpleMarkdown.defaultRules.autolink.order - 0.1,
-    parse: capture => ({
-      content: capture[1],
-      type: 'kbfsPath',
-    }),
   },
   newline: {
     // handle newlines, keep this to handle \n w/ other matchers
@@ -193,12 +184,14 @@ const rules = {
     // match: SimpleMarkdown.blockRegex(/^((?:[^\n]|\n(?! *\n))+)(?:\n *)+\n/),
     // ours: allow simple empty blocks, stop before a block quote or a code block (aka fence)
     match: SimpleMarkdown.blockRegex(/^((?:[^\n`]|(?:`(?!``))|\n(?!(?: *\n| *>)))+)\n?/),
-    parse: (capture, parse, state) => {
+    parse: (
+      capture: SimpleMarkdown.Capture,
+      nestedParse: SimpleMarkdown.Parser,
+      state: SimpleMarkdown.State
+    ) => {
       // Remove a trailing newline because sometimes it sneaks in from when we add the newline to create the initial block
       const content = Styles.isMobile ? capture[1].replace(/\n$/, '') : capture[1]
-      return {
-        content: SimpleMarkdown.parseInline(parse, content, {...state, inParagraph: true}),
-      }
+      return {content: SimpleMarkdown.parseInline(nestedParse, content, {...state, inParagraph: true})}
     },
   },
   quotedFence: {
@@ -212,32 +205,33 @@ const rules = {
     match: SimpleMarkdown.anyScopeRegex(/^(?: *> *((?:[^\n](?!```))*)) ```\n?((?:\\[\s\S]|[^\\])+?)```\n?/),
     // Example: https://regex101.com/r/ZiDBsO/6
     order: SimpleMarkdown.defaultRules.blockQuote.order - 0.5,
-    parse: function(capture, parse, state) {
-      const preContent =
+    parse: (
+      capture: SimpleMarkdown.Capture,
+      nestedParse: SimpleMarkdown.Parser,
+      state: SimpleMarkdown.State
+    ) => {
+      const preContent: Array<SimpleMarkdown.SingleASTNode> =
         Styles.isMobile && !!capture[1]
-          ? wrapInParagraph(parse, capture[1], state)
-          : SimpleMarkdown.parseInline(parse, capture[1], state)
+          ? wrapInParagraph(nestedParse, capture[1], state)
+          : (SimpleMarkdown.parseInline(nestedParse, capture[1], state) as Array<
+              SimpleMarkdown.SingleASTNode
+            >)
       return {
-        content: [
-          ...preContent,
-          {
-            content: capture[2],
-            type: 'fence',
-          },
-        ],
+        content: [...preContent, {content: capture[2], type: 'fence'}],
         type: 'blockQuote',
       }
     },
   },
   serviceDecoration: {
-    match: (source, state, lookBehind) => {
-      return serviceDecorationMatcher(source, state, lookBehind)
+    match: (source: string, state: SimpleMarkdown.State, prevCapture: string) => {
+      return serviceDecorationMatcher(source, state, prevCapture)
     },
     order: 1,
-    parse: capture => ({
-      content: capture[1],
-      type: 'serviceDecoration',
-    }),
+    parse: (
+      capture: SimpleMarkdown.Capture,
+      _nestedParse: SimpleMarkdown.Parser,
+      _state: SimpleMarkdown.State
+    ) => ({content: capture[1], type: 'serviceDecoration'}),
   },
   strong: {
     ...SimpleMarkdown.defaultRules.strong,
@@ -252,8 +246,8 @@ const rules = {
     // /^[\s\S]+?(?=[^0-9A-Za-z\s\u00c0-\uffff]|\n\n| {2,}\n|\w+:\S|$)/
     // ours: stop on single new lines and common tlds. We want to stop at common tlds so this regex doesn't
     // consume the common case of saying: Checkout google.com, they got all the cool gizmos.
-    match: (source, state, lookBehind) =>
-      Styles.isMobile && !state.inParagraph ? null : textMatch(source, state, lookBehind),
+    match: (source: string, state: SimpleMarkdown.State, prevCapture: string) =>
+      Styles.isMobile && !state.inParagraph ? null : textMatch(source, state, prevCapture),
   },
 }
 
@@ -269,12 +263,7 @@ const isAllEmoji = ast => {
   return false
 }
 
-class SimpleMarkdownComponent extends PureComponent<
-  MarkdownProps,
-  {
-    hasError: boolean
-  }
-> {
+class SimpleMarkdownComponent extends PureComponent<MarkdownProps, {hasError: boolean}> {
   state = {hasError: false}
 
   static getDerivedStateFromError() {
@@ -295,9 +284,9 @@ class SimpleMarkdownComponent extends PureComponent<
         </Text>
       )
     }
-    const {allowFontScaling, styleOverride = {}} = this.props
-    let parseTree
-    let output
+    const {allowFontScaling, styleOverride = {}, paragraphTextClassName} = this.props
+    let parseTree: Array<SimpleMarkdown.SingleASTNode>
+    let output: SimpleMarkdown.Output<any>
     try {
       parseTree = simpleMarkdownParser((this.props.children || '').trim() + '\n', {
         // This flag adds 2 new lines at the end of our input. One is necessary to parse the text as a paragraph, but the other isn't
@@ -310,14 +299,15 @@ class SimpleMarkdownComponent extends PureComponent<
       const state = {
         allowFontScaling,
         markdownMeta: this.props.meta,
+        paragraphTextClassName,
         styleOverride,
       }
 
       output = this.props.serviceOnly
         ? serviceOnlyOutput(parseTree, state)
         : this.props.preview
-        ? previewOutput(parseTree)
-        : isAllEmoji(parseTree) && !this.props.smallStandaloneEmoji
+        ? previewOutput(parseTree, state)
+        : !this.props.smallStandaloneEmoji && isAllEmoji(parseTree)
         ? bigEmojiOutput(parseTree, state)
         : reactOutput(parseTree, state)
     } catch (e) {
@@ -330,18 +320,24 @@ class SimpleMarkdownComponent extends PureComponent<
       )
     }
     const inner = this.props.serviceOnly ? (
-      <Text type="Body" style={this.props.style}>
+      <Text
+        className={this.props.paragraphTextClassName}
+        type="Body"
+        style={this.props.style}
+        lineClamp={this.props.lineClamp}
+      >
         {output}
       </Text>
     ) : this.props.preview ? (
       <Text
+        className={this.props.paragraphTextClassName}
         type={Styles.isMobile ? 'Body' : 'BodySmall'}
         style={Styles.collapseStyles([
           markdownStyles.neutralPreviewStyle,
           this.props.style,
           styleOverride.preview,
         ])}
-        lineClamp={1}
+        lineClamp={1 as const}
       >
         {output}
       </Text>
@@ -354,6 +350,7 @@ class SimpleMarkdownComponent extends PureComponent<
       inner
     ) : (
       <Text
+        className={this.props.paragraphTextClassName}
         type="Body"
         lineClamp={this.props.lineClamp}
         style={Styles.collapseStyles([styles.rootWrapper, this.props.style])}
@@ -365,12 +362,12 @@ class SimpleMarkdownComponent extends PureComponent<
   }
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   rootWrapper: Styles.platformStyles({
     isElectron: {
       whiteSpace: 'pre',
     },
   }),
-})
+}))
 
 export {SimpleMarkdownComponent, simpleMarkdownParser}

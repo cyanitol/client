@@ -4,19 +4,24 @@ import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Kbfs from '../common'
 import * as Styles from '../../styles'
-import {namedConnect} from '../../util/container'
+import * as Container from '../../util/container'
+import * as FsGen from '../../actions/fs-gen'
 
-type OwnProps = {
+type Props = {
   onTriggerFilterMobile: () => void
   path: Types.Path
 }
 
-type Props = OwnProps & {
-  hasSoftError: boolean
-}
+const FsNavHeaderRightActions = (props: Props) => {
+  const softErrors = Container.useSelector(state => state.fs.softErrors)
+  const hasSoftError = !!Constants.getSoftError(softErrors, props.path)
 
-const FsNavHeaderRightActions = (props: Props) =>
-  !props.hasSoftError ? (
+  const dispatch = Container.useDispatch()
+  React.useEffect(() => {
+    !Styles.isMobile && dispatch(FsGen.createSetFolderViewFilter({filter: null})) // mobile is handled in mobile-header.tsx
+  }, [dispatch, props.path]) // clear if path changes or it's a new layer of mount
+
+  return !hasSoftError ? (
     <Kb.Box2 direction="horizontal" style={styles.container} centerChildren={true}>
       <Kbfs.UploadButton path={props.path} style={styles.uploadButton} />
       {Styles.isMobile ? (
@@ -33,34 +38,30 @@ const FsNavHeaderRightActions = (props: Props) =>
       />
     </Kb.Box2>
   ) : null
+}
 
-export default namedConnect(
-  state => ({_softErrors: state.fs.softErrors}),
-  () => ({}),
-  (s, _, o: OwnProps) => ({
-    ...o,
-    hasSoftError: !!Constants.getSoftError(s._softErrors, o.path),
-  }),
-  'FsNavHeaderRightActions'
-)(FsNavHeaderRightActions)
+export default FsNavHeaderRightActions
 
-const styles = Styles.styleSheetCreate({
-  container: Styles.platformStyles({
-    isElectron: {
-      ...Styles.desktopStyles.windowDraggingClickable,
-      height: 28,
-      // Supposed to be small, but icons already have padding
-      paddingRight: Styles.globalMargins.tiny,
-    },
-  }),
-  folderViewFilter: {
-    marginRight: Styles.globalMargins.tiny,
-    width: 140,
-  },
-  uploadButton: Styles.platformStyles({
-    isElectron: {
-      marginLeft: Styles.globalMargins.tiny,
-      marginRight: Styles.globalMargins.tiny,
-    },
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: Styles.platformStyles({
+        isElectron: {
+          ...Styles.desktopStyles.windowDraggingClickable,
+          height: 28,
+          // Supposed to be small, but icons already have padding
+          paddingRight: Styles.globalMargins.tiny,
+        },
+      }),
+      folderViewFilter: {
+        marginRight: Styles.globalMargins.tiny,
+        width: 140,
+      },
+      uploadButton: Styles.platformStyles({
+        isElectron: {
+          marginLeft: Styles.globalMargins.tiny,
+          marginRight: Styles.globalMargins.tiny,
+        },
+      }),
+    } as const)
+)

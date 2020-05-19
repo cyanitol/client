@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/keybase/client/go/chat/globals"
-	"github.com/keybase/client/go/chat/storage"
 	"github.com/keybase/client/go/chat/types"
 	"github.com/keybase/client/go/chat/utils"
 	"github.com/keybase/client/go/protocol/chat1"
 	"github.com/keybase/client/go/protocol/gregor1"
 	"github.com/keybase/clockwork"
+	"golang.org/x/sync/errgroup"
 )
 
 // An queueItem is something we manage in a priority queue.
@@ -36,15 +36,14 @@ func (q *queueItem) String() string {
 type priorityQueue struct {
 	sync.RWMutex
 
-	queue []*queueItem
-	// convID -> *queueItem
-	itemMap map[string]*queueItem
+	queue   []*queueItem
+	itemMap map[chat1.ConvIDStr]*queueItem
 }
 
 func newPriorityQueue() *priorityQueue {
 	return &priorityQueue{
 		queue:   []*queueItem{},
-		itemMap: make(map[string]*queueItem),
+		itemMap: make(map[chat1.ConvIDStr]*queueItem),
 	}
 }
 
@@ -82,7 +81,7 @@ func (pq *priorityQueue) Push(x interface{}) {
 	item := x.(*queueItem)
 	item.index = len(pq.queue)
 	pq.queue = append(pq.queue, item)
-	pq.itemMap[item.purgeInfo.ConvID.String()] = item
+	pq.itemMap[item.purgeInfo.ConvID.ConvIDStr()] = item
 }
 
 func (pq *priorityQueue) Pop() interface{} {
@@ -93,7 +92,7 @@ func (pq *priorityQueue) Pop() interface{} {
 	item := pq.queue[n-1]
 	item.index = -1 // for safety
 	pq.queue = pq.queue[:n-1]
-	delete(pq.itemMap, item.purgeInfo.ConvID.String())
+	delete(pq.itemMap, item.purgeInfo.ConvID.ConvIDStr())
 	return item
 }
 
@@ -115,12 +114,12 @@ type BackgroundEphemeralPurger struct {
 	// used to prevent concurrent modifications to `pq`
 	queueLock sync.Mutex
 
-	uid     gregor1.UID
-	pq      *priorityQueue
-	storage *storage.Storage
+	uid gregor1.UID
+	pq  *priorityQueue
 
 	started    bool
 	shutdownCh chan struct{}
+	eg         errgroup.Group
 	delay      time.Duration
 	clock      clockwork.Clock
 	purgeTimer *time.Timer
@@ -128,11 +127,10 @@ type BackgroundEphemeralPurger struct {
 
 var _ types.EphemeralPurger = (*BackgroundEphemeralPurger)(nil)
 
-func NewBackgroundEphemeralPurger(g *globals.Context, storage *storage.Storage) *BackgroundEphemeralPurger {
+func NewBackgroundEphemeralPurger(g *globals.Context) *BackgroundEphemeralPurger {
 	return &BackgroundEphemeralPurger{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "BackgroundEphemeralPurger", false),
-		storage:      storage,
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "BackgroundEphemeralPurger", false),
 		delay:        500 * time.Millisecond,
 		clock:        clockwork.NewRealClock(),
 	}
@@ -143,7 +141,7 @@ func (b *BackgroundEphemeralPurger) SetClock(clock clockwork.Clock) {
 }
 
 func (b *BackgroundEphemeralPurger) Start(ctx context.Context, uid gregor1.UID) {
-	defer b.Trace(ctx, func() error { return nil }, "Start")()
+	defer b.Trace(ctx, nil, "Start")()
 
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -158,21 +156,25 @@ func (b *BackgroundEphemeralPurger) Start(ctx context.Context, uid gregor1.UID) 
 	b.purgeTimer = time.NewTimer(0)
 	shutdownCh := make(chan struct{})
 	b.shutdownCh = shutdownCh
-	go b.loop(shutdownCh)
+	b.eg.Go(func() error { return b.loop(shutdownCh) })
 }
 
 func (b *BackgroundEphemeralPurger) Stop(ctx context.Context) (ch chan struct{}) {
-	defer b.Trace(ctx, func() error { return nil }, "Stop")()
+	defer b.Trace(ctx, nil, "Stop")()
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	b.started = false
-	if b.shutdownCh != nil {
-		ch = b.shutdownCh
-		close(ch)
-		b.shutdownCh = nil
+	ch = make(chan struct{})
+	if b.started {
+		close(b.shutdownCh)
+		b.started = false
+		go func() {
+			if err := b.eg.Wait(); err != nil {
+				b.Debug(ctx, "error stopping background loop: %v", err)
+			}
+			close(ch)
+		}()
 	} else {
-		ch = make(chan struct{})
 		close(ch)
 	}
 	return ch
@@ -187,7 +189,7 @@ func (b *BackgroundEphemeralPurger) Queue(ctx context.Context, purgeInfo chat1.E
 	}
 
 	// skip duplicate items
-	item, ok := b.pq.itemMap[purgeInfo.ConvID.String()]
+	item, ok := b.pq.itemMap[purgeInfo.ConvID.ConvIDStr()]
 	if ok && item.purgeInfo.Eq(purgeInfo) {
 		return nil
 	}
@@ -199,7 +201,7 @@ func (b *BackgroundEphemeralPurger) Queue(ctx context.Context, purgeInfo chat1.E
 	now := b.clock.Now()
 	nextPurgeTime := purgeInfo.NextPurgeTime.Time()
 	if nextPurgeTime.Before(now) || nextPurgeTime.Equal(now) {
-		b.addPurgeToConvLoaderLocked(context.TODO(), purgeInfo)
+		b.addPurgeToConvLoaderLocked(ctx, purgeInfo)
 		return nil
 	}
 
@@ -231,7 +233,7 @@ func (b *BackgroundEphemeralPurger) initQueue(ctx context.Context) {
 	b.pq = newPriorityQueue()
 	heap.Init(b.pq)
 
-	allPurgeInfo, err := b.storage.GetAllPurgeInfo(ctx, b.uid)
+	allPurgeInfo, err := b.G().EphemeralTracker.GetAllPurgeInfo(ctx, b.uid)
 	if err != nil {
 		b.Debug(ctx, "unable to get purgeInfo: %v", allPurgeInfo)
 	}
@@ -243,7 +245,7 @@ func (b *BackgroundEphemeralPurger) initQueue(ctx context.Context) {
 }
 
 func (b *BackgroundEphemeralPurger) updateQueue(purgeInfo chat1.EphemeralPurgeInfo) {
-	item, ok := b.pq.itemMap[purgeInfo.ConvID.String()]
+	item, ok := b.pq.itemMap[purgeInfo.ConvID.ConvIDStr()]
 	if ok {
 		item.purgeInfo = purgeInfo
 		heap.Fix(b.pq, item.index)
@@ -254,18 +256,23 @@ func (b *BackgroundEphemeralPurger) updateQueue(purgeInfo chat1.EphemeralPurgeIn
 
 // This runs when we are waiting to run a job but will shut itself down if we
 // have no work.
-func (b *BackgroundEphemeralPurger) loop(shutdownCh chan struct{}) {
+func (b *BackgroundEphemeralPurger) loop(shutdownCh chan struct{}) error {
 	bgctx := context.Background()
 	b.Debug(bgctx, "loop: starting for %s", b.uid)
-
+	suspended := false
 	for {
 		select {
 		case <-b.purgeTimer.C:
-			b.Debug(bgctx, "loop: looping for %s", b.uid)
+			b.Debug(bgctx, "loop: timer fired %s", b.uid)
 			b.queuePurges(bgctx)
+		case suspended = <-b.G().DesktopAppState.NextSuspendUpdate(&suspended):
+			if !suspended {
+				b.Debug(bgctx, "loop: queuing purges on resume %s", b.uid)
+				b.queuePurges(bgctx)
+			}
 		case <-shutdownCh:
 			b.Debug(bgctx, "loop: shutting down for %s", b.uid)
-			return
+			return nil
 		}
 	}
 }
@@ -274,7 +281,7 @@ func (b *BackgroundEphemeralPurger) loop(shutdownCh chan struct{}) {
 // convLoader. We reset our timer with the next minimum time (if any) returning
 // if the work loop should stop or not.
 func (b *BackgroundEphemeralPurger) queuePurges(ctx context.Context) bool {
-	defer b.Trace(ctx, func() error { return nil }, "queuePurges")()
+	defer b.Trace(ctx, nil, "queuePurges")()
 	b.queueLock.Lock()
 	defer b.queueLock.Unlock()
 
@@ -311,9 +318,17 @@ func (b *BackgroundEphemeralPurger) queuePurges(ctx context.Context) bool {
 	return false
 }
 
+func (b *BackgroundEphemeralPurger) Len() int {
+	defer b.Trace(context.TODO(), nil, "Len")()
+	b.queueLock.Lock()
+	defer b.queueLock.Unlock()
+	return b.pq.Len()
+}
+
 func (b *BackgroundEphemeralPurger) addPurgeToConvLoaderLocked(ctx context.Context, purgeInfo chat1.EphemeralPurgeInfo) {
-	job := types.NewConvLoaderJob(purgeInfo.ConvID, nil /* query */, nil, /* pagination */
-		types.ConvLoaderPriorityHigh, newConvLoaderEphemeralPurgeHook(b.G(), b.uid, &purgeInfo))
+	job := types.NewConvLoaderJob(purgeInfo.ConvID, &chat1.Pagination{Num: 0},
+		types.ConvLoaderPriorityHigh, types.ConvLoaderUnique,
+		newConvLoaderEphemeralPurgeHook(b.G(), b.uid, &purgeInfo))
 	if err := b.G().ConvLoader.Queue(ctx, job); err != nil {
 		b.Debug(ctx, "convLoader Queue error %s", err)
 	}

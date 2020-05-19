@@ -1,14 +1,14 @@
 import {NativeModules, NativeEventEmitter} from 'react-native'
 import logger from '../logger'
 import {TransportShared, sharedCreateClient, rpcLog} from './transport-shared'
-import {pack} from 'purepack'
 import {toByteArray, fromByteArray} from 'base64-js'
+import {encode} from '@msgpack/msgpack'
 import toBuffer from 'typedarray-to-buffer'
 import {printRPCBytes} from '../local-debug'
 import {measureStart, measureStop} from '../util/user-timings'
-import {SendArg, createClientType, incomingRPCCallbackType, connectDisconnectCB} from './index.platform'
+import {SendArg, incomingRPCCallbackType, connectDisconnectCB} from './index.platform'
 
-const nativeBridge: {
+const nativeBridge: NativeEventEmitter & {
   runWithData: (arg0: string) => void
   eventName: string
   metaEventName: string
@@ -16,9 +16,8 @@ const nativeBridge: {
   start: () => void
   reset: () => void
 } = NativeModules.KeybaseEngine
-const RNEmitter: {
-  addListener: (arg0: string, arg1: (arg0: string) => void) => void
-} = new NativeEventEmitter(nativeBridge)
+// @ts-ignore
+const RNEmitter = new NativeEventEmitter(nativeBridge)
 
 class NativeTransport extends TransportShared {
   constructor(incomingRPCCallback, connectCallback, disconnectCallback) {
@@ -45,8 +44,8 @@ class NativeTransport extends TransportShared {
 
   // A custom send override to write b64 to the react native bridge
   send(msg: SendArg) {
-    const packed = pack(msg)
-    const len = pack(packed.length)
+    const packed = encode(msg)
+    const len = encode(packed.length)
     // We have to write b64 encoded data over the RN bridge
 
     const buf = new Uint8Array(len.length + packed.length)
@@ -98,7 +97,7 @@ function createClient(
   return client
 }
 
-function resetClient(client: createClientType) {
+function resetClient() {
   // Tell the RN bridge to reset itself
   nativeBridge.reset()
 }

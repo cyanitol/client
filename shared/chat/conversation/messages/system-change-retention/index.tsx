@@ -1,10 +1,8 @@
-import moment from 'moment'
 import * as React from 'react'
 import * as Kb from '../../../../common-adapters'
-import * as Styles from '../../../../styles'
 import UserNotice from '../user-notice'
 import * as RPCChatTypes from '../../../../constants/types/rpc-chat-gen'
-import SystemMessageTimestamp from '../system-message-timestamp'
+import * as dateFns from 'date-fns'
 
 type Props = {
   canManage: boolean
@@ -19,7 +17,7 @@ type Props = {
   timestamp: number
 }
 
-const getPolicySummary = props => {
+const getPolicySummary = (props: Props) => {
   if (!props.policy) {
     return 'be retained indefinitely'
   }
@@ -29,15 +27,7 @@ const getPolicySummary = props => {
       return 'be retained indefinitely'
     case RPCChatTypes.RetentionPolicyType.expire:
       {
-        const expireDuration = moment
-          .duration(
-            // Auto generated from flowToTs. Please clean me!
-            props.policy.expire === null || props.policy.expire === undefined
-              ? undefined
-              : props.policy.expire.age,
-            'seconds'
-          )
-          .humanize()
+        const expireDuration = dateFns.formatDistanceStrict(0, props.policy.expire?.age * 1000)
         if (expireDuration !== '') {
           return `expire after ${expireDuration}`
         }
@@ -45,15 +35,11 @@ const getPolicySummary = props => {
       break
     case RPCChatTypes.RetentionPolicyType.ephemeral:
       {
-        const ephemeralDuration = moment
-          .duration(
-            // Auto generated from flowToTs. Please clean me!
-            props.policy.ephemeral === null || props.policy.ephemeral === undefined
-              ? undefined
-              : props.policy.ephemeral.age,
-            'seconds'
-          )
-          .humanize()
+        const ephemeralDuration =
+          // date-fns writes 30 seconds as 1 minute
+          props.policy.ephemeral?.age === 30
+            ? '30 seconds'
+            : dateFns.formatDistanceStrict(0, props.policy.ephemeral?.age * 1000)
         if (ephemeralDuration !== '') {
           return `explode after ${ephemeralDuration} by default`
         }
@@ -64,19 +50,7 @@ const getPolicySummary = props => {
 }
 
 const ChangeRetention = (props: Props) => {
-  const changedBy =
-    props.you === props.user ? (
-      'You'
-    ) : (
-      <Kb.ConnectedUsernames
-        colorFollowing={true}
-        inline={true}
-        onUsernameClicked={'profile'}
-        type={'BodySmallSemibold'}
-        underline={true}
-        usernames={[props.user]}
-      />
-    )
+  const changedBy = props.you === props.user ? 'You ' : ''
   let convType = 'conversation'
   switch (props.membersType) {
     case RPCChatTypes.ConversationMembersType.team:
@@ -84,31 +58,20 @@ const ChangeRetention = (props: Props) => {
   }
   const inheritDescription = props.isInherit ? ' to inherit from the team policy' : ''
   const policySummary = getPolicySummary(props)
-  const manageText = props.canManage ? 'Manage this' : ''
+  const manageText = props.canManage ? 'Retention settings' : ''
   return (
-    <UserNotice
-      style={styles.userNotice}
-      username={props.user}
-      bgColor={Styles.globalColors.blueLighter2}
-      onClickAvatar={() => props.onClickUserAvatar()}
-    >
-      <SystemMessageTimestamp timestamp={props.timestamp} />
-      <Kb.Box2 direction="vertical" centerChildren={true}>
-        <Kb.Text type="BodySmallSemibold" center={true} negative={true} style={styles.text} selectable={true}>
-          {changedBy} changed the {convType} retention policy{inheritDescription}. Messages will{' '}
-          {policySummary}.
-        </Kb.Text>
+    <UserNotice>
+      <Kb.Text type="BodySmall" selectable={true}>
+        {changedBy}changed the {convType} retention policy{inheritDescription}. Messages will {policySummary}.
+        {` `}
+      </Kb.Text>
+      {manageText ? (
         <Kb.Text onClick={props.onManageRetention} type="BodySmallSemiboldPrimaryLink">
           {manageText}
         </Kb.Text>
-      </Kb.Box2>
+      ) : null}
     </UserNotice>
   )
 }
-
-const styles = Styles.styleSheetCreate({
-  text: {color: Styles.globalColors.black_50},
-  userNotice: {marginTop: Styles.globalMargins.small},
-})
 
 export default ChangeRetention

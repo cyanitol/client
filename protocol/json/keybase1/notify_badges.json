@@ -6,7 +6,7 @@
       "type": "idl"
     },
     {
-      "path": "github.com/keybase/client/go/protocol/gregor1",
+      "path": "../gregor1",
       "type": "idl",
       "import_as": "gregor1"
     }
@@ -22,6 +22,10 @@
       "type": "record",
       "name": "TeamMemberOutReset",
       "fields": [
+        {
+          "type": "TeamID",
+          "name": "teamID"
+        },
         {
           "type": "string",
           "name": "teamname"
@@ -89,6 +93,24 @@
     },
     {
       "type": "record",
+      "name": "WotUpdate",
+      "fields": [
+        {
+          "type": "string",
+          "name": "voucher"
+        },
+        {
+          "type": "string",
+          "name": "vouchee"
+        },
+        {
+          "type": "WotStatusType",
+          "name": "status"
+        }
+      ]
+    },
+    {
+      "type": "record",
       "name": "BadgeState",
       "fields": [
         {
@@ -121,6 +143,18 @@
           "name": "unverifiedPhones"
         },
         {
+          "type": "int",
+          "name": "smallTeamBadgeCount"
+        },
+        {
+          "type": "int",
+          "name": "bigTeamBadgeCount"
+        },
+        {
+          "type": "int",
+          "name": "newTeamAccessRequestCount"
+        },
+        {
           "type": {
             "type": "array",
             "items": "DeviceID"
@@ -151,9 +185,9 @@
         {
           "type": {
             "type": "array",
-            "items": "string"
+            "items": "TeamID"
           },
-          "name": "newTeamNames"
+          "name": "newTeams"
         },
         {
           "type": {
@@ -161,13 +195,6 @@
             "items": "DeletedTeamInfo"
           },
           "name": "deletedTeams"
-        },
-        {
-          "type": {
-            "type": "array",
-            "items": "string"
-          },
-          "name": "newTeamAccessRequests"
         },
         {
           "type": {
@@ -184,6 +211,14 @@
           "name": "unreadWalletAccounts"
         },
         {
+          "type": {
+            "type": "map",
+            "values": "WotUpdate",
+            "keys": "string"
+          },
+          "name": "wotUpdates"
+        },
+        {
           "type": "ResetState",
           "name": "resetState"
         }
@@ -198,12 +233,8 @@
           "name": "convID"
         },
         {
-          "type": {
-            "type": "map",
-            "values": "int",
-            "keys": "DeviceType"
-          },
-          "name": "badgeCounts"
+          "type": "int",
+          "name": "badgeCount"
         },
         {
           "type": "int",

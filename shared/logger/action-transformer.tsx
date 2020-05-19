@@ -3,60 +3,48 @@
 
 import * as RouteTreeGen from '../actions/route-tree-gen'
 import * as Chat2Gen from '../actions/chat2-gen'
+import * as PushGen from '../actions/push-gen'
 import * as ConfigGen from '../actions/config-gen'
 import * as GregorGen from '../actions/gregor-gen'
 import * as EngineGen from '../actions/engine-gen-gen'
 import * as WaitingGen from '../actions/waiting-gen'
-import * as EntitiesGen from '../actions/entities-gen'
 import {TypedState} from '../constants/reducer'
 
 // If you use nullTransform it'll not be logged at all
-const nullTransform = action => {
-  return null
-}
-
-const pathActionTransformer = (action, oldState) => {
-  const path = Array.from(action.payload.path.map(p => (typeof p === 'string' ? p : p.selected)))
-  return {
-    payload: {path},
-    type: action.type,
-  }
-}
-
-const entityTransformer = (
-  action:
-    | EntitiesGen.DeleteEntityPayload
-    | EntitiesGen.MergeEntityPayload
-    | EntitiesGen.ReplaceEntityPayload
-    | EntitiesGen.SubtractEntityPayload
-) => ({
-  payload: {keyPath: action.payload.keyPath},
-  type: action.type,
-})
+const nullTransform = () => null
 
 const defaultTransformer = ({type}) => ({type})
 const fullOutput = a => a
 
 const actionTransformMap = {
-  [RouteTreeGen.switchTo]: pathActionTransformer,
-  [RouteTreeGen.navigateTo]: pathActionTransformer,
-  [RouteTreeGen.navigateAppend]: pathActionTransformer,
-
-  [EntitiesGen.deleteEntity]: entityTransformer,
-  [EntitiesGen.mergeEntity]: entityTransformer,
-  [EntitiesGen.replaceEntity]: entityTransformer,
-  [EntitiesGen.subtractEntity]: entityTransformer,
+  [RouteTreeGen.switchTab]: fullOutput,
+  [RouteTreeGen.switchLoggedIn]: fullOutput,
+  [RouteTreeGen.navigateAppend]: action => ({
+    payload: {
+      fromKey: action.payload.fromKey,
+      path: Array.from(action.payload.path.map(p => (typeof p === 'string' ? p : p.selected))),
+      replace: action.payload.replace,
+    },
+    type: action.type,
+  }),
 
   _loadAvatarHelper: nullTransform,
-  [ConfigGen.loadAvatars]: nullTransform,
   [ConfigGen.daemonHandshakeWait]: fullOutput,
-  [ConfigGen.loadTeamAvatars]: nullTransform,
-  [ConfigGen.loadedAvatars]: nullTransform,
   [GregorGen.pushOOBM]: nullTransform,
   [ConfigGen.changedFocus]: nullTransform,
   [EngineGen.chat1NotifyChatChatTypingUpdate]: nullTransform,
 
-  [Chat2Gen.selectConversation]: fullOutput,
+  [PushGen.notification]: (a: PushGen.NotificationPayload) => {
+    const {notification} = a.payload
+    // @ts-ignore
+    const {conversationIDKey, type, userInteraction} = notification
+    return {
+      payload: {conversationIDKey, type, userInteraction},
+      type: a.type,
+    }
+  },
+  [Chat2Gen.selectedConversation]: fullOutput,
+  [Chat2Gen.navigateToThread]: fullOutput,
   [Chat2Gen.metaNeedsUpdating]: fullOutput,
   [Chat2Gen.updateMoreToLoad]: fullOutput,
   [Chat2Gen.setConversationOffline]: fullOutput,

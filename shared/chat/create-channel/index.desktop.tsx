@@ -1,17 +1,20 @@
 import * as React from 'react'
 import * as Constants from '../../constants/teams'
 import * as Kb from '../../common-adapters'
-import {globalStyles, globalColors, globalMargins, platformStyles} from '../../styles'
-import {Props} from './index.types'
+import * as Styles from '../../styles'
+import {Props} from './index'
 
 const CreateChannel = (props: Props) => (
-  <Kb.PopupDialog onClose={props.onClose} styleCover={_styleCover} styleContainer={_styleContainer}>
-    <Kb.Box style={{..._boxStyle, paddingTop: globalMargins.medium}}>
+  <Kb.PopupDialog onClose={props.onClose} styleCover={styles.cover} styleContainer={styles.container}>
+    <Kb.Box style={{...styles.box, paddingTop: Styles.globalMargins.medium}}>
       <Kb.Avatar isTeam={true} teamname={props.teamname} size={32} />
-      <Kb.Text type="BodySmallSemibold" style={{marginTop: globalMargins.xtiny}}>
+      <Kb.Text type="BodySmallSemibold" style={{marginTop: Styles.globalMargins.xtiny}}>
         {props.teamname}
       </Kb.Text>
-      <Kb.Text type="Header" style={{marginBottom: globalMargins.tiny, marginTop: globalMargins.tiny}}>
+      <Kb.Text
+        type="Header"
+        style={{marginBottom: Styles.globalMargins.tiny, marginTop: Styles.globalMargins.tiny}}
+      >
         New chat channel
       </Kb.Text>
     </Kb.Box>
@@ -20,23 +23,21 @@ const CreateChannel = (props: Props) => (
         <Kb.BannerParagraph bannerColor="red" content={props.errorText} />
       </Kb.Banner>
     )}
-    <Kb.Box style={_boxStyle}>
-      <Kb.Box style={_backStyle} onClick={props.onBack}>
-        <Kb.Icon style={_backIcon} type="iconfont-arrow-left" />
+    <Kb.Box style={styles.box}>
+      <Kb.Box style={styles.back} onClick={props.onBack}>
+        <Kb.Icon style={styles.backIcon} type="iconfont-arrow-left" />
         <Kb.Text type="BodyPrimaryLink">Back</Kb.Text>
       </Kb.Box>
-      <Kb.Box style={_inputStyle}>
-        <Kb.Input
+      <Kb.Box2 direction="vertical" fullWidth={true} gap="tiny" gapEnd={true} gapStart={true}>
+        <Kb.LabeledInput
           autoFocus={true}
-          style={{minWidth: 450}}
-          hintText="Channel name"
+          style={styles.input}
+          placeholder="Channel name"
           value={props.channelname}
           onEnterKeyDown={props.onSubmit}
           onChangeText={channelname => props.onChannelnameChange(channelname)}
         />
-      </Kb.Box>
-      <Kb.Box style={_inputStyle}>
-        <Kb.Input
+        <Kb.LabeledInput
           autoFocus={false}
           autoCorrect={true}
           autoCapitalize="sentences"
@@ -45,17 +46,17 @@ const CreateChannel = (props: Props) => (
           rowsMax={10}
           // From go/chat/msgchecker/constants.go#HeadlineMaxLength
           maxLength={280}
-          style={{minWidth: 450}}
-          hintText="Description or topic (optional)"
+          style={styles.input}
+          placeholder="Add a description or topic..."
           value={props.description}
           onEnterKeyDown={props.onSubmit}
           onChangeText={description => props.onDescriptionChange(description)}
         />
-      </Kb.Box>
-      <Kb.ButtonBar>
+      </Kb.Box2>
+      <Kb.ButtonBar fullWidth={true} style={styles.buttonBar}>
         <Kb.Button type="Dim" onClick={props.onClose} label="Cancel" />
         <Kb.WaitingButton
-          waitingKey={Constants.createChannelWaitingKey(props.teamname)}
+          waitingKey={Constants.createChannelWaitingKey(props.teamID)}
           onClick={props.onSubmit}
           label="Save"
         />
@@ -64,44 +65,38 @@ const CreateChannel = (props: Props) => (
   </Kb.PopupDialog>
 )
 
-const _inputStyle = {
-  ...globalStyles.flexBoxRow,
-  marginTop: globalMargins.medium,
-}
-
-const _boxStyle = {
-  ...globalStyles.flexBoxColumn,
-  alignItems: 'center',
-  paddingLeft: globalMargins.large,
-  paddingRight: globalMargins.large,
-}
-
-const _backIcon = platformStyles({
-  common: {
-    marginRight: globalMargins.xtiny,
-  },
-  isElectron: {
-    display: 'block',
-  },
-})
-
-const _backStyle = {
-  ...globalStyles.flexBoxRow,
-  alignItems: 'center',
-  left: 32,
-  position: 'absolute',
-  top: 32,
-}
-
-const _styleCover = {
-  alignItems: 'center',
-  backgroundColor: globalColors.black_50,
-  justifyContent: 'center',
-}
-
-const _styleContainer = {
-  height: 520,
-  width: 620,
-}
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      back: {
+        ...Styles.globalStyles.flexBoxRow,
+        alignItems: 'center',
+        left: 32,
+        position: 'absolute',
+        top: 32,
+      },
+      backIcon: {
+        marginRight: Styles.globalMargins.xtiny,
+      },
+      box: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'center',
+        paddingLeft: Styles.globalMargins.large,
+        paddingRight: Styles.globalMargins.large,
+      },
+      buttonBar: {alignItems: 'center'},
+      container: {
+        maxHeight: 520,
+        width: 400,
+      },
+      cover: {
+        alignItems: 'center',
+        justifyContent: 'center',
+      },
+      input: {
+        width: '100%',
+      },
+    } as const)
+)
 
 export default CreateChannel

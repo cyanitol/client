@@ -50,7 +50,7 @@ func (d *dummyHTTPSrv) Start() string {
 		Addr:    fmt.Sprintf("%s:%d", localhost, port),
 		Handler: mux,
 	}
-	go d.srv.Serve(listener)
+	go func() { _ = d.srv.Serve(listener) }()
 	return d.srv.Addr
 }
 
@@ -62,7 +62,7 @@ func (d *dummyHTTPSrv) serveAppleTouchIcon(w http.ResponseWriter, r *http.Reques
 	if d.shouldServeAppleTouchIcon {
 		w.WriteHeader(200)
 		dat, _ := ioutil.ReadFile(filepath.Join("testcases", "github.png"))
-		io.Copy(w, bytes.NewBuffer(dat))
+		_, _ = io.Copy(w, bytes.NewBuffer(dat))
 		return
 	}
 	w.WriteHeader(404)
@@ -383,6 +383,10 @@ func (t *testingLiveLocationTracker) GetCoordinates(ctx context.Context, key typ
 	return t.coords
 }
 
+func (t *testingLiveLocationTracker) GetEndTime(ctx context.Context, key types.LiveLocationKey) *time.Time {
+	return nil
+}
+
 func (t *testingLiveLocationTracker) ActivelyTracking(ctx context.Context) bool {
 	return false
 }
@@ -431,5 +435,6 @@ func TestLiveMapScraper(t *testing.T) {
 	typ, err = unfurl.UnfurlType()
 	require.NoError(t, err)
 	require.Equal(t, chat1.UnfurlType_MAPS, typ)
-	require.Equal(t, "Live Location Share (finished)", unfurl.Maps().SiteName)
+	require.Equal(t, "Live Location Share", unfurl.Maps().SiteName)
+	require.Equal(t, "Location share ended", unfurl.Maps().Title)
 }

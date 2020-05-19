@@ -2,24 +2,32 @@ import * as React from 'react'
 import * as C from '../../constants/people'
 import * as Sb from '../../stories/storybook'
 import FollowNotification from '.'
-import moment from 'moment'
+import * as dateFns from 'date-fns'
 
 const singleFollowProps1 = {
   badged: true,
   newFollows: [C.makeFollowedNotification({username: 'mmaxim'})],
   notificationTime: new Date(),
   onClickUser: Sb.action('onClickUser'),
-  type: 'notification',
+  type: 'follow' as const,
+}
+
+const singleContactProps = {
+  badged: true,
+  newFollows: [
+    C.makeFollowedNotification({contactDescription: 'Ja[ck]ob without the hair', username: 'jakob223'}),
+  ],
+  notificationTime: new Date(),
+  onClickUser: Sb.action('onClickUser'),
+  type: 'contact' as const,
 }
 
 const singleFollowProps2 = {
   badged: false,
   newFollows: [C.makeFollowedNotification({username: 'max'})],
-  notificationTime: moment()
-    .subtract(3, 'days')
-    .toDate(),
+  notificationTime: dateFns.sub(new Date(), {days: 3}),
   onClickUser: Sb.action('onClickUser'),
-  type: 'notification',
+  type: 'follow' as const,
 }
 
 const multiFollowProps1 = {
@@ -29,12 +37,10 @@ const multiFollowProps1 = {
     C.makeFollowedNotification({username: 'mmaxim'}),
     C.makeFollowedNotification({username: 'chrisnojima'}),
   ],
-  notificationTime: moment()
-    .subtract(3, 'weeks')
-    .toDate(),
+  notificationTime: dateFns.sub(new Date(), {days: 21}), // 3 weeks
   numAdditional: 0,
   onClickUser: Sb.action('onClickUser'),
-  type: 'notification',
+  type: 'follow' as const,
 }
 
 const multiFollowProps2 = {
@@ -53,23 +59,18 @@ const multiFollowProps2 = {
     C.makeFollowedNotification({username: 'mlsteele'}),
     C.makeFollowedNotification({username: 'joshblum'}),
   ],
-  notificationTime: moment()
-    .subtract(3, 'months')
-    .toDate(),
+  notificationTime: dateFns.sub(new Date(), {months: 3}),
   numAdditional: 5,
   onClickUser: Sb.action('onClickUser'),
-  type: 'notification',
+  type: 'follow' as const,
 }
 
 const load = () => {
   Sb.storiesOf('People/Follow notification', module)
-    // @ts-ignore not sure why this is being weird w/ records
     .add('Someone followed you', () => <FollowNotification {...singleFollowProps1} />)
-    // @ts-ignore not sure why this is being weird w/ records
+    .add('Your contact joined Keybase', () => <FollowNotification {...singleContactProps} />)
     .add('Someone you follow followed you', () => <FollowNotification {...singleFollowProps2} />)
-    // @ts-ignore not sure why this is being weird w/ records
     .add('A few people followed you', () => <FollowNotification {...multiFollowProps1} />)
-    // @ts-ignore not sure why this is being weird w/ records
     .add('Many people followed you', () => <FollowNotification {...multiFollowProps2} />)
 }
 

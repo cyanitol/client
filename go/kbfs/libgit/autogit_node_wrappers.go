@@ -82,7 +82,7 @@ func (rfn repoFileNode) GetFile(ctx context.Context) billy.File {
 	_, b, err := rfn.am.GetBrowserForRepo(
 		ctx, rfn.gitRootFS, rfn.repo, rfn.branch, rfn.subdir)
 	if err != nil {
-		rfn.am.log.CDebugf(nil, "Error getting browser: %+v", err)
+		rfn.am.log.CDebugf(ctx, "Error getting browser: %+v", err)
 		return nil
 	}
 
@@ -109,7 +109,7 @@ func (rcn repoCommitNode) GetFile(ctx context.Context) billy.File {
 		ctx, ctxAutogitIDKey, ctxAutogitOpID, rcn.am.log)
 	_, b, err := rcn.am.GetBrowserForRepo(ctx, rcn.gitRootFS, rcn.repo, "", "")
 	if err != nil {
-		rcn.am.log.CDebugf(nil, "Error getting browser: %+v", err)
+		rcn.am.log.CDebugf(ctx, "Error getting browser: %+v", err)
 		return nil
 	}
 
@@ -137,7 +137,8 @@ var _ libkbfs.Node = (*repoDirNode)(nil)
 // repoDirNode.
 func (rdn *repoDirNode) ShouldCreateMissedLookup(
 	ctx context.Context, name data.PathPartString) (
-	bool, context.Context, data.EntryType, os.FileInfo, data.PathPartString) {
+	bool, context.Context, data.EntryType, os.FileInfo, data.PathPartString,
+	data.BlockPointer) {
 	namePlain := name.Plaintext()
 	switch {
 	case strings.HasPrefix(namePlain, AutogitBranchPrefix):
@@ -148,7 +149,7 @@ func (rdn *repoDirNode) ShouldCreateMissedLookup(
 		// It's difficult to tell if a given name is a legitimate
 		// prefix for a branch name or not, so just accept everything.
 		// If it's not legit, trying to read the data will error out.
-		return true, ctx, data.FakeDir, nil, data.PathPartString{}
+		return true, ctx, data.FakeDir, nil, data.PathPartString{}, data.ZeroPtr
 	case strings.HasPrefix(namePlain, AutogitCommitPrefix):
 		commit := strings.TrimPrefix(namePlain, AutogitCommitPrefix)
 		if len(commit) == 0 {
@@ -168,14 +169,14 @@ func (rdn *repoDirNode) ShouldCreateMissedLookup(
 			return rdn.Node.ShouldCreateMissedLookup(ctx, name)
 		}
 		return true, ctx, data.FakeFile, f.(*diffFile).GetInfo(),
-			data.PathPartString{}
+			data.PathPartString{}, data.ZeroPtr
 	default:
 		return rdn.Node.ShouldCreateMissedLookup(ctx, name)
 	}
 
 }
 
-func (rdn *repoDirNode) GetFS(ctx context.Context) billy.Filesystem {
+func (rdn *repoDirNode) GetFS(ctx context.Context) libkbfs.NodeFSReadOnly {
 	ctx = libkbfs.CtxWithRandomIDReplayable(
 		ctx, ctxAutogitIDKey, ctxAutogitOpID, rdn.am.log)
 	_, b, err := rdn.am.GetBrowserForRepo(
@@ -280,9 +281,9 @@ type autogitRootNode struct {
 
 var _ libkbfs.Node = (*autogitRootNode)(nil)
 
-func (arn autogitRootNode) GetFS(ctx context.Context) billy.Filesystem {
+func (arn autogitRootNode) GetFS(ctx context.Context) libkbfs.NodeFSReadOnly {
 	ctx = libkbfs.CtxWithRandomIDReplayable(
-		context.Background(), ctxAutogitIDKey, ctxAutogitOpID, arn.am.log)
+		ctx, ctxAutogitIDKey, ctxAutogitOpID, arn.am.log)
 	return &wrappedRepoList{arn.fs.WithContext(ctx)}
 }
 
@@ -316,7 +317,8 @@ var _ libkbfs.Node = (*rootNode)(nil)
 // rootNode.
 func (rn *rootNode) ShouldCreateMissedLookup(
 	ctx context.Context, name data.PathPartString) (
-	bool, context.Context, data.EntryType, os.FileInfo, data.PathPartString) {
+	bool, context.Context, data.EntryType, os.FileInfo, data.PathPartString,
+	data.BlockPointer) {
 	if name.Plaintext() != AutogitRoot {
 		return rn.Node.ShouldCreateMissedLookup(ctx, name)
 	}
@@ -345,7 +347,7 @@ func (rn *rootNode) ShouldCreateMissedLookup(
 		}
 		rn.fs = fs
 	}
-	return true, ctx, data.FakeDir, nil, data.PathPartString{}
+	return true, ctx, data.FakeDir, nil, data.PathPartString{}, data.ZeroPtr
 }
 
 // WrapChild implements the Node interface for rootNode.
@@ -358,11 +360,11 @@ func (rn *rootNode) WrapChild(child libkbfs.Node) libkbfs.Node {
 	rn.lock.RLock()
 	defer rn.lock.RUnlock()
 	if rn.fs == nil {
-		rn.am.log.CDebugf(nil, "FS not available on WrapChild")
+		rn.am.log.CDebugf(context.TODO(), "FS not available on WrapChild")
 		return child
 	}
 
-	rn.am.log.CDebugf(nil, "Making autogit root node")
+	rn.am.log.CDebugf(context.TODO(), "Making autogit root node")
 	return &autogitRootNode{
 		Node: &libkbfs.ReadonlyNode{Node: child},
 		am:   rn.am,

@@ -2,8 +2,8 @@ import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
 import {AccountID} from '../../constants/types/wallets'
+import AddAccount from '../nav-header/add-account'
 import WalletRow from './wallet-row/container'
-import flags from '../../util/feature-flags'
 
 type AddProps = {
   onAddNew: () => void
@@ -12,66 +12,41 @@ type AddProps = {
 
 const rowHeight = 48
 
-const _AddWallet = (props: AddProps & Kb.OverlayParentProps) => {
-  const menuItems = [
-    {
-      onClick: () => props.onAddNew(),
-      title: 'Create a new account',
-    },
-    {
-      onClick: () => props.onLinkExisting(),
-      title: 'Link an existing Stellar account',
-    },
-  ]
-
-  return (
-    <Kb.ClickableBox onClick={props.toggleShowingMenu} ref={props.setAttachmentRef}>
-      <Kb.Box2
-        style={styles.addContainerBox}
-        direction="horizontal"
-        fullWidth={true}
-        className="hover_background_color_blueGreyDark"
-      >
-        <Kb.Icon type="icon-wallet-placeholder-add-32" style={Kb.iconCastPlatformStyles(styles.icon)} />
-        <Kb.Text type="BodySemibold">Add an account</Kb.Text>
-      </Kb.Box2>
-      <Kb.FloatingMenu
-        attachTo={props.getAttachmentRef}
-        closeOnSelect={true}
-        items={menuItems}
-        onHidden={props.toggleShowingMenu}
-        visible={props.showingMenu}
-        position="bottom center"
-      />
-    </Kb.ClickableBox>
-  )
-}
-
-const AddWallet = Kb.OverlayParentHOC(_AddWallet)
-
-const JoinAirdrop = p => (
-  <Kb.ClickableBox onClick={p.onJoinAirdrop}>
+const _AddWallet = (props: AddProps & Kb.OverlayParentProps) => (
+  <Kb.ClickableBox onClick={props.toggleShowingMenu} ref={props.setAttachmentRef}>
     <Kb.Box2
-      style={Styles.collapseStyles([
-        styles.joinAirdrop,
-        p.selected && {backgroundColor: Styles.globalColors.purple},
-      ])}
+      style={styles.addContainerBox}
       direction="horizontal"
       fullWidth={true}
       className="hover_background_color_blueGreyDark"
     >
-      <Kb.Icon type="icon-airdrop-star-32" style={Kb.iconCastPlatformStyles(styles.icon)} />
-      <Kb.Text negative={p.selected} type="BodySemibold">
-        {p.inAirdrop ? 'Airdrop' : 'Join the airdrop'}
-      </Kb.Text>
+      <Kb.Icon type="icon-wallet-placeholder-add-32" style={styles.icon} />
+      <Kb.Text type="BodySemibold">Add an account</Kb.Text>
     </Kb.Box2>
+    <Kb.FloatingMenu
+      attachTo={props.getAttachmentRef}
+      closeOnSelect={true}
+      items={[
+        {icon: 'iconfont-new', onClick: () => props.onAddNew(), title: 'Create a new account'},
+        {
+          icon: 'iconfont-identity-stellar',
+          onClick: () => props.onLinkExisting(),
+          title: 'Link an existing Stellar account',
+        },
+      ]}
+      onHidden={props.toggleShowingMenu}
+      visible={props.showingMenu}
+      position="bottom center"
+    />
   </Kb.ClickableBox>
 )
+
+const AddWallet = Kb.OverlayParentHOC(_AddWallet)
 
 const WhatIsStellar = (props: {onWhatIsStellar: () => void}) => (
   <Kb.ClickableBox onClick={props.onWhatIsStellar} style={styles.whatIsStellar}>
     <Kb.Box2 centerChildren={true} direction="horizontal">
-      <Kb.Icon sizeType={'Small'} type="iconfont-info" />
+      <Kb.Icon sizeType="Small" type="iconfont-info" />
       <Kb.Text style={styles.infoText} type="BodySmallSemibold">
         What is Stellar?
       </Kb.Text>
@@ -81,13 +56,9 @@ const WhatIsStellar = (props: {onWhatIsStellar: () => void}) => (
 
 export type Props = {
   accountIDs: Array<AccountID>
-  airdropIsLive: boolean
-  airdropSelected: boolean
   style?: Styles.StylesCrossPlatform
   loading: boolean
-  inAirdrop: boolean
   onAddNew: () => void
-  onJoinAirdrop: (() => void) | null
   onLinkExisting: () => void
   onWhatIsStellar: () => void
   title: string
@@ -103,13 +74,9 @@ type Row =
       type: 'add wallet'
       key?: string
     }
-  | {
-      type: 'join airdrop'
-      key?: string
-    }
 
 class WalletList extends React.Component<Props> {
-  _renderRow = (i: number, row: Row): React.ReactNode => {
+  _renderRow = (_: number, row: Row) => {
     switch (row.type) {
       case 'wallet':
         return <WalletRow key={row.accountID} accountID={row.accountID} />
@@ -119,15 +86,6 @@ class WalletList extends React.Component<Props> {
             key={row.type}
             onAddNew={this.props.onAddNew}
             onLinkExisting={this.props.onLinkExisting}
-          />
-        )
-      case 'join airdrop':
-        return (
-          <JoinAirdrop
-            key={row.type}
-            onJoinAirdrop={this.props.onJoinAirdrop}
-            inAirdrop={this.props.inAirdrop}
-            selected={this.props.airdropSelected}
           />
         )
       default:
@@ -148,57 +106,66 @@ class WalletList extends React.Component<Props> {
       accountID => ({accountID, key: accountID, type: 'wallet'} as const)
     )
 
-    if (flags.airdrop && this.props.airdropIsLive) {
-      const joinAirdrop = 'join airdrop'
-      rows.push({key: joinAirdrop, type: joinAirdrop})
-    }
-
     return (
       <>
         {this.props.loading && <Kb.ProgressIndicator style={styles.progressHeader} />}
         <Kb.BoxGrow>
           <Kb.List items={rows} renderItem={this._renderRow} keyProperty="key" style={this.props.style} />
         </Kb.BoxGrow>
+        <Kb.Box2 direction="vertical" gap={Styles.isMobile ? 'tiny' : 'xtiny'} style={styles.addAccount}>
+          <AddAccount />
+        </Kb.Box2>
         <WhatIsStellar onWhatIsStellar={this.props.onWhatIsStellar} />
       </>
     )
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  addContainerBox: {alignItems: 'center', height: rowHeight},
-  icon: {
-    height: Styles.globalMargins.mediumLarge,
-    marginLeft: Styles.globalMargins.tiny,
-    marginRight: Styles.globalMargins.tiny,
-    width: Styles.globalMargins.mediumLarge,
-  },
-  infoText: {
-    paddingLeft: Styles.globalMargins.tiny,
-    position: 'relative',
-    top: -1,
-  },
-  joinAirdrop: {
-    alignItems: 'center',
-    borderColor: Styles.globalColors.black_10,
-    borderStyle: `solid`,
-    borderTopWidth: 1,
-    height: rowHeight,
-  },
-  progressHeader: {
-    height: 18,
-    left: 40,
-    position: 'absolute',
-    top: 9,
-    width: 18,
-    zIndex: 2,
-  },
-  progressIndicator: {height: 30, width: 30},
-  whatIsStellar: {
-    height: Styles.globalMargins.large,
-    justifyContent: 'center',
-    width: '100%',
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      addAccount: Styles.platformStyles({
+        isElectron: {
+          backgroundColor: Styles.globalColors.blueGrey,
+          flexShrink: 0,
+          padding: Styles.globalMargins.xsmall,
+          width: '100%',
+        },
+        isMobile: {
+          ...Styles.padding(Styles.globalMargins.tiny, Styles.globalMargins.small),
+          backgroundColor: Styles.globalColors.fastBlank,
+          flexShrink: 0,
+          width: '100%',
+        },
+        isTablet: {backgroundColor: Styles.globalColors.transparent},
+      }),
+      addContainerBox: {alignItems: 'center', height: rowHeight},
+      icon: {
+        height: Styles.globalMargins.mediumLarge,
+        marginLeft: Styles.globalMargins.tiny,
+        marginRight: Styles.globalMargins.tiny,
+        width: Styles.globalMargins.mediumLarge,
+      },
+      infoText: {
+        paddingLeft: Styles.globalMargins.tiny,
+        position: 'relative',
+        top: -1,
+      },
+      progressHeader: {
+        height: 18,
+        left: 40,
+        position: 'absolute',
+        top: 9,
+        width: 18,
+        zIndex: 2,
+      },
+      progressIndicator: {height: 30, width: 30},
+      whatIsStellar: {
+        height: Styles.globalMargins.large,
+        justifyContent: 'center',
+        width: '100%',
+      },
+    } as const)
+)
 
 export {WalletList}

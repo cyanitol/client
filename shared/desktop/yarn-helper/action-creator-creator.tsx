@@ -3,14 +3,6 @@ import path from 'path'
 import json5 from 'json5'
 import fs from 'fs'
 
-interface Payload {
-  _description?: string
-}
-
-type ErrorPayload = {
-  canError: string
-} & Payload
-
 type ActionNS = string
 type ActionName = string
 type ActionDesc = any
@@ -25,6 +17,8 @@ type FileDesc = {
 type CompileActionFn = (ns: ActionNS, actionName: ActionName, desc: ActionDesc) => string
 
 const reservedPayloadKeys = ['_description']
+const typeMap: Array<string> = []
+const cleanName = c => c.replace(/-/g, '')
 
 const payloadHasType = (payload, toFind) => {
   return Object.keys(payload).some(param => {
@@ -32,7 +26,7 @@ const payloadHasType = (payload, toFind) => {
     if (Array.isArray(ps)) {
       return ps.some(p => toFind.exec(p))
     } else {
-      return param === 'canError' ? payloadHasType(ps, toFind) : toFind.exec(ps)
+      return toFind.exec(ps)
     }
   })
 }
@@ -40,13 +34,11 @@ const actionHasType = (actions, toFind) =>
   Object.keys(actions).some(key => payloadHasType(actions[key], toFind))
 
 function compile(ns: ActionNS, {prelude, actions}: FileDesc): string {
-  const immutableImport = actionHasType(actions, /(^|\W)I\./) ? "import * as I from 'immutable'" : ''
   const rpcGenImport = actionHasType(actions, /(^|\W)RPCTypes\./)
     ? "import * as RPCTypes from '../constants/types/rpc-gen'"
     : ''
 
   return `// NOTE: This file is GENERATED from json files in actions/json. Run 'yarn build-actions' to regenerate
-${immutableImport}
 ${rpcGenImport}
 ${prelude.join('\n')}
 
@@ -65,21 +57,19 @@ ${compileActions(ns, actions, compileActionCreator)}
 ${compileActions(ns, actions, compileActionPayloads)}
 
 // All Actions
-${compileAllActionsType(ns, actions)}  | {type: 'common:resetStore', payload: {}}
-  `
+${compileAllActionsType(actions)}  | {type: 'common:resetStore', payload: {}}
+`
 }
 
-function canError(x: ActionDesc): x is ErrorPayload {
-  return !!(x as ErrorPayload).canError
+const compileActionMap = (ns: ActionNS, actions: Actions) => {
+  Object.keys(actions).forEach(name => {
+    typeMap.push(`    '${ns}:${name}': ${cleanName(ns)}.${capitalize(name)}Payload`)
+  })
 }
 
-function compileAllActionsType(ns: ActionNS, actions: Actions): string {
+function compileAllActionsType(actions: Actions): string {
   const actionsTypes = Object.keys(actions)
-    .map(
-      (name: ActionName) =>
-        `${capitalize(name)}Payload` +
-        (canError(actions[name]) ? `\n  | ${capitalize(name)}PayloadError` : '')
-    )
+    .map((name: ActionName) => `${capitalize(name)}Payload`)
     .sort()
     .join('\n  | ')
   return `// prettier-ignore
@@ -118,65 +108,46 @@ function printPayload(p: Object) {
     : 'void'
 }
 
-function compileActionPayloads(ns: ActionNS, actionName: ActionName, desc: ActionDesc) {
-  return (
-    `export type ${capitalize(actionName)}Payload = {readonly payload: _${capitalize(
-      actionName
-    )}Payload, readonly type: typeof ${actionName}}` +
-    (canError(desc)
-      ? `\n export type ${capitalize(
-          actionName
-        )}PayloadError = {readonly error: true, readonly payload: _${capitalize(
-          actionName
-        )}PayloadError, readonly type: typeof ${actionName}}`
-      : '')
-  )
+function compileActionPayloads(_: ActionNS, actionName: ActionName) {
+  return `export type ${capitalize(actionName)}Payload = {readonly payload: _${capitalize(
+    actionName
+  )}Payload, readonly type: typeof ${actionName}}`
 }
 
-function compilePayloadTypes(ns: ActionNS, actionName: ActionName, desc: ActionDesc) {
-  const {canError, ...noErrorPayload} = desc as ErrorPayload
-
-  return (
-    `type _${capitalize(actionName)}Payload = ${printPayload(noErrorPayload)}` +
-    (canError ? `\n type _${capitalize(actionName)}PayloadError = ${printPayload(canError)}` : '')
-  )
+function compilePayloadTypes(_: ActionNS, actionName: ActionName, desc: ActionDesc) {
+  return `type _${capitalize(actionName)}Payload = ${printPayload(desc)}`
 }
 
-function compileActionCreator(ns: ActionNS, actionName: ActionName, desc: ActionDesc) {
-  const {canError: canErrorStr, ...noErrorPayload} = desc as ErrorPayload
+function compileActionCreator(_: ActionNS, actionName: ActionName, desc: ActionDesc) {
   return (
     (desc._description
       ? `/**
-     * ${desc._description}
+     * ${Array.isArray(desc._description) ? desc._description.join('\n* ') : desc._description}
      */
     `
       : '') +
     `export const create${capitalize(actionName)} = (payload: _${capitalize(actionName)}Payload${
-      payloadOptional(noErrorPayload) ? ' = Object.freeze({})' : ''
+      payloadOptional(desc) ? ' = Object.freeze({})' : ''
     }): ${capitalize(actionName)}Payload => (
   { payload, type: ${actionName}, }
-)` +
-    (canError(desc)
-      ? `\n export const create${capitalize(actionName)}Error = (payload: _${capitalize(
-          actionName
-        )}PayloadError): ${capitalize(actionName)}PayloadError  => (
-    { error: true, payload, type: ${actionName}, }
-  )`
-      : '')
+)`
   )
 }
 
-function compileReduxTypeConstant(ns: ActionNS, actionName: ActionName, desc: ActionDesc) {
+function compileReduxTypeConstant(ns: ActionNS, actionName: ActionName, _: ActionDesc) {
   return `export const ${actionName} = '${ns}:${actionName}'`
 }
 
-const cleanName = c => c.replace(/-/g, '')
 function makeTypedActions(created) {
   return `// NOTE: This file is GENERATED from json files in actions/json. Run 'yarn build-actions' to regenerate
 /* eslint-disable no-unused-vars,no-use-before-define */
-  ${created.map(c => `import {Actions as ${cleanName(c)}Actions} from './${c}-gen'`).join('\n')}
+  ${created.map(c => `import * as ${cleanName(c)} from './${c}-gen'`).join('\n')}
 
-  export type TypedActions = ${created.map(c => `${cleanName(c)}Actions`).join(' | ')}
+  export type TypedActions = ${created.map(c => `${cleanName(c)}.Actions`).join(' | ')}
+
+  export type TypedActionsMap = {${typeMap.join(',\n')},
+    'common:resetStore': {type: 'common:resetStore', payload: {}}
+  }
 `
 }
 
@@ -197,6 +168,7 @@ function main() {
         parser: 'typescript',
       })
       fs.writeFileSync(outPath, generated)
+      compileActionMap(ns, desc.actions)
     })
 
   console.log(`Generating typed-actions-gen`)

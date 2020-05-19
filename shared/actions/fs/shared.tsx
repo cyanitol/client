@@ -2,71 +2,50 @@ import * as Types from '../../constants/types/fs'
 import * as RPCTypes from '../../constants/types/rpc-gen'
 import * as Constants from '../../constants/fs'
 import * as FsGen from '../fs-gen'
-import * as EngineGen from '../engine-gen-gen'
-import {TypedActions} from '../typed-actions-gen'
 
-const expectedOfflineErrorMatchers = [
-  /write: can't assign requested address/,
-  /dial tcp: lookup .* no such host/,
-  /context deadline exceeded/,
+const noAccessErrorCodes = [
+  RPCTypes.StatusCode.scsimplefsnoaccess,
+  RPCTypes.StatusCode.scteamnotfound,
+  RPCTypes.StatusCode.scteamreaderror,
 ]
 
-const expectedOfflineErrorCodes = [RPCTypes.StatusCode.scapinetworkerror, RPCTypes.StatusCode.scstreameof]
-
-const makeErrorHandler = (
-  action: FsGen.Actions | EngineGen.Actions,
-  path: Types.Path | null,
-  retriable: boolean
-) => (error: any): Array<TypedActions> => {
-  const errorDesc = typeof error.desc === 'string' ? error.desc : ''
-  if (path && errorDesc) {
-    // TODO: KBFS-4143 add and use proper error code for all these
-    if (
-      errorDesc.includes('does not have read access to') ||
-      errorDesc.includes('You are not a member of this team') ||
-      // team doesn't exist
-      errorDesc.includes('Root team does not exist') ||
-      // public tlf doesn't exist
-      errorDesc.includes("Can't create TLF ID for non-team-backed handle") ||
-      // /keybase/private/non_existent_user
-      errorDesc.includes(' is not a Keybase user')
-    ) {
-      const tlfPath = Constants.getTlfPath(path)
-      if (tlfPath) {
-        return [FsGen.createSetTlfSoftError({path: tlfPath, softError: Types.SoftError.NoAccess})]
-      }
-    }
-    if (errorDesc.includes('file does not exist')) {
-      return [FsGen.createSetPathSoftError({path, softError: Types.SoftError.Nonexistent})]
-    }
-    if (errorDesc.includes('KBFS client not found.')) {
-      return [
-        FsGen.createKbfsDaemonRpcStatusChanged({rpcStatus: Types.KbfsDaemonRpcStatus.WaitTimeout}),
-        // We don't retry actions when re-connected, so just route user back
-        // to root in case they get confused by orphan loading state.
-        //
-        // Although this seems impossible to do for nav2 as things are just
-        // pushed on top of each other, so just don't do anything for now.
-        // Perhaps it's OK.
-      ]
+export const errorToActionOrThrow = (
+  error: any,
+  path?: Types.Path
+):
+  | null
+  | FsGen.RedbarPayload
+  | FsGen.CheckKbfsDaemonRpcStatusPayload
+  | FsGen.SetPathSoftErrorPayload
+  | FsGen.SetTlfSoftErrorPayload => {
+  if (error?.code === RPCTypes.StatusCode.sckbfsclienttimeout) {
+    return FsGen.createCheckKbfsDaemonRpcStatus()
+  }
+  if (error?.code === RPCTypes.StatusCode.scidentifiesfailed) {
+    // This is specifically to address the situation where when user tries to
+    // remove a shared TLF from their favorites but another user of the TLF has
+    // deleted their account the subscribePath call cauused from the popup will
+    // get SCIdentifiesFailed error. We can't do anything here so just move on.
+    // (Ideally we'd be able to tell it's becaue the user was deleted, but we
+    // don't have that from Go right now.)
+    //
+    // TODO: TRIAGE-2379 this should probably be ignored on Go side. We
+    // already use fsGui identifyBehavior and there's no reason we should get
+    // an identify error here.
+    return null
+  }
+  if (path && error?.code === RPCTypes.StatusCode.scsimplefsnotexist) {
+    return FsGen.createSetPathSoftError({path, softError: Types.SoftError.Nonexistent})
+  }
+  if (path && noAccessErrorCodes.includes(error?.code)) {
+    const tlfPath = Constants.getTlfPath(path)
+    if (tlfPath) {
+      return FsGen.createSetTlfSoftError({path: tlfPath, softError: Types.SoftError.NoAccess})
     }
   }
-  return [
-    FsGen.createFsError({
-      error: Constants.makeError({
-        error,
-        erroredAction: action,
-        retriableAction: retriable ? action : undefined,
-      }),
-      expectedIfOffline:
-        (error.code && expectedOfflineErrorCodes.includes(error.code)) ||
-        expectedOfflineErrorMatchers.some(matcher => !!errorDesc.match(matcher)),
-    }),
-  ]
+  if (error?.code === RPCTypes.StatusCode.scdeleted) {
+    // The user is deleted. Let user know and move on.
+    return FsGen.createRedbar({error: 'A user in this shared folder has deleted their account.'})
+  }
+  throw error
 }
-
-export const makeRetriableErrorHandler = (action: FsGen.Actions | EngineGen.Actions, path?: Types.Path) =>
-  makeErrorHandler(action, path || null, true)
-
-export const makeUnretriableErrorHandler = (action: FsGen.Actions | EngineGen.Actions, path?: Types.Path) =>
-  makeErrorHandler(action, path || null, false)

@@ -8,13 +8,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"testing"
+
 	"github.com/keybase/client/go/externalstest"
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/keybase1"
 	insecureTriplesec "github.com/keybase/go-triplesec-insecure"
 	"github.com/stretchr/testify/require"
-	context "golang.org/x/net/context"
-	"testing"
 )
 
 func SetupEngineTest(tb libkb.TestingTB, name string) libkb.TestContext {
@@ -238,7 +238,7 @@ func (fu *FakeUser) LoginWithSecretUI(secui libkb.SecretUI, g *libkb.GlobalConte
 		LoginUI:     &libkb.TestLoginUI{Username: fu.Username},
 	}
 	m := libkb.NewMetaContextTODO(g).WithUIs(uis)
-	li := NewLogin(g, libkb.DeviceTypeDesktop, fu.Username, keybase1.ClientType_CLI)
+	li := NewLogin(g, keybase1.DeviceTypeV2_DESKTOP, fu.Username, keybase1.ClientType_CLI)
 	return RunEngine2(m, li)
 }
 
@@ -268,7 +268,7 @@ func (fu *FakeUser) SwitchTo(g *libkb.GlobalContext, withPassword bool) error {
 		LoginUI:     &libkb.TestLoginUI{Username: fu.Username},
 	}
 	m := libkb.NewMetaContextTODO(g).WithUIs(uis)
-	li := NewLoginWithUserSwitch(g, libkb.DeviceTypeDesktop, fu.Username, keybase1.ClientType_CLI, true)
+	li := NewLoginWithUserSwitch(g, keybase1.DeviceTypeV2_DESKTOP, fu.Username, keybase1.ClientType_CLI, true)
 	return RunEngine2(m, li)
 }
 
@@ -298,18 +298,6 @@ func AssertProvisioned(tc libkb.TestContext) error {
 	return nil
 }
 
-func AssertNotProvisioned(tc libkb.TestContext) error {
-	m := NewMetaContextForTest(tc)
-	prov, err := isLoggedInWithError(m)
-	if err != nil {
-		return err
-	}
-	if prov {
-		return errors.New("AssertNotProvisioned failed: user is provisioned")
-	}
-	return nil
-}
-
 func AssertLoggedIn(tc libkb.TestContext) error {
 	if !LoggedIn(tc) {
 		return libkb.LoginRequiredError{}
@@ -329,7 +317,8 @@ func LoggedIn(tc libkb.TestContext) bool {
 }
 
 func Logout(tc libkb.TestContext) {
-	if err := tc.G.Logout(context.TODO()); err != nil {
+	mctx := libkb.NewMetaContextForTest(tc)
+	if err := mctx.LogoutKillSecrets(); err != nil {
 		tc.T.Fatalf("logout error: %s", err)
 	}
 }
@@ -348,7 +337,7 @@ func testEngineWithSecretStore(
 	defer tc.Cleanup()
 
 	fu := SignupFakeUserStoreSecret(tc, "wss")
-	tc.SimulateServiceRestart()
+	simulateServiceRestart(t, tc, fu)
 
 	testSecretUI := libkb.TestSecretUI{
 		Passphrase:  fu.Passphrase,
@@ -412,7 +401,7 @@ func SetupTwoDevicesWithHook(t *testing.T, nm string, hook func(tc *libkb.TestCo
 		LoginUI:     provLoginUI,
 		GPGUI:       &gpgtestui{},
 	}
-	eng := NewLogin(dev2.G, libkb.DeviceTypeDesktop, "", keybase1.ClientType_CLI)
+	eng := NewLogin(dev2.G, keybase1.DeviceTypeV2_DESKTOP, "", keybase1.ClientType_CLI)
 	m2 := NewMetaContextForTest(dev2).WithUIs(uis)
 	if err := RunEngine2(m2, eng); err != nil {
 		t.Fatal(err)

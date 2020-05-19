@@ -57,7 +57,7 @@ func TestChatSubteamRename(t *testing.T) {
 		require.NoError(t, err)
 		ctc.teamCache[subSubteamName.String()] = subSubteamName.String()
 
-		versMap := make(map[string]chat1.ConversationVers)
+		versMap := make(map[chat1.ConvIDStr]chat1.ConversationVers)
 		var convs []chat1.ConversationInfoLocal
 		for _, name := range []string{subteamName.String(), subSubteamName.String()} {
 			for i := 0; i < 2; i++ {
@@ -79,7 +79,7 @@ func TestChatSubteamRename(t *testing.T) {
 					})
 				require.NoError(t, err)
 				convs = append(convs, ncres.Conv.Info)
-				versMap[ncres.Conv.GetConvID().String()] = ncres.Conv.Info.Version
+				versMap[ncres.Conv.GetConvID().ConvIDStr()] = ncres.Conv.Info.Version
 
 				// Write a message so we have something that uses the old team name in the chat history.
 				_, err = ctc.as(t, users[0]).chatLocalHandler().PostLocal(context.TODO(), chat1.PostLocalArg{
@@ -148,7 +148,7 @@ func TestChatSubteamRename(t *testing.T) {
 			types.ConversationLocalizerBlocking, types.InboxSourceDataSourceAll, nil,
 			&chat1.GetInboxLocalQuery{
 				ConvIDs: u1ExpectedUpdates,
-			}, nil)
+			})
 		require.NoError(t, err)
 		require.True(t, len(ib.Convs) >= len(u1ExpectedUpdates))
 
@@ -162,7 +162,7 @@ func TestChatSubteamRename(t *testing.T) {
 				require.Equal(t, newSubSubteamName.String(), conv.Info.TlfName)
 				numFound++
 			}
-			require.NotEqual(t, versMap[conv.GetConvID().String()], conv.Info.Version)
+			require.NotEqual(t, versMap[conv.GetConvID().ConvIDStr()], conv.Info.Version)
 
 			// Make sure we can send to each conversation
 			_, err = ctc.as(t, users[0]).chatLocalHandler().PostLocal(context.TODO(), chat1.PostLocalArg{
@@ -181,10 +181,13 @@ func TestChatSubteamRename(t *testing.T) {
 			require.NoError(t, err)
 			// Make sure user1 (user0 did all the sends) can decrypt everything
 			// in conversation.
-			tv, err := tc.Context().ConvSource.Pull(context.TODO(), convID, users[1].GetUID().ToBytes(), chat1.GetThreadReason_GENERAL, nil,
-				nil)
+			tv, err := tc.Context().ConvSource.Pull(context.TODO(), convID, users[1].GetUID().ToBytes(),
+				chat1.GetThreadReason_GENERAL, nil, nil, nil)
 			require.NoError(t, err)
 			for _, msg := range tv.Messages {
+				if msg.IsJourneycard() {
+					continue
+				}
 				require.True(t, msg.IsValid())
 			}
 		}

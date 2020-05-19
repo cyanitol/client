@@ -28,6 +28,23 @@ type signupInfo struct {
 	displayedPaperKey string
 }
 
+type teamsUI struct {
+	baseNullUI
+	libkb.Contextified
+}
+
+func (t teamsUI) ConfirmRootTeamDelete(context.Context, keybase1.ConfirmRootTeamDeleteArg) (bool, error) {
+	return true, nil
+}
+
+func (t teamsUI) ConfirmSubteamDelete(context.Context, keybase1.ConfirmSubteamDeleteArg) (bool, error) {
+	return true, nil
+}
+
+func (t teamsUI) ConfirmInviteLinkAccept(context.Context, keybase1.ConfirmInviteLinkAcceptArg) (bool, error) {
+	return true, nil
+}
+
 type signupUI struct {
 	baseNullUI
 	info *signupInfo
@@ -47,14 +64,6 @@ type signupSecretUI struct {
 	info *signupInfo
 	libkb.Contextified
 	parent *signupUI
-}
-
-type signupLoginUI struct {
-	libkb.Contextified
-}
-
-type signupGPGUI struct {
-	libkb.Contextified
 }
 
 func (n *signupUI) GetTerminalUI() libkb.TerminalUI {
@@ -127,8 +136,7 @@ func (n *signupTerminalUI) Output(s string) error {
 	return nil
 }
 func (n *signupTerminalUI) OutputDesc(od libkb.OutputDescriptor, s string) error {
-	switch od {
-	case client.OutputDescriptorPrimaryPaperKey:
+	if od == client.OutputDescriptorPrimaryPaperKey {
 		n.info.displayedPaperKey = s
 	}
 	n.G().Log.Debug("Terminal Output %d: %s", od, s)
@@ -189,7 +197,10 @@ func (n *signupTerminalUI) TerminalSize() (width int, height int) {
 
 func randomUser(prefix string) *signupInfo {
 	b := make([]byte, 5)
-	rand.Read(b)
+	_, err := rand.Read(b)
+	if err != nil {
+		panic(err)
+	}
 	sffx := hex.EncodeToString(b)
 	username := fmt.Sprintf("%s_%s", prefix, sffx)
 	return &signupInfo{
@@ -201,7 +212,10 @@ func randomUser(prefix string) *signupInfo {
 
 func randomDevice() string {
 	b := make([]byte, 5)
-	rand.Read(b)
+	_, err := rand.Read(b)
+	if err != nil {
+		panic(err)
+	}
 	sffx := hex.EncodeToString(b)
 	return fmt.Sprintf("d_%s", sffx)
 }
@@ -246,7 +260,15 @@ func (h *notifyHandler) UserChanged(_ context.Context, uid keybase1.UID) error {
 	return nil
 }
 
-func (h *notifyHandler) PasswordChanged(_ context.Context) error {
+func (h *notifyHandler) PasswordChanged(_ context.Context, _ keybase1.PassphraseState) error {
+	return nil
+}
+
+func (h *notifyHandler) IdentifyUpdate(_ context.Context, _ keybase1.IdentifyUpdateArg) error {
+	return nil
+}
+
+func (h *notifyHandler) WebOfTrustChanged(_ context.Context, username string) error {
 	return nil
 }
 
@@ -421,13 +443,14 @@ func TestLogoutMulti(t *testing.T) {
 	tt := newTeamTester(t)
 	defer tt.cleanup()
 	user1 := tt.addUser("one")
-	go user1.tc.G.Logout(context.TODO())
-	go user1.tc.G.Logout(context.TODO())
-	go user1.tc.G.Logout(context.TODO())
-	go user1.tc.G.Logout(context.TODO())
-	go user1.tc.G.Logout(context.TODO())
-	go user1.tc.G.Logout(context.TODO())
-	user1.tc.G.Logout(context.TODO())
+	go func() { _ = user1.tc.Logout() }()
+	go func() { _ = user1.tc.Logout() }()
+	go func() { _ = user1.tc.Logout() }()
+	go func() { _ = user1.tc.Logout() }()
+	go func() { _ = user1.tc.Logout() }()
+	go func() { _ = user1.tc.Logout() }()
+	err := user1.tc.Logout()
+	require.NoError(t, err)
 }
 
 func TestNoPasswordCliSignup(t *testing.T) {
@@ -471,17 +494,16 @@ func TestNoPasswordCliSignup(t *testing.T) {
 	require.Equal(t, expectedPrompts, sui.terminalPrompts)
 
 	ucli := keybase1.UserClient{Cli: user.primaryDevice().rpcClient()}
-	res, err := ucli.LoadHasRandomPw(context.Background(), keybase1.LoadHasRandomPwArg{
-		ForceRepoll: true,
-	})
+	res, err := ucli.LoadPassphraseState(context.Background(), 0)
 	require.NoError(t, err)
-	require.True(t, res)
+	require.Equal(t, res, keybase1.PassphraseState_RANDOM)
 
-	G.ConfigureConfig()
+	err = G.ConfigureConfig()
+	require.NoError(t, err)
 	logout := client.NewCmdLogoutRunner(G)
 	err = logout.Run()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Cannot logout")
+	require.Contains(t, err.Error(), "Cannot log out")
 
 	logout = client.NewCmdLogoutRunner(G)
 	logout.Force = true

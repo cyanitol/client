@@ -2,8 +2,7 @@
 import * as React from 'react'
 import * as Kb from '../../../../common-adapters'
 import * as Styles from '../../../../styles'
-import {Picker} from 'emoji-mart'
-import {backgroundImageFn} from '../../../../common-adapters/emoji'
+import * as Types from '../../../../constants/types/chat2'
 import SetExplodingMessagePopup from '../../messages/set-explode-popup/container'
 import {formatDurationShort} from '../../../../util/timestamp'
 import {KeyEventHandler} from '../../../../util/key-event-handler.desktop'
@@ -11,10 +10,11 @@ import WalletsIcon from './wallets-icon/container'
 import {PlatformInputPropsInternal} from './platform-input'
 import Typing from './typing/container'
 import AddSuggestors from '../suggestors'
+import {indefiniteArticle} from '../../../../util/string'
+import {EmojiPickerDesktop} from '../../messages/react-button/emoji-picker/container'
 
 type State = {
   emojiPickerOpen: boolean
-  hasText: boolean
 }
 
 class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> {
@@ -23,7 +23,6 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
   _fileInput: HTMLInputElement | null = null
   state = {
     emojiPickerOpen: false,
-    hasText: false,
   }
 
   _inputSetRef = (ref: null | Kb.PlainInput) => {
@@ -88,13 +87,12 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
     return false
   }
 
-  _onKeyDown = (e: React.KeyboardEvent, isComposingIME: boolean) => {
+  _onKeyDown = (e: React.KeyboardEvent) => {
     this._commonOnKeyDown(e)
-    this.props.onKeyDown && this.props.onKeyDown(e, isComposingIME)
+    this.props.onKeyDown && this.props.onKeyDown(e)
   }
 
   _onChangeText = (text: string) => {
-    this.setState({hasText: !!text})
     this._lastText = text
     this.props.onChangeText(text)
   }
@@ -139,11 +137,6 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
     }
   }
 
-  _pickerOnClick = emoji => {
-    this._insertEmoji(emoji.colons)
-    this._emojiPickerToggle()
-  }
-
   _pickFile = () => {
     const fileList = this._filePickerFiles()
     const paths: Array<string> = fileList.length
@@ -169,18 +162,20 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
     this.props.toggleShowingMenu()
   }
 
-  render = () => {
-    let hintText = 'Write a message'
-    if (this.props.isExploding) {
-      hintText = 'Write an exploding message'
-    } else if (this.props.isEditing) {
-      hintText = 'Edit your message'
-    } else if (this.props.cannotWrite) {
-      hintText = `You must be at least ${'aeiou'.includes(this.props.minWriterRole[0]) ? 'an' : 'a'} ${
+  private getHintText = () => {
+    if (this.props.cannotWrite) {
+      return `You must be at least ${indefiniteArticle(this.props.minWriterRole)} ${
         this.props.minWriterRole
-      } to post`
+      } to post.`
+    } else if (this.props.isEditing) {
+      return 'Edit your message'
+    } else if (this.props.isExploding) {
+      return 'Write an exploding message'
     }
+    return this.props.inputHintText || 'Write a message'
+  }
 
+  render() {
     return (
       <KeyEventHandler
         onKeyDown={this._globalKeyDownPressHandler}
@@ -200,7 +195,7 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
               },
             ])}
           >
-            {!this.props.isEditing && (
+            {!this.props.isEditing && !this.props.cannotWrite && (
               <HoverBox
                 className={Styles.classNames({expanded: this.props.showingMenu})}
                 onClick={this._toggleShowingMenu}
@@ -218,22 +213,26 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
                     {formatDurationShort(this.props.explodingModeSeconds * 1000)}
                   </Kb.Text>
                 ) : (
-                  <Kb.Icon
-                    className="timer"
-                    colorOverride={this.props.cannotWrite ? Styles.globalColors.black_20 : null}
-                    onClick={this.props.cannotWrite ? undefined : this._toggleShowingMenu}
-                    padding="xtiny"
-                    type="iconfont-timer"
-                  />
+                  <Kb.WithTooltip tooltip="Timer">
+                    <Kb.Icon
+                      className="timer"
+                      colorOverride={this.props.cannotWrite ? Styles.globalColors.black_20 : null}
+                      onClick={this.props.cannotWrite ? undefined : this._toggleShowingMenu}
+                      padding="xtiny"
+                      type="iconfont-timer"
+                    />
+                  </Kb.WithTooltip>
                 )}
               </HoverBox>
             )}
             {this.props.isEditing && (
-              <Kb.Box onClick={this.props.onCancelEditing} style={styles.cancelEditing}>
-                <Kb.Text style={styles.cancelEditingText} type="BodySmallSemibold">
-                  Cancel
-                </Kb.Text>
-              </Kb.Box>
+              <Kb.Button
+                label="Cancel"
+                onClick={this.props.onCancelEditing}
+                small={true}
+                style={styles.cancelEditingBtn}
+                type="Dim"
+              />
             )}
             <input
               type="file"
@@ -244,17 +243,12 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
             />
             <Kb.Box2 direction="horizontal" fullWidth={true} style={styles.inputBox}>
               <Kb.PlainInput
-                className={'mousetrap' /* className needed so key handler doesn't ignore hotkeys */}
-                disabled={
-                  // Auto generated from flowToTs. Please clean me!
-                  this.props.cannotWrite !== null && this.props.cannotWrite !== undefined
-                    ? this.props.cannotWrite
-                    : false
-                }
+                allowKeyboardEvents={true}
+                disabled={this.props.cannotWrite ?? false}
                 autoFocus={false}
                 ref={this._inputSetRef}
-                placeholder={hintText}
-                style={styles.input}
+                placeholder={this.getHintText()}
+                style={Styles.collapseStyles([styles.input, this.props.isEditing && styles.inputEditing])}
                 onChangeText={this._onChangeText}
                 multiline={true}
                 rowsMin={1}
@@ -272,24 +266,42 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
               />
             )}
             {this.state.emojiPickerOpen && (
-              <EmojiPicker emojiPickerToggle={this._emojiPickerToggle} onClick={this._pickerOnClick} />
+              <EmojiPicker
+                conversationIDKey={this.props.conversationIDKey}
+                emojiPickerToggle={this._emojiPickerToggle}
+                onClick={this._insertEmoji}
+              />
             )}
             {!this.props.cannotWrite && this.props.showWalletsIcon && (
-              <WalletsIcon size={16} style={styles.walletsIcon} />
+              <Kb.WithTooltip tooltip="Lumens">
+                <WalletsIcon
+                  size={16}
+                  style={styles.walletsIcon}
+                  conversationIDKey={this.props.conversationIDKey}
+                />
+              </Kb.WithTooltip>
             )}
             {!this.props.cannotWrite && (
               <>
-                <Kb.Icon
-                  color={this.state.emojiPickerOpen ? Styles.globalColors.black : null}
-                  onClick={this._emojiPickerToggle}
-                  style={Kb.iconCastPlatformStyles(styles.icon)}
-                  type="iconfont-emoji"
-                />
-                <Kb.Icon
-                  onClick={this._filePickerOpen}
-                  style={Kb.iconCastPlatformStyles(styles.icon)}
-                  type="iconfont-attachment"
-                />
+                <Kb.WithTooltip tooltip="GIF">
+                  <Kb.Box style={styles.icon}>
+                    <Kb.Icon onClick={this.props.onGiphyToggle} type="iconfont-gif" />
+                  </Kb.Box>
+                </Kb.WithTooltip>
+                <Kb.WithTooltip tooltip="Emoji">
+                  <Kb.Box style={styles.icon}>
+                    <Kb.Icon
+                      color={this.state.emojiPickerOpen ? Styles.globalColors.black : null}
+                      onClick={this._emojiPickerToggle}
+                      type="iconfont-emoji"
+                    />
+                  </Kb.Box>
+                </Kb.WithTooltip>
+                <Kb.WithTooltip tooltip="Attachment">
+                  <Kb.Box style={styles.icon}>
+                    <Kb.Icon onClick={this._filePickerOpen} type="iconfont-attachment" />
+                  </Kb.Box>
+                </Kb.WithTooltip>
               </>
             )}
           </Kb.Box>
@@ -302,7 +314,7 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
               onClick={this._inputFocus}
               selectable={true}
             >
-              *bold*, _italics_, `code`, >quote, @user, @team, #channel
+              {`*bold*, _italics_, \`code\`, >quote, @user, @team, #channel`}
             </Kb.Text>
           </Kb.Box>
         </Kb.Box>
@@ -312,174 +324,141 @@ class _PlatformInput extends React.Component<PlatformInputPropsInternal, State> 
 }
 const PlatformInput = AddSuggestors(_PlatformInput)
 
-const EmojiPicker = ({emojiPickerToggle, onClick}) => (
+const EmojiPicker = ({
+  conversationIDKey,
+  emojiPickerToggle,
+  onClick,
+}: {
+  conversationIDKey: Types.ConversationIDKey
+  emojiPickerToggle: () => void
+  onClick: (c: any) => void
+}) => (
   <Kb.Box>
     <Kb.Box style={styles.emojiPickerContainerWrapper} onClick={emojiPickerToggle} />
     <Kb.Box style={styles.emojiPickerRelative}>
       <Kb.Box style={styles.emojiPickerContainer}>
-        <Picker
-          autoFocus={true}
-          onClick={onClick}
-          emoji={'ghost'}
-          title={'emojibase'}
-          backgroundImageFn={backgroundImageFn}
+        <EmojiPickerDesktop
+          conversationIDKey={conversationIDKey}
+          onPickAction={onClick}
+          onDidPick={emojiPickerToggle}
         />
       </Kb.Box>
     </Kb.Box>
   </Kb.Box>
 )
 
-const styles = Styles.styleSheetCreate({
-  accessory: {
-    bottom: 1,
-    display: 'flex',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-  },
-  accessoryContainer: {
-    position: 'relative',
-    width: '100%',
-  },
-  boomIcon: Styles.platformStyles({
-    common: {
-      left: 231,
-      marginTop: -30,
-      position: 'absolute',
-    },
-    isElectron: {
-      cursor: 'text',
-    },
-  }),
-  cancelEditing: Styles.platformStyles({
-    common: {
-      ...Styles.globalStyles.flexBoxColumn,
-      alignSelf: 'stretch',
-      backgroundColor: Styles.globalColors.black,
-      borderRadius: 2,
-      justifyContent: 'center',
-      margin: 2,
-      marginRight: 0,
-      paddingLeft: Styles.globalMargins.tiny,
-      paddingRight: Styles.globalMargins.tiny,
-    },
-    isElectron: {
-      ...Styles.desktopStyles.clickable,
-    },
-  }),
-  cancelEditingText: {
-    color: Styles.globalColors.white,
-  },
-  container: {
-    ...Styles.globalStyles.flexBoxColumn,
-    backgroundColor: Styles.globalColors.white,
-    width: '100%',
-  },
-  emojiPickerContainer: Styles.platformStyles({
-    common: {
-      borderRadius: 4,
-      bottom: 34,
-      position: 'absolute',
-      right: -22,
-    },
-    isElectron: {
-      ...Styles.desktopStyles.boxShadow,
-    },
-  }),
-  emojiPickerContainerWrapper: {
-    ...Styles.globalStyles.fillAbsolute,
-  },
-  emojiPickerRelative: {
-    position: 'relative',
-  },
-  explodingIconContainer: Styles.platformStyles({
-    common: {
-      ...Styles.globalStyles.flexBoxColumn,
-      alignItems: 'center',
-      alignSelf: 'stretch',
-      borderBottomLeftRadius: 3,
-      borderTopLeftRadius: 3,
-      justifyContent: 'center',
-      textAlign: 'center',
-      width: 32,
-    },
-    isElectron: {
-      borderRight: `1px solid ${Styles.globalColors.black_20}`,
-    },
-  }),
-  explodingIconContainerClickable: Styles.platformStyles({
-    isElectron: {...Styles.desktopStyles.clickable},
-  }),
-  footer: {
-    alignSelf: 'flex-end',
-    color: Styles.globalColors.black_20,
-    marginBottom: Styles.globalMargins.xtiny,
-    marginRight: Styles.globalMargins.medium + 2,
-    marginTop: 2,
-    textAlign: 'right',
-  },
-  footerContainer: {
-    ...Styles.globalStyles.flexBoxRow,
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  hidden: {
-    display: 'none',
-  },
-  icon: {
-    bottom: 6,
-    marginRight: Styles.globalMargins.tiny,
-    position: 'relative',
-  },
-  input: {
-    backgroundColor: Styles.globalColors.transparent,
-    height: 21,
-    minHeight: 21,
-  },
-  inputBox: {
-    flex: 1,
-    paddingBottom: Styles.globalMargins.xxtiny,
-    paddingLeft: 6,
-    paddingRight: 6,
-    paddingTop: Styles.globalMargins.tiny,
-    textAlign: 'left',
-  },
-  inputWrapper: {
-    ...Styles.globalStyles.flexBoxRow,
-    alignItems: 'flex-end',
-    borderRadius: 4,
-    borderStyle: 'solid',
-    borderWidth: 1,
-    marginLeft: Styles.globalMargins.small,
-    marginRight: Styles.globalMargins.small,
-  },
-  mentionCatcher: {
-    ...Styles.globalStyles.fillAbsolute,
-    backgroundColor: Styles.globalColors.transparent,
-  },
-  mentionHud: Styles.platformStyles({
-    common: {
-      borderRadius: 4,
-      height: 224,
-      marginLeft: Styles.globalMargins.small,
-      marginRight: Styles.globalMargins.small,
-      width: '100%',
-    },
-    isElectron: {
-      ...Styles.desktopStyles.boxShadow,
-    },
-  }),
-  walletsIcon: {
-    alignSelf: 'flex-end',
-    marginBottom: 6,
-    marginRight: Styles.globalMargins.tiny,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      cancelEditingBtn: {
+        margin: Styles.globalMargins.xtiny,
+      },
+      container: {
+        ...Styles.globalStyles.flexBoxColumn,
+        backgroundColor: Styles.globalColors.white,
+        width: '100%',
+      },
+      emojiPickerContainer: Styles.platformStyles({
+        common: {
+          borderRadius: 4,
+          bottom: 32,
+          position: 'absolute',
+          right: -64,
+        },
+        isElectron: {
+          ...Styles.desktopStyles.boxShadow,
+        },
+      }),
+      emojiPickerContainerWrapper: {
+        ...Styles.globalStyles.fillAbsolute,
+      },
+      emojiPickerRelative: {
+        position: 'relative',
+      },
+      explodingIconContainer: Styles.platformStyles({
+        common: {
+          ...Styles.globalStyles.flexBoxColumn,
+          alignItems: 'center',
+          alignSelf: 'stretch',
+          borderBottomLeftRadius: 3,
+          borderTopLeftRadius: 3,
+          justifyContent: 'center',
+          textAlign: 'center',
+          width: 32,
+        },
+        isElectron: {
+          borderRight: `1px solid ${Styles.globalColors.black_20}`,
+        },
+      }),
+      explodingIconContainerClickable: Styles.platformStyles({
+        isElectron: {...Styles.desktopStyles.clickable},
+      }),
+      footer: {
+        alignSelf: 'flex-end',
+        color: Styles.globalColors.black_20,
+        marginBottom: Styles.globalMargins.xtiny,
+        marginRight: Styles.globalMargins.medium + 2,
+        marginTop: 2,
+        textAlign: 'right',
+      },
+      footerContainer: {
+        ...Styles.globalStyles.flexBoxRow,
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+      },
+      hidden: {
+        display: 'none',
+      },
+      icon: {
+        alignSelf: 'flex-end',
+        marginBottom: 2,
+        marginRight: Styles.globalMargins.xtiny,
+        padding: Styles.globalMargins.xtiny,
+      },
+      input: Styles.platformStyles({
+        isElectron: {
+          backgroundColor: Styles.globalColors.transparent,
+          height: 22,
+          // Line height change is so that emojis (unicode characters inside
+          // textarea) are not clipped at the top. This change is accompanied by
+          // a change in padding to offset the increased line height
+          lineHeight: 22,
+          minHeight: 22,
+        },
+      }),
+      inputBox: {
+        flex: 1,
+        paddingBottom: Styles.globalMargins.xtiny,
+        paddingLeft: 6,
+        paddingRight: 6,
+        paddingTop: Styles.globalMargins.tiny - 2,
+        textAlign: 'left',
+      },
+      inputEditing: {
+        color: Styles.globalColors.blackOrBlack,
+      },
+      inputWrapper: {
+        ...Styles.globalStyles.flexBoxRow,
+        alignItems: 'flex-end',
+        borderRadius: 4,
+        borderStyle: 'solid',
+        borderWidth: 1,
+        marginLeft: Styles.globalMargins.small,
+        marginRight: Styles.globalMargins.small,
+        paddingRight: Styles.globalMargins.xtiny,
+      },
+      walletsIcon: {
+        alignSelf: 'flex-end',
+        marginBottom: 2,
+        marginRight: Styles.globalMargins.xtiny,
+      },
+    } as const)
+)
 
-const HoverBox = Styles.styled(Kb.Box)({
+const HoverBox = Styles.styled(Kb.Box)(() => ({
   ':hover .timer, &.expanded .timer': {
     color: Styles.globalColors.black,
   },
-})
+}))
 
 export default Kb.OverlayParentHOC(PlatformInput)

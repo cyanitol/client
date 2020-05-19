@@ -67,8 +67,7 @@ func ListTeamsUnverified(ctx context.Context, g *libkb.GlobalContext, arg keybas
 	}
 
 	res := &keybase1.AnnotatedTeamList{
-		Teams:                  nil,
-		AnnotatedActiveInvites: make(map[keybase1.TeamInviteID]keybase1.AnnotatedTeamInvite),
+		Teams: nil,
 	}
 
 	if len(teams) == 0 {
@@ -101,7 +100,7 @@ func ListTeamsUnverified(ctx context.Context, g *libkb.GlobalContext, arg keybas
 			Implicit:            memberInfo.Implicit,
 			Username:            queryUsername.String(),
 			FullName:            queryFullName,
-			MemberCount:         memberInfo.MemberCount,
+			MemberCount:         g.TeamMemberCountCache.GetWithFallback(memberInfo.TeamID, memberInfo.MemberCount),
 			Status:              keybase1.TeamMemberStatus_ACTIVE,
 			AllowProfilePromote: memberInfo.AllowProfilePromote,
 			IsMemberShowcased:   memberInfo.IsMemberShowcased,
@@ -143,7 +142,7 @@ func ListSubteamsUnverified(mctx libkb.MetaContext, name keybase1.TeamName) (res
 			if err != nil {
 				return res, err
 			}
-			entries = append(entries, keybase1.SubteamListEntry{Name: subteamName, MemberCount: potentialSubteam.MemberCount})
+			entries = append(entries, keybase1.SubteamListEntry{Name: subteamName, MemberCount: potentialSubteam.MemberCount, TeamID: potentialSubteam.TeamID})
 		}
 	}
 

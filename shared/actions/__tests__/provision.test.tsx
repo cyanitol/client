@@ -1,5 +1,4 @@
 /* eslint-env jest */
-import * as I from 'immutable'
 import * as RPCTypes from '../../constants/types/rpc-gen'
 import * as Constants from '../../constants/provision'
 import * as Tabs from '../../constants/tabs'
@@ -43,6 +42,7 @@ const makeInit = ({method, payload, initialStore}: {method: string; payload: any
     }
   }
   return {
+    _testing: manager._testing(),
     dispatch,
     getState,
     manager,
@@ -61,8 +61,8 @@ const startReduxSaga = (initialStore?: Object) => {
   const dispatch = store.dispatch
   sagaMiddleware.run(provisionSaga)
 
-  dispatch(RouteTreeGen.createSwitchRouteDef({loggedIn: true}))
-  dispatch(RouteTreeGen.createNavigateTo({path: [Tabs.loginTab]}))
+  dispatch(RouteTreeGen.createSwitchLoggedIn({loggedIn: true}))
+  dispatch(RouteTreeGen.createNavigateAppend({path: [Tabs.loginTab]}))
 
   return {
     dispatch,
@@ -92,7 +92,7 @@ describe('provisioningManagerProvisioning', () => {
 describe('text code happy path', () => {
   const incoming = new HiddenString('incomingSecret')
   const outgoing = new HiddenString('outgoingSecret')
-  let init
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.provisionUi.DisplayAndPromptSecret',
@@ -101,9 +101,8 @@ describe('text code happy path', () => {
   })
 
   it('init', () => {
-    const {manager, response, getState} = init
-    expect(manager._stashedResponse).toEqual(response)
-    expect(manager._stashedResponseKey).toEqual('keybase.1.provisionUi.DisplayAndPromptSecret')
+    const {_testing, response, getState} = init
+    expect(_testing.stashedResponse['keybase.1.provisionUi.DisplayAndPromptSecret']).toEqual(response)
     expect(getState().provision.codePageIncomingTextCode).toEqual(incoming)
     expect(getState().provision.error).toEqual(noError)
   })
@@ -116,8 +115,8 @@ describe('text code happy path', () => {
   it('submit text code empty throws', () => {
     const {dispatch, response} = init
     dispatch(ProvisionGen.createSubmitTextCode({phrase: new HiddenString('')}))
-    expect(response.result).not.toHaveBeenCalled()
-    expect(response.error).toHaveBeenCalled()
+    expect(response.result).toHaveBeenCalledWith({phrase: 'invalid', secret: null})
+    expect(response.error).not.toHaveBeenCalled()
   })
 
   it('submit text code with spaces works', () => {
@@ -129,29 +128,29 @@ describe('text code happy path', () => {
     )
     const good = 'this is a text code that works'
     expect(getState().provision.codePageOutgoingTextCode.stringValue()).toEqual(good)
-    expect(response.result).toHaveBeenCalledWith({code: null, phrase: good})
+    expect(response.result).toHaveBeenCalledWith({phrase: good, secret: null})
     expect(response.error).not.toHaveBeenCalled()
   })
 
   it('submit text code', () => {
     const {response, dispatch, getState} = init
     dispatch(ProvisionGen.createSubmitTextCode({phrase: outgoing}))
-    expect(response.result).toHaveBeenCalledWith({code: null, phrase: outgoing.stringValue()})
+    expect(response.result).toHaveBeenCalledWith({phrase: outgoing.stringValue(), secret: null})
     expect(response.error).not.toHaveBeenCalled()
     expect(getState().provision.codePageOutgoingTextCode).toEqual(outgoing)
     expect(getState().provision.error).toEqual(noError)
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     // only submit once
     dispatch(ProvisionGen.createSubmitTextCode({phrase: outgoing}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 })
 
 describe('text code error path', () => {
   const phrase = new HiddenString('incomingSecret')
   const error = new HiddenString('anerror')
-  let init
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.provisionUi.DisplayAndPromptSecret',
@@ -160,9 +159,8 @@ describe('text code error path', () => {
   })
 
   it('init', () => {
-    const {manager, response, getState} = init
-    expect(manager._stashedResponse).toEqual(response)
-    expect(manager._stashedResponseKey).toEqual('keybase.1.provisionUi.DisplayAndPromptSecret')
+    const {_testing, response, getState} = init
+    expect(_testing.stashedResponse['keybase.1.provisionUi.DisplayAndPromptSecret']).toEqual(response)
     expect(getState().provision.codePageIncomingTextCode).toEqual(phrase)
     expect(getState().provision.error).toEqual(error)
   })
@@ -178,18 +176,18 @@ describe('text code error path', () => {
     dispatch(ProvisionGen.createSubmitTextCode({phrase: reply}))
     expect(getState().provision.error).toEqual(noError)
 
-    expect(response.result).toHaveBeenCalledWith({code: null, phrase: reply.stringValue()})
+    expect(response.result).toHaveBeenCalledWith({phrase: reply.stringValue(), secret: null})
     expect(response.error).not.toHaveBeenCalled()
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     // only submit once
     dispatch(ProvisionGen.createSubmitTextCode({phrase: reply}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 })
 
 describe('device name empty', () => {
-  const existingDevices = I.List()
+  const existingDevices: Array<string> = []
   const init = makeInit({
     method: 'keybase.1.provisionUi.PromptNewDeviceName',
     payload: {errorMessage: '', existingDevices: null},
@@ -201,12 +199,12 @@ describe('device name empty', () => {
 })
 
 describe('device name happy path', () => {
-  const existingDevices = I.List(['dev1', 'dev2', 'dev3'])
-  let init
+  const existingDevices = ['dev1', 'dev2', 'dev3']
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.provisionUi.PromptNewDeviceName',
-      payload: {errorMessage: '', existingDevices: existingDevices.toArray()},
+      payload: {errorMessage: '', existingDevices: existingDevices},
     })
   })
 
@@ -227,21 +225,21 @@ describe('device name happy path', () => {
     dispatch(ProvisionGen.createSubmitDeviceName({name}))
     expect(response.result).toHaveBeenCalledWith(name)
     expect(response.error).not.toHaveBeenCalled()
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     dispatch(ProvisionGen.createSubmitDeviceName({name}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 })
 
 describe('device name error path', () => {
-  const existingDevices = I.List([])
+  const existingDevices: Array<string> = []
   const error = new HiddenString('invalid name')
-  let init
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.provisionUi.PromptNewDeviceName',
-      payload: {errorMessage: error.stringValue(), existingDevices: existingDevices.toArray()},
+      payload: {errorMessage: error.stringValue(), existingDevices: existingDevices},
     })
   })
 
@@ -263,11 +261,11 @@ describe('device name error path', () => {
     expect(getState().provision.error).toEqual(noError)
     expect(response.result).toHaveBeenCalledWith(name)
     expect(response.error).not.toHaveBeenCalled()
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     // only submit once
     dispatch(ProvisionGen.createSubmitDeviceName({name}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 })
 
@@ -276,8 +274,8 @@ describe('other device happy path', () => {
   const desktop = {deviceID: '1', name: 'desktop', type: 'desktop'} as any
   const backup = {deviceID: '2', name: 'backup', type: 'backup'} as any
   const rpcDevices = [mobile, desktop, backup]
-  const devices = I.List(rpcDevices.map(Constants.rpcDeviceToDevice))
-  let init
+  const devices = rpcDevices.map(Constants.rpcDeviceToDevice)
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.provisionUi.chooseDevice',
@@ -299,46 +297,46 @@ describe('other device happy path', () => {
   it('submit mobile', () => {
     const {response, getState, dispatch} = init
     dispatch(ProvisionGen.createSubmitDeviceSelect({name: mobile.name}))
-    expect(getState().provision.codePageOtherDeviceId).toEqual(mobile.deviceID)
-    expect(getState().provision.codePageOtherDeviceType).toEqual('mobile')
+    expect(getState().provision.codePageOtherDevice.id).toEqual(mobile.deviceID)
+    expect(getState().provision.codePageOtherDevice.type).toEqual('mobile')
     expect(getState().provision.error).toEqual(noError)
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
     expect(response.result).toHaveBeenCalledWith(mobile.deviceID)
     expect(response.error).not.toHaveBeenCalled()
 
     // only submit once
     dispatch(ProvisionGen.createSubmitDeviceSelect({name: mobile.name}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 
   it('submit desktop', () => {
     const {response, getState, dispatch} = init
     dispatch(ProvisionGen.createSubmitDeviceSelect({name: desktop.name}))
-    expect(getState().provision.codePageOtherDeviceId).toEqual(desktop.deviceID)
-    expect(getState().provision.codePageOtherDeviceType).toEqual('desktop')
+    expect(getState().provision.codePageOtherDevice.id).toEqual(desktop.deviceID)
+    expect(getState().provision.codePageOtherDevice.type).toEqual('desktop')
     expect(getState().provision.error).toEqual(noError)
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
     expect(response.result).toHaveBeenCalledWith(desktop.deviceID)
     expect(response.error).not.toHaveBeenCalled()
 
     // only submit once
     dispatch(ProvisionGen.createSubmitDeviceSelect({name: desktop.name}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 
   it('submit paperkey/backup', () => {
     const {response, getState, dispatch} = init
     dispatch(ProvisionGen.createSubmitDeviceSelect({name: backup.name}))
-    expect(getState().provision.codePageOtherDeviceId).toEqual(backup.deviceID)
-    expect(getState().provision.codePageOtherDeviceType).toEqual('mobile')
+    expect(getState().provision.codePageOtherDevice.id).toEqual(backup.deviceID)
+    expect(getState().provision.codePageOtherDevice.type).toEqual('backup')
     expect(getState().provision.error).toEqual(noError)
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
     expect(response.result).toHaveBeenCalledWith(backup.deviceID)
     expect(response.error).not.toHaveBeenCalled()
 
     // only submit once
     dispatch(ProvisionGen.createSubmitDeviceSelect({name: backup.name}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 
   it('doesnt allow unknown', () => {
@@ -348,7 +346,7 @@ describe('other device happy path', () => {
 })
 
 describe('other device error path', () => {
-  let init
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     // daemon should never do this
     init = makeInit({
@@ -359,13 +357,13 @@ describe('other device error path', () => {
 
   it('init', () => {
     const {getState} = init
-    expect(getState().provision.devices).toEqual(I.List([]))
+    expect(getState().provision.devices).toEqual([])
     expect(getState().provision.error).toEqual(noError)
   })
 })
 
 describe('other device no devices', () => {
-  let init
+  let init: ReturnType<typeof makeInit>
   const rpcDevices = null
   beforeEach(() => {
     init = makeInit({
@@ -376,13 +374,13 @@ describe('other device no devices', () => {
 
   it('init', () => {
     const {getState} = init
-    expect(getState().provision.devices).toEqual(I.List())
+    expect(getState().provision.devices).toEqual([])
     expect(getState().provision.error).toEqual(noError)
   })
 })
 
 describe('choose gpg happy path', () => {
-  let init
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.provisionUi.chooseGPGMethod',
@@ -414,11 +412,11 @@ describe('choose gpg happy path', () => {
     dispatch(ProvisionGen.createSubmitGPGMethod({exportKey: true}))
     expect(response.result).toHaveBeenCalledWith(RPCTypes.GPGMethod.gpgImport)
     expect(response.error).not.toHaveBeenCalled()
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     // only submit once
     dispatch(ProvisionGen.createSubmitGPGMethod({exportKey: true}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 
   it('submit sign key', () => {
@@ -426,16 +424,16 @@ describe('choose gpg happy path', () => {
     dispatch(ProvisionGen.createSubmitGPGMethod({exportKey: false}))
     expect(response.result).toHaveBeenCalledWith(RPCTypes.GPGMethod.gpgSign)
     expect(response.error).not.toHaveBeenCalled()
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     // only submit once
     dispatch(ProvisionGen.createSubmitGPGMethod({exportKey: false}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 })
 
 describe('password happy path', () => {
-  let init
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.secretUi.getPassphrase',
@@ -464,17 +462,17 @@ describe('password happy path', () => {
     dispatch(ProvisionGen.createSubmitPassword({password}))
     expect(response.result).toHaveBeenCalledWith({passphrase: password.stringValue(), storeSecret: false})
     expect(response.error).not.toHaveBeenCalled()
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     // only submit once
     dispatch(ProvisionGen.createSubmitPassword({password}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 })
 
 describe('passphrase error path', () => {
   const error = new HiddenString('invalid passphrase')
-  let init
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.secretUi.getPassphrase',
@@ -504,16 +502,16 @@ describe('passphrase error path', () => {
     expect(getState().provision.error).toEqual(noError)
     expect(response.result).toHaveBeenCalledWith({passphrase: password.stringValue(), storeSecret: false})
     expect(response.error).not.toHaveBeenCalled()
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     // only submit once
     dispatch(ProvisionGen.createSubmitPassword({password}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 })
 
 describe('paperkey happy path', () => {
-  let init
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.secretUi.getPassphrase',
@@ -542,17 +540,17 @@ describe('paperkey happy path', () => {
     dispatch(ProvisionGen.createSubmitPaperkey({paperkey}))
     expect(response.result).toHaveBeenCalledWith({passphrase: paperkey.stringValue(), storeSecret: false})
     expect(response.error).not.toHaveBeenCalled()
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     // only submit once
     dispatch(ProvisionGen.createSubmitPaperkey({paperkey}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 })
 
 describe('paperkey error path', () => {
   const error = new HiddenString('invalid paperkey')
-  let init
+  let init: ReturnType<typeof makeInit>
   beforeEach(() => {
     init = makeInit({
       method: 'keybase.1.secretUi.getPassphrase',
@@ -582,11 +580,11 @@ describe('paperkey error path', () => {
     expect(getState().provision.error).toEqual(noError)
     expect(response.result).toHaveBeenCalledWith({passphrase: paperkey.stringValue(), storeSecret: false})
     expect(response.error).not.toHaveBeenCalled()
-    expect(getState().config.globalError).toEqual(null)
+    expect(getState().config.globalError).toEqual(undefined)
 
     // only submit once
     dispatch(ProvisionGen.createSubmitPaperkey({paperkey}))
-    expect(getState().config.globalError).not.toEqual(null)
+    expect(getState().config.globalError).not.toEqual(undefined)
   })
 })
 
@@ -638,7 +636,7 @@ describe('Submit user email', () => {
   dispatch(action)
   expect(getState().provision.username).toEqual(action.payload.username)
   expect(getState().provision.error).toEqual(noError)
-  expect(getState().provision.finalError).toEqual(null)
+  expect(getState().provision.finalError).toEqual(undefined)
 })
 
 describe('generic errors show', () => {
@@ -663,14 +661,14 @@ describe('final errors show', () => {
     const {getState, dispatch} = startReduxSaga()
     const error = new RPCError('Input canceled', RPCTypes.StatusCode.scinputcanceled)
     dispatch(ProvisionGen.createShowFinalErrorPage({finalError: error, fromDeviceAdd: false}))
-    expect(getState().provision.finalError).toEqual(null)
+    expect(getState().provision.finalError).toEqual(undefined)
     // expect(getRoutePath()).toEqual(I.List([Tabs.loginTab]))
   })
 
   it('shows the final error page (devices add)', () => {
     const {getState, dispatch} = startReduxSaga()
-    dispatch(RouteTreeGen.createSwitchRouteDef({loggedIn: true}))
-    dispatch(RouteTreeGen.createNavigateTo({path: [Tabs.devicesTab]}))
+    dispatch(RouteTreeGen.createSwitchLoggedIn({loggedIn: true}))
+    dispatch(RouteTreeGen.createNavigateAppend({path: [Tabs.devicesTab]}))
     // expect(getRoutePath()).toEqual(I.List([Tabs.devicesTab]))
     const error = new RPCError('something bad happened', 1, [])
     dispatch(ProvisionGen.createShowFinalErrorPage({finalError: error, fromDeviceAdd: true}))
@@ -680,11 +678,11 @@ describe('final errors show', () => {
 
   it('ignore cancel (devices add)', () => {
     const {getState, dispatch} = startReduxSaga()
-    dispatch(RouteTreeGen.createSwitchRouteDef({loggedIn: true}))
-    dispatch(RouteTreeGen.createNavigateTo({path: [Tabs.devicesTab]}))
+    dispatch(RouteTreeGen.createSwitchLoggedIn({loggedIn: true}))
+    dispatch(RouteTreeGen.createNavigateAppend({path: [Tabs.devicesTab]}))
     const error = new RPCError('Input canceled', RPCTypes.StatusCode.scinputcanceled)
     dispatch(ProvisionGen.createShowFinalErrorPage({finalError: error, fromDeviceAdd: true}))
-    expect(getState().provision.finalError).toEqual(null)
+    expect(getState().provision.finalError).toEqual(undefined)
     // expect(getRoutePath()).toEqual(I.List([Tabs.devicesTab]))
   })
 })
@@ -693,27 +691,4 @@ describe('reset works', () => {
   const {getState, dispatch} = startReduxSaga()
   dispatch({payload: {}, type: 'common:resetStore'})
   expect(getState().provision).toEqual(Constants.makeState())
-})
-
-describe('manager', () => {
-  it('complains about invalid response key', () => {
-    const manager = _testing.makeProvisioningManager(false)
-    const stashed = () => {
-      console.log('whu')
-    }
-    manager._stashResponse('keybase.1.gpgUi.selectKey', stashed)
-    expect(() => manager._getAndClearResponse('keybase.1.loginUi.getEmailOrUsername')).toThrow()
-  })
-  it('complains about no response key', () => {
-    const manager = _testing.makeProvisioningManager(false)
-    expect(() => manager._getAndClearResponse('keybase.1.loginUi.getEmailOrUsername')).toThrow()
-  })
-  it('stashing works', () => {
-    const manager = _testing.makeProvisioningManager(false)
-    const stashed = () => {
-      console.log('whu')
-    }
-    manager._stashResponse('keybase.1.gpgUi.selectKey', stashed)
-    expect(manager._getAndClearResponse('keybase.1.gpgUi.selectKey')).toEqual(stashed)
-  })
 })

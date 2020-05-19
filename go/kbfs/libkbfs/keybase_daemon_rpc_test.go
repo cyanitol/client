@@ -69,11 +69,13 @@ type fakeKeybaseClient struct {
 
 var _ rpc.GenericClient = (*fakeKeybaseClient)(nil)
 
-func (c *fakeKeybaseClient) Call(ctx context.Context, s string, args interface{}, res interface{}) error {
+func (c *fakeKeybaseClient) Call(ctx context.Context, s string, args interface{},
+	res interface{}, _ time.Duration) error {
 	return c.call(ctx, s, args, res)
 }
 
-func (c *fakeKeybaseClient) CallCompressed(ctx context.Context, s string, args interface{}, res interface{}, _ rpc.CompressionType) error {
+func (c *fakeKeybaseClient) CallCompressed(ctx context.Context, s string, args interface{},
+	res interface{}, _ rpc.CompressionType, _ time.Duration) error {
 	return c.call(ctx, s, args, res)
 }
 
@@ -150,7 +152,7 @@ func (c *fakeKeybaseClient) call(ctx context.Context, s string, args interface{}
 	}
 }
 
-func (c *fakeKeybaseClient) Notify(_ context.Context, s string, args interface{}) error {
+func (c *fakeKeybaseClient) Notify(_ context.Context, s string, args interface{}, timeout time.Duration) error {
 	return fmt.Errorf("Unknown notify: %s %v", s, args)
 }
 
@@ -325,22 +327,6 @@ func TestKeybaseDaemonUserCache(t *testing.T) {
 	// controller will catch it during Finish.
 	err = c.KeyfamilyChanged(context.Background(), uid2)
 	require.NoError(t, err)
-}
-
-// truncateNotificationTimestamps is a helper function to truncate
-// timestamps to second resolution. This is needed because some
-// methods of storing timestamps (e.g., relying on the filesystem) are
-// lossy.
-func truncateNotificationTimestamps(
-	notifications []keybase1.FSNotification) []keybase1.FSNotification {
-	roundedNotifications := make(
-		[]keybase1.FSNotification, len(notifications))
-	for i, n := range notifications {
-		n.LocalTime = keybase1.ToTime(
-			n.LocalTime.Time().Truncate(time.Second))
-		roundedNotifications[i] = n
-	}
-	return roundedNotifications
 }
 
 func TestKeybaseDaemonRPCEditList(t *testing.T) {

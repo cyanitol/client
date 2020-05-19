@@ -3,21 +3,16 @@ import * as Kb from '../common-adapters/mobile.native'
 import {PeoplePageList} from './index.shared'
 import {Props} from '.'
 import {globalStyles, styleSheetCreate} from '../styles'
-import ProfileSearch from '../profile/search/bar-container'
-
+import ProfileSearch from '../profile/search/bar'
+import InviteFriends from './invite-friends/tab-bar-button'
+import flags from '../util/feature-flags'
 export const Header = (props: Props) => (
   <Kb.HeaderHocHeader
     borderless={true}
     underNotch={true}
     rightActions={[
       {
-        custom: (
-          <Kb.Avatar
-            username={props.myUsername}
-            onClick={() => props.onClickUser(props.myUsername)}
-            size={32}
-          />
-        ),
+        custom: <Kb.Avatar username={props.myUsername} onClick={props.onOpenAccountSwitcher} size={32} />,
         label: 'Avatar',
       },
     ]}
@@ -35,13 +30,14 @@ const People = (props: Props) => (
     >
       <PeoplePageList {...props} />
     </Kb.ScrollView>
+    {flags.inviteFriends && <InviteFriends />}
   </>
 )
 
-const styles = styleSheetCreate({
+const styles = styleSheetCreate(() => ({
   scrollView: {
     ...globalStyles.fullHeight,
   },
-})
+}))
 
 export default People

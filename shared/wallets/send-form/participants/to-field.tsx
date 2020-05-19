@@ -6,17 +6,18 @@ import {isLargeScreen} from '../../../constants/platform'
 import {SelectedEntry, DropdownEntry, DropdownText} from './dropdown'
 import Search from './search'
 import {Account} from '.'
-import {debounce} from 'lodash-es'
+import debounce from 'lodash/debounce'
+import defer from 'lodash/defer'
 
 export type ToKeybaseUserProps = {
   isRequest: boolean
   recipientUsername: string
   errorMessage?: string
   onShowProfile: (username: string) => void
-  onShowSuggestions: () => void
   onRemoveProfile: () => void
   onChangeRecipient: (recipient: string) => void
   onScanQRCode: (() => void) | null
+  onSearch: () => void
 }
 
 const placeholderExample = isLargeScreen ? 'Ex: G12345... or you*example.com' : 'G12.. or you*example.com'
@@ -44,7 +45,7 @@ const ToKeybaseUser = (props: ToKeybaseUserProps) => {
             />
             <Kb.Icon
               type="iconfont-remove"
-              boxStyle={Kb.iconCastPlatformStyles(styles.keybaseUserRemoveButton)}
+              boxStyle={styles.keybaseUserRemoveButton}
               fontSize={16}
               color={Styles.globalColors.black_20}
               onClick={props.onRemoveProfile}
@@ -65,7 +66,7 @@ const ToKeybaseUser = (props: ToKeybaseUserProps) => {
     <Search
       heading={props.isRequest ? 'From' : 'To'}
       onClickResult={props.onChangeRecipient}
-      onShowSuggestions={props.onShowSuggestions}
+      onSearch={props.onSearch}
       onShowTracker={props.onShowProfile}
       onScanQRCode={props.onScanQRCode}
     />
@@ -80,34 +81,38 @@ export type ToStellarPublicKeyProps = {
   setReadyToReview: (ready: boolean) => void
 }
 
-type ToStellarPublicKeyState = {
-  recipientPublicKey: string
-}
+const ToStellarPublicKey = (props: ToStellarPublicKeyProps) => {
+  const [recipientPublicKey, setRecipentPublicKey] = React.useState(props.recipientPublicKey)
+  const debouncedOnChangeRecip = React.useCallback(debounce(props.onChangeRecipient, 1e3), [
+    props.onChangeRecipient,
+  ])
 
-class ToStellarPublicKey extends React.Component<ToStellarPublicKeyProps, ToStellarPublicKeyState> {
-  state = {recipientPublicKey: this.props.recipientPublicKey}
-  _propsOnChangeRecipient = debounce(this.props.onChangeRecipient, 1e3)
-  _onChangeRecipient = recipientPublicKey => {
-    this.setState({recipientPublicKey})
-    this.props.setReadyToReview(false)
-    this._propsOnChangeRecipient(recipientPublicKey)
-  }
+  const {setReadyToReview} = props
+  const onChangeRecipient = React.useCallback(
+    (recipientPublicKey: string) => {
+      setRecipentPublicKey(recipientPublicKey)
+      setReadyToReview(false)
+      debouncedOnChangeRecip(recipientPublicKey)
+    },
+    [setReadyToReview, debouncedOnChangeRecip]
+  )
 
-  componentDidUpdate(prevProps: ToStellarPublicKeyProps, prevState: ToStellarPublicKeyState) {
-    if (
-      this.props.recipientPublicKey !== prevProps.recipientPublicKey &&
-      this.props.recipientPublicKey !== this.state.recipientPublicKey
-    ) {
-      this.setState({recipientPublicKey: this.props.recipientPublicKey})
+  React.useEffect(() => {
+    if (props.recipientPublicKey !== recipientPublicKey) {
+      // Hot fix to let any empty string textChange callbacks happen before we change the value.
+      defer(() => setRecipentPublicKey(props.recipientPublicKey))
     }
-  }
+    // We do not want this be called when the state changes
+    // Only when the prop.recipientPublicKey changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.recipientPublicKey])
 
-  render = () => (
+  return (
     <ParticipantsRow
       heading="To"
       headingAlignment="Left"
       headingStyle={styles.heading}
-      dividerColor={this.props.errorMessage ? Styles.globalColors.red : ''}
+      dividerColor={props.errorMessage ? Styles.globalColors.red : ''}
       style={styles.toStellarPublicKey}
     >
       <Kb.Box2 direction="vertical" fullWidth={!Styles.isMobile} style={styles.inputBox}>
@@ -116,7 +121,7 @@ class ToStellarPublicKey extends React.Component<ToStellarPublicKeyProps, ToStel
             sizeType={Styles.isMobile ? 'Small' : 'Default'}
             type="iconfont-identity-stellar"
             color={
-              this.state.recipientPublicKey.length === 0 || this.props.errorMessage
+              recipientPublicKey.length === 0 || props.errorMessage
                 ? Styles.globalColors.black_20
                 : Styles.globalColors.black
             }
@@ -124,16 +129,16 @@ class ToStellarPublicKey extends React.Component<ToStellarPublicKeyProps, ToStel
           <Kb.Box2 direction="horizontal" style={styles.publicKeyInputContainer}>
             <Kb.NewInput
               type="text"
-              onChangeText={this._onChangeRecipient}
+              onChangeText={onChangeRecipient}
               textType="BodySemibold"
               hideBorder={true}
               containerStyle={styles.input}
               multiline={true}
               rowsMin={2}
               rowsMax={3}
-              value={this.state.recipientPublicKey}
+              value={recipientPublicKey}
             />
-            {!this.state.recipientPublicKey && (
+            {!recipientPublicKey && (
               <Kb.Box
                 activeOpacity={1}
                 pointerEvents="none"
@@ -148,19 +153,18 @@ class ToStellarPublicKey extends React.Component<ToStellarPublicKeyProps, ToStel
               </Kb.Box>
             )}
           </Kb.Box2>
-          {!this.state.recipientPublicKey && this.props.onScanQRCode && (
+          {!recipientPublicKey && props.onScanQRCode && (
             <Kb.Icon
               color={Styles.globalColors.black_50}
               type="iconfont-qr-code"
-              fontSize={24}
-              onClick={this.props.onScanQRCode}
-              style={Kb.iconCastPlatformStyles(styles.qrCode)}
+              onClick={props.onScanQRCode}
+              style={styles.qrCode}
             />
           )}
         </Kb.Box2>
-        {!!this.props.errorMessage && (
+        {!!props.errorMessage && (
           <Kb.Text type="BodySmall" style={styles.errorText}>
-            {this.props.errorMessage}
+            {props.errorMessage}
           </Kb.Text>
         )}
       </Kb.Box2>
@@ -192,19 +196,20 @@ class ToOtherAccount extends React.Component<ToOtherAccountProps> {
     }
   }
 
-  render = () => {
+  render() {
     if (this.props.allAccounts.length <= 1) {
       // A user is sending to another account, but has no other
       // accounts. Show a "create new account" button.
       return (
-        <Kb.Box2 direction="horizontal" centerChildren={true} style={{width: 270}}>
+        <ParticipantsRow heading="To" headingAlignment="Right" style={styles.toAccountRow}>
           <Kb.Button
+            small={true}
             type="Wallet"
             style={styles.createNewAccountButton}
             label="Create a new account"
             onClick={this.props.onCreateNewAccount}
           />
-        </Kb.Box2>
+        </ParticipantsRow>
       )
     }
 
@@ -255,92 +260,95 @@ class ToOtherAccount extends React.Component<ToOtherAccountProps> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  avatar: {
-    marginRight: 8,
-  },
-  colorBlack20: {
-    color: Styles.globalColors.black_20,
-  },
-  createNewAccountButton: Styles.platformStyles({
-    isElectron: {
-      width: 194,
-    },
-  }),
-  dropdown: Styles.platformStyles({
-    isMobile: {height: 32},
-  }),
-  dropdownSelectedBox: Styles.platformStyles({
-    isMobile: {minHeight: 32},
-  }),
-  errorText: Styles.platformStyles({
-    common: {
-      color: Styles.globalColors.redDark,
-      width: '100%',
-    },
-    isElectron: {
-      wordWrap: 'break-word',
-    },
-  }),
-  heading: {
-    alignSelf: 'flex-start',
-  },
-  input: Styles.platformStyles({
-    common: {
-      padding: 0,
-    },
-    isMobile: {
-      paddingLeft: Styles.globalMargins.xtiny,
-    },
-  }),
-  inputBox: Styles.platformStyles({isElectron: {flexGrow: 1}, isMobile: {flex: 1}}),
-  inputInner: Styles.platformStyles({
-    common: {
-      alignItems: 'flex-start',
-      flex: 1,
-      position: 'relative',
-    },
-    isElectron: {
-      flexShrink: 0,
-    },
-  }),
-  keybaseUserRemoveButton: {
-    flex: 1,
-    marginRight: Styles.globalMargins.tiny,
-    textAlign: 'right', // consistent with UserInput
-  },
-  placeholderContainer: Styles.platformStyles({
-    common: {
-      display: 'flex',
-      flexDirection: 'column',
-      paddingLeft: (Styles.isMobile ? 0 : 16) + 4,
-    },
-    isElectron: {
-      pointerEvents: 'none',
-    },
-  }),
-  publicKeyInputContainer: {flexGrow: 1, flexShrink: 1},
-  qrCode: {
-    marginRight: Styles.globalMargins.tiny,
-    marginTop: Styles.globalMargins.tiny,
-  },
-  toAccountRow: Styles.platformStyles({
-    isMobile: {
-      height: 40,
-      paddingBottom: 4,
-      paddingTop: 4,
-    },
-  }),
-  toKeybaseUser: {
-    height: 48,
-  },
-  toKeybaseUserNameWithIcon: {
-    flexGrow: 1,
-  },
-  toStellarPublicKey: {
-    alignItems: 'flex-start',
-    minHeight: 52,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      avatar: {
+        marginRight: 8,
+      },
+      colorBlack20: {
+        color: Styles.globalColors.black_20,
+      },
+      createNewAccountButton: Styles.platformStyles({
+        isElectron: {
+          width: 194,
+        },
+      }),
+      dropdown: Styles.platformStyles({
+        isMobile: {height: 32},
+      }),
+      dropdownSelectedBox: Styles.platformStyles({
+        isMobile: {minHeight: 32},
+      }),
+      errorText: Styles.platformStyles({
+        common: {
+          color: Styles.globalColors.redDark,
+          width: '100%',
+        },
+        isElectron: {
+          wordWrap: 'break-word',
+        },
+      }),
+      heading: {
+        alignSelf: 'flex-start',
+      },
+      input: Styles.platformStyles({
+        common: {
+          padding: 0,
+        },
+        isMobile: {
+          paddingLeft: Styles.globalMargins.xtiny,
+        },
+      }),
+      inputBox: Styles.platformStyles({isElectron: {flexGrow: 1}, isMobile: {flex: 1}}),
+      inputInner: Styles.platformStyles({
+        common: {
+          alignItems: 'flex-start',
+          flex: 1,
+          position: 'relative',
+        },
+        isElectron: {
+          flexShrink: 0,
+        },
+      }),
+      keybaseUserRemoveButton: {
+        flex: 1,
+        marginRight: Styles.globalMargins.tiny,
+        textAlign: 'right', // consistent with UserInput
+      },
+      placeholderContainer: Styles.platformStyles({
+        common: {
+          display: 'flex',
+          flexDirection: 'column',
+          paddingLeft: (Styles.isMobile ? 0 : 16) + 4,
+        },
+        isElectron: {
+          pointerEvents: 'none',
+        },
+      }),
+      publicKeyInputContainer: {flexGrow: 1, flexShrink: 1},
+      qrCode: {
+        marginRight: Styles.globalMargins.tiny,
+        marginTop: Styles.globalMargins.tiny,
+      },
+      toAccountRow: Styles.platformStyles({
+        isMobile: {
+          height: 40,
+          paddingBottom: 4,
+          paddingTop: 4,
+        },
+      }),
+      toKeybaseUser: {
+        height: 48,
+      },
+      toKeybaseUserNameWithIcon: {
+        flexGrow: 1,
+      },
+      toStellarPublicKey: {
+        alignItems: 'flex-start',
+        minHeight: 52,
+      },
+    } as const)
+)
 
 export {ToKeybaseUser, ToStellarPublicKey, ToOtherAccount}

@@ -119,7 +119,7 @@ func (u *UIDMap) findFullNameLocally(ctx context.Context, g libkb.UIDMapperConte
 	key := fullNameDBKey(uid)
 	found, err := g.GetKVStore().GetInto(&tmp, key)
 	if err != nil {
-		g.GetLog().CInfof(ctx, "failed to get dbkey %v: %s", key, err)
+		g.GetLog().CDebugf(ctx, "findFullNameLocally: failed to get dbkey %v: %s", key, err)
 		return doNotFoundReturn()
 	}
 	if !found {
@@ -156,7 +156,7 @@ func (u *UIDMap) findUsernameLocally(ctx context.Context, g libkb.UIDMapperConte
 	key := usernameDBKey(uid)
 	found, err := g.GetKVStore().GetInto(&s, key)
 	if err != nil {
-		g.GetLog().CInfof(ctx, "failed to get dbkey %v: %s", key, err)
+		g.GetLog().CDebugf(ctx, "findUsernameLocally: failed to get dbkey %v: %s", key, err)
 		return libkb.NormalizedUsername(""), notFound
 	}
 	if !found {
@@ -181,14 +181,6 @@ type apiReply struct {
 
 func (a *apiReply) GetAppStatus() *libkb.AppStatus {
 	return &a.Status
-}
-
-func uidsToStringForLog(uids []keybase1.UID) string {
-	if len(uids) < 5 {
-		return libkb.UidsToString(uids)
-	}
-
-	return fmt.Sprintf("%s,...,%s [%d total UIDs]", uids[0], uids[len(uids)-1], len(uids))
 }
 
 func (u *UIDMap) refreshersForUIDs(uids []keybase1.UID) string {
@@ -223,7 +215,7 @@ func (u *UIDMap) lookupFromServerBatch(ctx context.Context, g libkb.UIDMapperCon
 	if err != nil {
 		return nil, err
 	}
-	ret := make([]libkb.UsernamePackage, len(uids), len(uids))
+	ret := make([]libkb.UsernamePackage, len(uids))
 	cachedAt := keybase1.ToTime(g.GetClock().Now())
 	for i, uid := range uids {
 		if row, ok := r.Users[uid]; ok {
@@ -252,6 +244,7 @@ func (u *UIDMap) lookupFromServer(ctx context.Context, g libkb.UIDMapperContext,
 	start := g.GetClock().Now()
 	end := start.Add(networkTimeBudget)
 
+	g.GetLog().CDebugf(ctx, "looking up %d uids from server", len(uids))
 	var ret []libkb.UsernamePackage
 	for i := 0; i < len(uids); i += batchSize {
 		high := i + batchSize
@@ -301,13 +294,15 @@ func (u *UIDMap) InformOfEldestSeqno(ctx context.Context, g libkb.UIDMapperConte
 
 	voidp, ok := u.fullNameCache.Get(uid)
 	if ok {
-		if tmp, ok := voidp.(keybase1.FullNamePackage); !ok {
+		tmp, ok := voidp.(keybase1.FullNamePackage)
+		switch {
+		case !ok:
 			g.GetLog().CDebugf(ctx, "Found non-FullNamePackage in LRU cache for uid=%s", uid)
-		} else if tmp.EldestSeqno < uv.EldestSeqno {
+		case tmp.EldestSeqno < uv.EldestSeqno:
 			g.GetLog().CDebugf(ctx, "Stale eldest memory mapping for uid=%s; we had %d, but latest is %d", uid, tmp.EldestSeqno, uv.EldestSeqno)
 			u.fullNameCache.Remove(uid)
 			isCurrent = false
-		} else {
+		default:
 			// If the memory state of this UID->Eldest mapping is correct,
 			// then there is no reason to check the disk state, since we should
 			// never have a case that the memory state is newer than the disk
@@ -322,11 +317,12 @@ func (u *UIDMap) InformOfEldestSeqno(ctx context.Context, g libkb.UIDMapperConte
 		found, err := g.GetKVStore().GetInto(&tmp, key)
 		if err != nil {
 			g.GetLog().CDebugf(ctx, "Error reading %s from UID map disk-backed cache: %s", uid, err)
-			err = nil // don't break the return
 		}
 		if found && tmp.EldestSeqno < uv.EldestSeqno {
 			g.GetLog().CDebugf(ctx, "Stale eldest disk mapping for uid=%s; we had %d, but latest is %d", uid, tmp.EldestSeqno, uv.EldestSeqno)
-			g.GetKVStore().Delete(key)
+			if err := g.GetKVStore().Delete(key); err != nil {
+				return false, err
+			}
 			isCurrent = false
 		}
 	}
@@ -349,9 +345,9 @@ func (u *UIDMap) InformOfEldestSeqno(ctx context.Context, g libkb.UIDMapperConte
 // lookup failed. A non-nil FullNamePackage means that some previous lookup
 // worked, but might be arbitrarily out of date (depending on the cachedAt
 // time). A non-nil FullNamePackage with an empty fullName field means that the
-// user just hasn't supplied a fullName.  FullNames can be cached bt the
-// UIDMap, but expire after networkTimeBudget duration. If that value is 0,
-// then infinitely stale names are allowed. If non-zero, and some names aren't
+// user just hasn't supplied a fullName. FullNames can be cached by the UIDMap,
+// but expire after networkTimeBudget duration. If that value is 0, then
+// infinitely stale names are allowed. If non-zero, and some names aren't
 // stale, we'll have to go to the network.
 //
 // *NOTE* that this function can return useful data and an error. In this
@@ -361,12 +357,11 @@ func (u *UIDMap) InformOfEldestSeqno(ctx context.Context, g libkb.UIDMapperConte
 func (u *UIDMap) MapUIDsToUsernamePackages(ctx context.Context, g libkb.UIDMapperContext,
 	uids []keybase1.UID, fullNameFreshness, networkTimeBudget time.Duration,
 	forceNetworkForFullNames bool) (res []libkb.UsernamePackage, err error) {
-	defer libkb.CTrace(ctx, g.GetLog(), fmt.Sprintf("MapUIDsToUserPackages(%s)", uidsToStringForLog(uids)), func() error { return err })()
 
 	u.Lock()
 	defer u.Unlock()
 
-	res = make([]libkb.UsernamePackage, len(uids), len(uids))
+	res = make([]libkb.UsernamePackage, len(uids))
 	apiLookupIndex := make(map[int]int)
 
 	var uidsToLookup []keybase1.UID
@@ -397,7 +392,6 @@ func (u *UIDMap) MapUIDsToUsernamePackages(ctx context.Context, g libkb.UIDMappe
 
 		apiResults, err = u.lookupFromServer(ctx, g, uidsToLookup, networkTimeBudget)
 		if err == nil {
-
 			for i, row := range apiResults {
 				uid := uidsToLookup[i]
 				if row.FullName != nil {
@@ -423,7 +417,7 @@ func (u *UIDMap) MapUIDsToUsernamePackages(ctx context.Context, g libkb.UIDMappe
 					key := usernameDBKey(uid)
 					err := g.GetKVStore().PutObj(key, nil, nun.String())
 					if err != nil {
-						g.GetLog().CInfof(ctx, "failed to put %v -> %s: %s", key, nun, err)
+						g.GetLog().CDebugf(ctx, "failed to put %v -> %s: %s", key, nun, err)
 					}
 				}
 
@@ -433,7 +427,7 @@ func (u *UIDMap) MapUIDsToUsernamePackages(ctx context.Context, g libkb.UIDMappe
 					key := fullNameDBKey(uid)
 					err := g.GetKVStore().PutObj(key, nil, *fn)
 					if err != nil {
-						g.GetLog().CInfof(ctx, "failed to put %v -> %v: %s", key, *fn, err)
+						g.GetLog().CDebugf(ctx, "failed to put %v -> %v: %s", key, *fn, err)
 					}
 					// If we had previously busted this lookup, then clear the refresher
 					// on the server, so we don't have to do it next time through.
@@ -459,6 +453,18 @@ func (u *UIDMap) MapHardcodedUsernameToUID(un libkb.NormalizedUsername) keybase1
 	return findHardcodedUsername(un)
 }
 
+func (u *UIDMap) ClearUIDFullName(ctx context.Context, g libkb.UIDMapperContext, uid keybase1.UID) error {
+	u.Lock()
+	defer u.Unlock()
+
+	u.fullNameCache.Remove(uid)
+	key := fullNameDBKey(uid)
+	if err := g.GetKVStore().Delete(key); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (u *UIDMap) ClearUIDAtEldestSeqno(ctx context.Context, g libkb.UIDMapperContext, uid keybase1.UID, s keybase1.Seqno) error {
 	u.Lock()
 	defer u.Unlock()
@@ -477,7 +483,9 @@ func (u *UIDMap) ClearUIDAtEldestSeqno(ctx context.Context, g libkb.UIDMapperCon
 	}
 	if clearDB {
 		key := fullNameDBKey(uid)
-		g.GetKVStore().Delete(key)
+		if err := g.GetKVStore().Delete(key); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -488,12 +496,11 @@ func (u *UIDMap) MapUIDsToUsernamePackagesOffline(ctx context.Context, g libkb.U
 	// returns only cached values. UIDs that were not cached at all result in
 	// default UsernamePackage, caller has to check if the result is present
 	// using `res[i].NormalizedUsername.IsNil()`.
-	defer libkb.CTrace(ctx, g.GetLog(), fmt.Sprintf("MapUIDsToUsernamePackagesOffline(%s)", uidsToStringForLog(uids)), func() error { return err })()
 
 	u.Lock()
 	defer u.Unlock()
 
-	res = make([]libkb.UsernamePackage, len(uids), len(uids))
+	res = make([]libkb.UsernamePackage, len(uids))
 	for i, uid := range uids {
 		up, _ := u.findUsernamePackageLocally(ctx, g, uid, fullNameFreshness)
 		// If we successfully looked up some of the user, set the return slot here.
@@ -559,6 +566,10 @@ func (o *OfflineUIDMap) SetTestingNoCachingMode(enabled bool) {
 
 }
 
+func (o *OfflineUIDMap) ClearUIDFullName(ctx context.Context, g libkb.UIDMapperContext, uid keybase1.UID) error {
+	return nil
+}
+
 func (o *OfflineUIDMap) ClearUIDAtEldestSeqno(ctx context.Context, g libkb.UIDMapperContext, uid keybase1.UID, s keybase1.Seqno) error {
 	return nil
 }
@@ -569,7 +580,7 @@ func (o *OfflineUIDMap) InformOfEldestSeqno(ctx context.Context, g libkb.UIDMapp
 
 func (o *OfflineUIDMap) MapUIDsToUsernamePackagesOffline(ctx context.Context, g libkb.UIDMapperContext, uids []keybase1.UID, fullNameFreshness time.Duration) (res []libkb.UsernamePackage, err error) {
 	// Offline uid map offline call always succeeds but returns nothing.
-	res = make([]libkb.UsernamePackage, len(uids), len(uids))
+	res = make([]libkb.UsernamePackage, len(uids))
 	return res, nil
 }
 

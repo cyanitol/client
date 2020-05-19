@@ -111,6 +111,55 @@
       "doc": "FSFavoritesChangedEvent is called by KBFS when the favorites list changes.",
       "lint": "ignore"
     },
+    "FSSubscriptionNotifyPathEvent": {
+      "request": [
+        {
+          "name": "clientID",
+          "type": "string"
+        },
+        {
+          "name": "subscriptionIDs",
+          "type": {
+            "type": "array",
+            "items": "string"
+          }
+        },
+        {
+          "name": "path",
+          "type": "string"
+        },
+        {
+          "name": "topics",
+          "type": {
+            "type": "array",
+            "items": "PathSubscriptionTopic"
+          }
+        }
+      ],
+      "response": null,
+      "lint": "ignore"
+    },
+    "FSSubscriptionNotifyEvent": {
+      "request": [
+        {
+          "name": "clientID",
+          "type": "string"
+        },
+        {
+          "name": "subscriptionIDs",
+          "type": {
+            "type": "array",
+            "items": "string"
+          }
+        },
+        {
+          "name": "topic",
+          "type": "SubscriptionTopic"
+        }
+      ],
+      "response": null,
+      "lint": "ignore"
+    },
     "createTLF": {
       "request": [
         {

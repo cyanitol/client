@@ -22,7 +22,7 @@ func NewMute(g *globals.Context) *Mute {
 
 func (h *Mute) Execute(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	tlfName, text string, replyTo *chat1.MessageID) (err error) {
-	defer h.Trace(ctx, func() error { return err }, "Mute")()
+	defer h.Trace(ctx, &err, "Mute")()
 	if !h.Match(ctx, text) {
 		return ErrInvalidCommand
 	}
@@ -30,7 +30,7 @@ func (h *Mute) Execute(ctx context.Context, uid gregor1.UID, convID chat1.Conver
 		types.InboxSourceDataSourceAll, nil,
 		&chat1.GetInboxLocalQuery{
 			ConvIDs: []chat1.ConversationID{convID},
-		}, nil)
+		})
 	if err != nil {
 		return err
 	}

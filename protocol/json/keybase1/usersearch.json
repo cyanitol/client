@@ -13,7 +13,7 @@
   "types": [
     {
       "type": "record",
-      "name": "APIUserServiceIDWithContact",
+      "name": "APIUserServiceID",
       "fields": [],
       "typedef": "string"
     },
@@ -69,7 +69,7 @@
       "name": "APIUserServiceResult",
       "fields": [
         {
-          "type": "APIUserServiceIDWithContact",
+          "type": "APIUserServiceID",
           "name": "serviceName",
           "jsonkey": "service_name"
         },
@@ -109,13 +109,43 @@
       "name": "APIUserServiceSummary",
       "fields": [
         {
-          "type": "APIUserServiceIDWithContact",
+          "type": "APIUserServiceID",
           "name": "serviceName",
           "jsonkey": "service_name"
         },
         {
           "type": "string",
           "name": "username"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "ImpTofuSearchResult",
+      "fields": [
+        {
+          "type": "string",
+          "name": "assertion"
+        },
+        {
+          "type": "string",
+          "name": "assertionValue"
+        },
+        {
+          "type": "string",
+          "name": "assertionKey"
+        },
+        {
+          "type": "string",
+          "name": "label"
+        },
+        {
+          "type": "string",
+          "name": "prettyName"
+        },
+        {
+          "type": "string",
+          "name": "keybaseUsername"
         }
       ]
     },
@@ -149,18 +179,140 @@
           "name": "contact"
         },
         {
+          "type": [
+            null,
+            "ImpTofuSearchResult"
+          ],
+          "name": "imptofu"
+        },
+        {
           "type": {
             "type": "map",
             "values": "APIUserServiceSummary",
-            "keys": "APIUserServiceIDWithContact"
+            "keys": "APIUserServiceID"
           },
           "name": "servicesSummary",
           "jsonkey": "services_summary"
+        },
+        {
+          "type": "double",
+          "name": "rawScore"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "NonUserDetails",
+      "fields": [
+        {
+          "type": "boolean",
+          "name": "isNonUser"
+        },
+        {
+          "type": "string",
+          "name": "assertionValue"
+        },
+        {
+          "type": "string",
+          "name": "assertionKey"
+        },
+        {
+          "type": "string",
+          "name": "description"
+        },
+        {
+          "type": [
+            null,
+            "ProcessedContact"
+          ],
+          "name": "contact"
+        },
+        {
+          "type": [
+            null,
+            "APIUserServiceResult"
+          ],
+          "name": "service"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "SizedImage"
+          },
+          "name": "siteIcon"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "SizedImage"
+          },
+          "name": "siteIconDarkmode"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "SizedImage"
+          },
+          "name": "siteIconFull"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "SizedImage"
+          },
+          "name": "siteIconFullDarkmode"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "EmailOrPhoneNumberSearchResult",
+      "fields": [
+        {
+          "type": "string",
+          "name": "input"
+        },
+        {
+          "type": "string",
+          "name": "assertion"
+        },
+        {
+          "type": "string",
+          "name": "assertionValue"
+        },
+        {
+          "type": "string",
+          "name": "assertionKey"
+        },
+        {
+          "type": "boolean",
+          "name": "foundUser"
+        },
+        {
+          "type": "string",
+          "name": "username"
+        },
+        {
+          "type": "string",
+          "name": "fullName"
         }
       ]
     }
   ],
   "messages": {
+    "getNonUserDetails": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "assertion",
+          "type": "string"
+        }
+      ],
+      "response": "NonUserDetails"
+    },
     "userSearch": {
       "request": [
         {
@@ -187,6 +339,29 @@
       "response": {
         "type": "array",
         "items": "APIUserSearchResult"
+      }
+    },
+    "bulkEmailOrPhoneSearch": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "emails",
+          "type": "string"
+        },
+        {
+          "name": "phoneNumbers",
+          "type": {
+            "type": "array",
+            "items": "PhoneNumber"
+          }
+        }
+      ],
+      "response": {
+        "type": "array",
+        "items": "EmailOrPhoneNumberSearchResult"
       }
     }
   },

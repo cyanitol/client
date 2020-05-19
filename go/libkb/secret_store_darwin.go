@@ -62,7 +62,7 @@ func (k KeychainSecretStore) serviceName(mctx MetaContext) string {
 }
 
 func (k KeychainSecretStore) StoreSecret(mctx MetaContext, accountName NormalizedUsername, secret LKSecFullSecret) (err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("KeychainSecretStore.StoreSecret(%s)", accountName), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("KeychainSecretStore.StoreSecret(%s)", accountName), &err)()
 
 	// Base64 encode to make it easy to work with Keychain Access (since we are
 	// using a password item and secret is not utf-8)
@@ -108,24 +108,6 @@ func (k KeychainSecretStore) storeSecret(mctx MetaContext, account keychainSlott
 	return keychain.AddItem(item)
 }
 
-func (k KeychainSecretStore) updateAccessibility(mctx MetaContext, account keychainSlottedAccount) {
-	query := keychain.NewItem()
-	query.SetSecClass(keychain.SecClassGenericPassword)
-	query.SetService(k.serviceName(mctx))
-	query.SetAccount(account.String())
-
-	// iOS keychain returns `keychain.ErrorParam` if this is set so we skip it.
-	if !isIOS {
-		query.SetMatchLimit(keychain.MatchLimitOne)
-	}
-
-	updateItem := keychain.NewItem()
-	updateItem.SetAccessible(k.accessible())
-	if err := keychain.UpdateItem(query, updateItem); err != nil {
-		mctx.Debug("KeychainSecretStore.updateAccessibility: failed: %s", err)
-	}
-}
-
 func (k KeychainSecretStore) mobileKeychainPermissionDeniedCheck(mctx MetaContext, err error) {
 	mctx.G().Log.Debug("mobileKeychainPermissionDeniedCheck: checking for mobile permission denied")
 	if !(isIOS && mctx.G().IsMobileAppType()) {
@@ -141,7 +123,7 @@ func (k KeychainSecretStore) mobileKeychainPermissionDeniedCheck(mctx MetaContex
 }
 
 func (k KeychainSecretStore) RetrieveSecret(mctx MetaContext, accountName NormalizedUsername) (secret LKSecFullSecret, err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("KeychainSecretStore.RetrieveSecret(%s)", accountName), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("KeychainSecretStore.RetrieveSecret(%s)", accountName), &err)()
 
 	// find the last valid item we have stored in the keychain
 	var previousSecret LKSecFullSecret
@@ -155,7 +137,6 @@ func (k KeychainSecretStore) RetrieveSecret(mctx MetaContext, accountName Normal
 			// We've reached the end of the keychain entries so let's return
 			// the previous secret we found.
 			secret = previousSecret
-			k.updateAccessibility(mctx, account)
 			err = nil
 			mctx.Debug("found last slot: %d, finished read", i)
 			break
@@ -190,8 +171,8 @@ func (k KeychainSecretStore) retrieveSecret(mctx MetaContext, account keychainSl
 }
 
 func (k KeychainSecretStore) ClearSecret(mctx MetaContext, accountName NormalizedUsername) (err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("KeychainSecretStore#ClearSecret: accountName: %s", accountName),
-		func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("KeychainSecretStore#ClearSecret: accountName: %s", accountName),
+		&err)()
 
 	if accountName.IsNil() {
 		mctx.Debug("NOOPing KeychainSecretStore#ClearSecret for empty username")

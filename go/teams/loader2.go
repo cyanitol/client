@@ -23,7 +23,7 @@ import (
 
 // If links are needed in full that are stubbed in state, go out and get them from the server.
 // Does not ask for any links above state's seqno, those will be fetched by getNewLinksFromServer.
-func (l *TeamLoader) fillInStubbedLinks(ctx context.Context,
+func (l *TeamLoader) fillInStubbedLinks(mctx libkb.MetaContext,
 	me keybase1.UserVersion, teamID keybase1.TeamID, state *keybase1.TeamData,
 	needSeqnos []keybase1.Seqno, readSubteamID keybase1.TeamID,
 	proofSet *proofSetT, parentChildOperations []*parentChildOperation, lkc *loadKeyCache) (
@@ -47,11 +47,11 @@ func (l *TeamLoader) fillInStubbedLinks(ctx context.Context,
 		return state, proofSet, parentChildOperations, nil
 	}
 
-	teamUpdate, err := l.world.getLinksFromServer(ctx, state.Chain.Id, requestSeqnos, &readSubteamID)
+	teamUpdate, err := l.world.getLinksFromServer(mctx.Ctx(), state.Chain.Id, requestSeqnos, &readSubteamID)
 	if err != nil {
 		return state, proofSet, parentChildOperations, err
 	}
-	newLinks, err := teamUpdate.unpackLinks(ctx)
+	newLinks, err := teamUpdate.unpackLinks(mctx)
 	if err != nil {
 		return state, proofSet, parentChildOperations, err
 	}
@@ -65,7 +65,7 @@ func (l *TeamLoader) fillInStubbedLinks(ctx context.Context,
 
 		var signer *SignerX
 		var fullVerifyCutoff keybase1.Seqno // Always fullVerify when inflating. No reasoning has been done on whether it could be skipped.
-		signer, err = l.verifyLink(ctx, teamID, state, me, link, fullVerifyCutoff, readSubteamID,
+		signer, err = l.verifyLink(mctx.Ctx(), teamID, state, me, link, fullVerifyCutoff, readSubteamID,
 			proofSet, lkc, parentsCache)
 		if err != nil {
 			return state, proofSet, parentChildOperations, err
@@ -75,13 +75,13 @@ func (l *TeamLoader) fillInStubbedLinks(ctx context.Context,
 			return state, proofSet, parentChildOperations, fmt.Errorf("blank signer for full link: %v", signer)
 		}
 
-		state, err = l.inflateLink(ctx, state, link, *signer, me)
+		state, err = l.inflateLink(mctx.Ctx(), state, link, *signer, me)
 		if err != nil {
 			return state, proofSet, parentChildOperations, err
 		}
 
-		if l.isParentChildOperation(ctx, link) {
-			pco, err := l.toParentChildOperation(ctx, link)
+		if l.isParentChildOperation(mctx.Ctx(), link) {
+			pco, err := l.toParentChildOperation(mctx.Ctx(), link)
 			if err != nil {
 				return state, proofSet, parentChildOperations, err
 			}
@@ -124,7 +124,7 @@ func (l *TeamLoader) loadUserAndKeyFromLinkInner(ctx context.Context,
 	inner SCChainLinkPayload, lkc *loadKeyCache) (
 	signerUV keybase1.UserVersion, key *keybase1.PublicKeyV2NaCl, linkMap linkMapT, err error) {
 	if !ShouldSuppressLogging(ctx) {
-		defer l.G().CTraceTimed(ctx, fmt.Sprintf("TeamLoader#loadUserForSigVerification(%d)", int(inner.Seqno)), func() error { return err })()
+		defer l.G().CTrace(ctx, fmt.Sprintf("TeamLoader#loadUserForSigVerification(%d)", int(inner.Seqno)), &err)()
 	}
 	keySection := inner.Body.Key
 	if keySection == nil {
@@ -143,7 +143,7 @@ func (l *TeamLoader) loadUserAndKeyFromLinkInner(ctx context.Context,
 func (l *TeamLoader) loadUserAndKeyFromLinkInnerNoVerify(ctx context.Context,
 	link *ChainLinkUnpacked) (signerUV keybase1.UserVersion, err error) {
 	if !ShouldSuppressLogging(ctx) {
-		defer l.G().CTraceTimed(ctx, fmt.Sprintf("TeamLoader#loadUserAndKeyFromLinkInnerNoVerify(%d)", int(link.inner.Seqno)), func() error { return err })()
+		defer l.G().CTrace(ctx, fmt.Sprintf("TeamLoader#loadUserAndKeyFromLinkInnerNoVerify(%d)", int(link.inner.Seqno)), &err)()
 	}
 	keySection := link.inner.Body.Key
 	if keySection == nil {
@@ -161,8 +161,8 @@ func (l *TeamLoader) verifySignatureAndExtractKID(ctx context.Context, outer lib
 	return outer.Verify(l.G().Log)
 }
 
-// These sigchain links are not checked dynamically. We assert that they are good.
-var whitelistedTeamLinkSigs = []keybase1.SigID{
+// These exceptional sigchain links are not checked dynamically. We assert that they are good.
+var whitelistedTeamLinkSigsForKeyInUserSigchain = []keybase1.SigID{
 	// For the privacy of the users involved the issue is described only vaguely here.
 	// See CORE-8233 for more details.
 	// This team had a rotate_key link signed seconds before the revocation of the key that signed the link.
@@ -174,12 +174,36 @@ var whitelistedTeamLinkSigs = []keybase1.SigID{
 	// See https://github.com/keybase/client/issues/17573; a server bug allowed a rotate after a revoke, which
 	// has been fixed in CORE-10942.
 	"070e6d737607109ba17d1d43419d950cde6d206b66c555c837566913a31ca59122",
+
+	// See https://github.com/keybase/client/issues/20503; a server bug allowed a team leave to interleave
+	// with a downgrade lease acquisition for a key revoke on a slow connection. The acquisition should have
+	// been blocked until the merkle tree reflected the leave, but the acquistion actually happened before the
+	// team leave transation was committed to the DB. The fix on the server is to check for leases before and
+	// after the team change is commited (in the same transaction). We were previously only checking before.
+	// It has been fixed in Y2K-891.
+	"c641d1246493cf04ec2c6141acdb569a457c02d577b392d4eb1872118c563c2822",
+}
+
+// These exceptional sigchain links are not checked dynamically. We assert that they are good.
+var whitelistedTeamLinkSigsForAdminPermissionDemote = []keybase1.SigID{
+	// A server bug allowed a change_membership to be posted that demoted an adminship
+	// that had just been referenced by a rotate_key that was still settling.
+	// Timeline: Before the ':' are merkle seqnos minus a base offset.
+	// 5: referenced by rotate_key.
+	// 6: referenced by change_membership.
+	// 7: rotate_key first appeared in the merkle tree.
+	// 9: change_membership first appeared in the merkle tree.
+	// The problem is that change_membership did not reference a merkle tree that included rotate_key.
+	// So the client can't prove (in the way it does) that rotate_key occurred before change_membership.
+	// See PICNIC-654 for more details.
+	"69cea033758d152c9736596f0a7e544444ec1944843172692db01be1c6fb6ee622",
 }
 
 func (l *TeamLoader) addProofsForKeyInUserSigchain(ctx context.Context, teamID keybase1.TeamID, link *ChainLinkUnpacked, uid keybase1.UID, key *keybase1.PublicKeyV2NaCl, userLinkMap linkMapT, proofSet *proofSetT) {
-	for _, okSigID := range whitelistedTeamLinkSigs {
-		if link.SigID().Equal(okSigID) {
+	for _, okSigID := range whitelistedTeamLinkSigsForKeyInUserSigchain {
+		if link.SigID().Eq(okSigID) {
 			// This proof is whitelisted, so don't check it.
+			l.G().Log.CDebugf(ctx, "addProofsForKeyInUserSigchain: skipping exceptional link: %v", link.SigID())
 			return
 		}
 	}
@@ -267,6 +291,16 @@ func (l *TeamLoader) verifyLink(ctx context.Context,
 	case keybase1.TeamRole_NONE:
 		// Anyone can make this link. These didn't exist at the time.
 		return &signer, nil
+	case keybase1.TeamRole_RESTRICTEDBOT:
+		err = l.verifyExplicitPermission(ctx, state, link, signerUV, keybase1.TeamRole_RESTRICTEDBOT)
+		if err == nil {
+			return &signer, err
+		}
+		if !ShouldSuppressLogging(ctx) {
+			l.G().Log.CDebugf(ctx, "verifyLink: %v not a %v: %v", linkType, keybase1.TeamRole_RESTRICTEDBOT, err)
+		}
+		// Fall through to a higher role check
+		fallthrough
 	case keybase1.TeamRole_BOT:
 		err = l.verifyExplicitPermission(ctx, state, link, signerUV, keybase1.TeamRole_BOT)
 		if err == nil {
@@ -386,6 +420,13 @@ func (l *TeamLoader) addProofsForAdminPermission(ctx context.Context, teamID key
 	event3Demote := bookends.right
 	proofSet.AddNeededHappensBeforeProof(ctx, event1Promote, event2Link, "became admin before team link")
 	if event3Demote != nil {
+		for _, okSigID := range whitelistedTeamLinkSigsForAdminPermissionDemote {
+			if link.SigID().Eq(okSigID) {
+				// This proof is whitelisted, so don't check it.
+				l.G().Log.CDebugf(ctx, "addProofsForAdminPermission: [demote] skipping exceptional link: %v", link.SigID())
+				return
+			}
+		}
 		proofSet.AddNeededHappensBeforeProof(ctx, event2Link, *event3Demote, "team link before adminship demotion")
 	}
 }
@@ -584,6 +625,8 @@ func (l *TeamLoader) checkParentChildOperations(ctx context.Context,
 		forceFullReload:                       false,
 		forceRepoll:                           false,
 		staleOK:                               true, // stale is fine, as long as get those seqnos.
+		skipSeedCheck:                         true,
+		auditMode:                             keybase1.AuditMode_SKIP,
 
 		needSeqnos:    needParentSeqnos,
 		readSubteamID: &readSubteamID,
@@ -668,7 +711,7 @@ func (l *TeamLoader) unboxKBFSCryptKeys(ctx context.Context, key keybase1.TeamAp
 		return nil, libkb.DecryptBadNonceError{}
 	}
 	copy(nonce[:], keysetRecord.N)
-	plain, ok := secretbox.Open(nil, keysetRecord.E, &nonce, (*[32]byte)(&encKey))
+	plain, ok := secretbox.Open(nil, keysetRecord.E, &nonce, &encKey)
 	if !ok {
 		return nil, libkb.DecryptOpenError{}
 	}
@@ -687,7 +730,7 @@ func (l *TeamLoader) unboxKBFSCryptKeys(ctx context.Context, key keybase1.TeamAp
 func (l *TeamLoader) addKBFSCryptKeys(mctx libkb.MetaContext, team Teamer, upgrades []keybase1.TeamGetLegacyTLFUpgrade) error {
 	m := make(map[keybase1.TeamApplication][]keybase1.CryptKey)
 	for _, upgrade := range upgrades {
-		key, err := ApplicationKeyAtGeneration(mctx, team, upgrade.AppType, keybase1.PerTeamKeyGeneration(upgrade.TeamGeneration))
+		key, err := ApplicationKeyAtGeneration(mctx, team, upgrade.AppType, upgrade.TeamGeneration)
 		if err != nil {
 			return err
 		}
@@ -781,7 +824,7 @@ func (l *TeamLoader) addSecrets(mctx libkb.MetaContext,
 	if err != nil {
 		role = keybase1.TeamRole_NONE
 	}
-	if role.IsReaderOrAbove() {
+	if role.IsBotOrAbove() {
 		// Insert all reader key masks
 		// Then scan to make sure there are no gaps in generations and no missing application masks.
 		checkMaskGens := make(map[keybase1.PerTeamKeyGeneration]bool)
@@ -829,16 +872,17 @@ func (l *TeamLoader) checkReaderKeyMaskCoverage(mctx libkb.MetaContext,
 	state *keybase1.TeamData, gen keybase1.PerTeamKeyGeneration) error {
 
 	for _, app := range keybase1.TeamApplicationMap {
-		if app == keybase1.TeamApplication_STELLAR_RELAY {
+		switch app {
+		case keybase1.TeamApplication_STELLAR_RELAY, keybase1.TeamApplication_KVSTORE:
 			// TODO CORE-7718 Allow clients to be missing these RKMs for now.
 			//                Will need a team cache bust to repair.
 			continue
 		}
 		if _, ok := state.ReaderKeyMasks[app]; !ok {
-			return fmt.Errorf("missing reader key mask for gen:%v app:%v", gen, app)
+			return NewMissingReaderKeyMaskError(gen, app)
 		}
 		if _, ok := state.ReaderKeyMasks[app][gen]; !ok {
-			return fmt.Errorf("missing reader key mask for gen:%v app:%v", gen, app)
+			return NewMissingReaderKeyMaskError(gen, app)
 		}
 	}
 
@@ -911,10 +955,6 @@ func unboxPerTeamSecrets(m libkb.MetaContext, world LoaderContext, box *TeamBox,
 	return box.Generation, secrets, nil
 }
 
-func (l *TeamLoader) perUserEncryptionKey(ctx context.Context, userSeqno keybase1.Seqno) (*libkb.NaclDHKeyPair, error) {
-	return l.world.perUserEncryptionKey(ctx, userSeqno)
-}
-
 // Whether the snapshot has fully loaded, non-stubbed, all of the links.
 func (l *TeamLoader) checkNeededSeqnos(ctx context.Context,
 	state *keybase1.TeamData, needSeqnos []keybase1.Seqno) error {
@@ -984,10 +1024,10 @@ func (l *TeamLoader) calculateName(ctx context.Context,
 // In either case, after this function runs, all seeds get seed checks computed.
 func (l *TeamLoader) computeSeedChecks(ctx context.Context, state *keybase1.TeamData) (err error) {
 	mctx := libkb.NewMetaContext(ctx, l.G())
-	defer mctx.Trace(fmt.Sprintf("TeamLoader#computeSeedChecks(%s)", state.ID()), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("TeamLoader#computeSeedChecks(%s)", state.ID()), &err)()
 
 	latestChainGen := keybase1.PerTeamKeyGeneration(len(state.PerTeamKeySeedsUnverified))
-	return computeSeedChecks(
+	err = computeSeedChecks(
 		ctx,
 		state.ID(),
 		latestChainGen,
@@ -1004,6 +1044,7 @@ func (l *TeamLoader) computeSeedChecks(ctx context.Context, state *keybase1.Team
 			state.PerTeamKeySeedsUnverified[g] = ptksu
 		},
 	)
+	return err
 }
 
 // consumeRatchets finds the hidden chain ratchets in the given link (if it's not stubbed), and adds them
@@ -1016,4 +1057,12 @@ func consumeRatchets(mctx libkb.MetaContext, hiddenPackage *hidden.LoaderPackage
 	}
 	err = hiddenPackage.AddRatchets(mctx, link.inner.Ratchets(), link.inner.Ctime, keybase1.RatchetType_MAIN)
 	return err
+}
+
+func checkPTKGenerationNotOnHiddenChain(mctx libkb.MetaContext, hiddenPackage *hidden.LoaderPackage, link *ChainLinkUnpacked) (err error) {
+	gen := link.PTKGeneration()
+	if gen == keybase1.PerTeamKeyGeneration(0) {
+		return nil
+	}
+	return hiddenPackage.CheckNoPTK(mctx, gen)
 }

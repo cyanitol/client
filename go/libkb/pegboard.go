@@ -11,7 +11,7 @@ import (
 // Pegboard keeps track of automatic private follows.
 // When the logged-in user interacts with another user, that other user
 // gets pegged to their incarnation. After the target resets,
-// the logged-in user will be alerted even if there's no explicit folowing.
+// the logged-in user will be alerted even if there's no explicit following.
 // CORE-10522 For now, pegboard is disabled by default and when enabled
 //            only has in-memory storage.
 type Pegboard struct {
@@ -49,7 +49,7 @@ func (p *Pegboard) TrackUPAK(mctx MetaContext, upak keybase1.UserPlusKeysV2) (er
 	if !p.enabled {
 		return nil
 	}
-	defer mctx.Trace("Pegboard.TrackUPAK", func() error { return err })()
+	defer mctx.Trace("Pegboard.TrackUPAK", &err)()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if peg, ok := p.store[upak.Uid]; ok && peg.EldestSeqno != 0 && upak.EldestSeqno != 0 && upak.EldestSeqno < peg.EldestSeqno {

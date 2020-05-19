@@ -34,7 +34,7 @@ func (s *UserEKSeed) DeriveDHKey() *libkb.NaclDHKeyPair {
 // Upload a new userEK directly, when we're not adding it to a PUK or device
 // transaction.
 func postNewUserEK(mctx libkb.MetaContext, sig string, boxes []keybase1.UserEkBoxMetadata) (err error) {
-	defer mctx.TraceTimed("postNewUserEK", func() error { return err })()
+	defer mctx.Trace("postNewUserEK", &err)()
 
 	boxesJSON, err := json.Marshal(boxes)
 	if err != nil {
@@ -44,9 +44,8 @@ func postNewUserEK(mctx libkb.MetaContext, sig string, boxes []keybase1.UserEkBo
 		Endpoint:    "user/user_ek",
 		SessionType: libkb.APISessionTypeREQUIRED,
 		Args: libkb.HTTPArgs{
-			"sig":               libkb.S{Val: sig},
-			"boxes":             libkb.S{Val: string(boxesJSON)},
-			"creator_device_id": libkb.S{Val: string(mctx.ActiveDevice().DeviceID())},
+			"sig":   libkb.S{Val: sig},
+			"boxes": libkb.S{Val: string(boxesJSON)},
 		},
 	}
 	_, err = mctx.G().GetAPI().Post(mctx, apiArg)
@@ -61,7 +60,7 @@ func postNewUserEK(mctx libkb.MetaContext, sig string, boxes []keybase1.UserEkBo
 func prepareNewUserEK(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot,
 	pukSigning *libkb.NaclSigningKeyPair) (sig string, boxes []keybase1.UserEkBoxMetadata,
 	newMetadata keybase1.UserEkMetadata, myBox *keybase1.UserEkBoxed, err error) {
-	defer mctx.TraceTimed("prepareNewUserEK", func() error { return err })()
+	defer mctx.Trace("prepareNewUserEK", &err)()
 
 	seed, err := newUserEphemeralSeed()
 	if err != nil {
@@ -119,7 +118,7 @@ func prepareNewUserEK(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot,
 // Create a new userEK and upload it. Add our box to the local box store.
 func publishNewUserEK(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (
 	metadata keybase1.UserEkMetadata, err error) {
-	defer mctx.TraceTimed("publishNewUserEK", func() error { return err })()
+	defer mctx.Trace("publishNewUserEK", &err)()
 
 	// Sign the statement blob with the latest PUK.
 	pukKeyring, err := mctx.G().GetPerUserKeyring(mctx.Ctx())
@@ -157,14 +156,14 @@ func publishNewUserEK(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (
 }
 
 func ForcePublishNewUserEKForTesting(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot) (metadata keybase1.UserEkMetadata, err error) {
-	defer mctx.TraceTimed("ForcePublishNewUserEKForTesting", func() error { return err })()
+	defer mctx.Trace("ForcePublishNewUserEKForTesting", &err)()
 	return publishNewUserEK(mctx, merkleRoot)
 }
 
 func boxUserEKForDevices(mctx libkb.MetaContext, merkleRoot libkb.MerkleRoot,
 	seed UserEKSeed, userMetadata keybase1.UserEkMetadata) (boxes []keybase1.UserEkBoxMetadata,
 	myUserEKBoxed *keybase1.UserEkBoxed, err error) {
-	defer mctx.TraceTimed("boxUserEKForDevices", func() error { return err })()
+	defer mctx.Trace("boxUserEKForDevices", &err)()
 
 	devicesMetadata, err := allActiveDeviceEKMetadata(mctx, merkleRoot)
 	if err != nil {
@@ -211,7 +210,7 @@ type userEKStatementResponse struct {
 // in the wild have EK support, we will make that case an error.
 func fetchUserEKStatements(mctx libkb.MetaContext, uids []keybase1.UID) (
 	statements map[keybase1.UID]*keybase1.UserEkStatement, err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("fetchUserEKStatements: numUids: %v", len(uids)), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("fetchUserEKStatements: numUids: %v", len(uids)), &err)()
 
 	apiArg := libkb.APIArg{
 		Endpoint:    "user/get_user_ek_batch",
@@ -225,21 +224,48 @@ func fetchUserEKStatements(mctx libkb.MetaContext, uids []keybase1.UID) (
 		return nil, err
 	}
 
-	parsedResponse := userEKStatementResponse{}
-	err = res.Body.UnmarshalAgain(&parsedResponse)
-	if err != nil {
+	userEKStatements := userEKStatementResponse{}
+	if err = res.Body.UnmarshalAgain(&userEKStatements); err != nil {
 		return nil, err
 	}
 
+	getArg := func(i int) *libkb.LoadUserArg {
+		if i >= len(uids) {
+			return nil
+		}
+		tmp := libkb.NewLoadUserArgWithMetaContext(mctx).WithUID(uids[i])
+		return &tmp
+	}
+
+	var upaks []*keybase1.UserPlusKeysV2AllIncarnations
 	statements = make(map[keybase1.UID]*keybase1.UserEkStatement)
-	for uid, sig := range parsedResponse.Sigs {
-		statement, _, wrongKID, err := verifySigWithLatestPUK(mctx, uid, *sig)
-		// Check the wrongKID condition before checking the error, since an error
-		// is still returned in this case. TODO: Turn this warning into an error
-		// after EK support is sufficiently widespread.
+	processResult := func(i int, upak *keybase1.UserPlusKeysV2AllIncarnations) error {
+		mctx.Debug("processing member %d/%d %.2f%% complete", i, len(uids), (float64(i) / float64(len(uids)) * 100))
+		if upak == nil {
+			mctx.Debug("Unable to load user %v", uids[i])
+			return nil
+		}
+		upaks = append(upaks, upak)
+		return nil
+	}
+
+	if err = mctx.G().GetUPAKLoader().Batcher(mctx.Ctx(), getArg, processResult, 0); err != nil {
+		return nil, err
+	}
+
+	for _, upak := range upaks {
+		uid := upak.GetUID()
+		sig, ok := userEKStatements.Sigs[uid]
+		if !ok || sig == nil {
+			mctx.Debug("missing memberEK statement for UID %v", uid)
+			continue
+		}
+
+		statement, _, wrongKID, err := verifySigWithLatestPUK(mctx, uid,
+			upak.Current.GetLatestPerUserKey(), *sig)
 		if wrongKID {
-			mctx.Debug("It looks like you revoked a device without generating new ephemeral keys. Are you running an old version?")
-			// Don't include this statement since it is invalid.
+			mctx.Debug("UID %v has a statement signed with the wrongKID, skipping", uid)
+			// Don't box for this member since they have no valid userEK
 			continue
 		} else if err != nil {
 			return nil, err
@@ -257,7 +283,7 @@ func fetchUserEKStatements(mctx libkb.MetaContext, uids []keybase1.UID) (
 // new userEK.
 func fetchUserEKStatement(mctx libkb.MetaContext, uid keybase1.UID) (
 	statement *keybase1.UserEkStatement, latestGeneration keybase1.EkGeneration, wrongKID bool, err error) {
-	defer mctx.TraceTimed("fetchUserEKStatement", func() error { return err })()
+	defer mctx.Trace("fetchUserEKStatement", &err)()
 
 	apiArg := libkb.APIArg{
 		Endpoint:    "user/user_ek",
@@ -288,7 +314,13 @@ func fetchUserEKStatement(mctx libkb.MetaContext, uid keybase1.UID) (
 		return nil, latestGeneration, false, fmt.Errorf("Invalid server response, wrong uid returned")
 	}
 
-	statement, latestGeneration, wrongKID, err = verifySigWithLatestPUK(mctx, uid, *sig)
+	upak, _, err := mctx.G().GetUPAKLoader().LoadV2(
+		libkb.NewLoadUserArgWithMetaContext(mctx).WithUID(uid))
+	if err != nil {
+		return nil, latestGeneration, false, err
+	}
+	latestPUK := upak.Current.GetLatestPerUserKey()
+	statement, latestGeneration, wrongKID, err = verifySigWithLatestPUK(mctx, uid, latestPUK, *sig)
 	// Check the wrongKID condition before checking the error, since an error
 	// is still returned in this case. TODO: Turn this warning into an error
 	// after EK support is sufficiently widespread.
@@ -322,9 +354,10 @@ func extractUserEKStatementFromSig(sig string) (signerKey *kbcrypto.NaclSigningK
 // the wild to have EK support, callers will treat that case as "there is no
 // key" and convert the error to a warning. We set `latestGeneration` so that
 // callers can use this value to generate a new key even if `wrongKID` is set.
-func verifySigWithLatestPUK(mctx libkb.MetaContext, uid keybase1.UID, sig string) (
+func verifySigWithLatestPUK(mctx libkb.MetaContext, uid keybase1.UID,
+	latestPUK *keybase1.PerUserKey, sig string) (
 	statement *keybase1.UserEkStatement, latestGeneration keybase1.EkGeneration, wrongKID bool, err error) {
-	defer mctx.TraceTimed("verifySigWithLatestPUK", func() error { return err })()
+	defer mctx.Trace("verifySigWithLatestPUK", &err)()
 
 	// Parse the statement before we verify the signing key. Even if the
 	// signing key is bad (likely because of a legacy PUK roll that didn't
@@ -335,19 +368,13 @@ func verifySigWithLatestPUK(mctx libkb.MetaContext, uid keybase1.UID, sig string
 	}
 	latestGeneration = parsedStatement.CurrentUserEkMetadata.Generation
 
-	// Verify the signing key corresponds to the latest PUK. We load the user's
+	// Verify the signing key corresponds to the latest PUK. We use the user's
 	// UPAK from cache, but if the KID doesn't match, we try a forced reload to
 	// see if the cache might've been stale. Only if the KID still doesn't
 	// match after the reload do we complain.
-	upak, _, err := mctx.G().GetUPAKLoader().LoadV2(
-		libkb.NewLoadUserArgWithMetaContext(mctx).WithUID(uid))
-	if err != nil {
-		return nil, latestGeneration, false, err
-	}
-	latestPUK := upak.Current.GetLatestPerUserKey()
 	if latestPUK == nil || !latestPUK.SigKID.Equal(signerKey.GetKID()) {
 		// The latest PUK might be stale. Force a reload, then check this over again.
-		upak, _, err = mctx.G().GetUPAKLoader().LoadV2(
+		upak, _, err := mctx.G().GetUPAKLoader().LoadV2(
 			libkb.NewLoadUserArgWithMetaContext(mctx).WithUID(uid).WithForceReload())
 		if err != nil {
 			return nil, latestGeneration, false, err
@@ -371,7 +398,7 @@ func verifySigWithLatestPUK(mctx libkb.MetaContext, uid keybase1.UID, sig string
 
 func filterStaleUserEKStatements(mctx libkb.MetaContext, statementMap map[keybase1.UID]*keybase1.UserEkStatement,
 	merkleRoot libkb.MerkleRoot) (activeMap map[keybase1.UID]keybase1.UserEkStatement, err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("filterStaleUserEKStatements: numStatements: %v", len(statementMap)), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("filterStaleUserEKStatements: numStatements: %v", len(statementMap)), &err)()
 
 	activeMap = make(map[keybase1.UID]keybase1.UserEkStatement)
 	for uid, statement := range statementMap {

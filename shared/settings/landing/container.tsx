@@ -28,36 +28,12 @@ const mapStateToProps = state => {
     rememberPassword,
   }
 
-  // const {
-  // planBilling: {availablePlans, usage, plan, paymentInfo},
-  // } = state
-  // let planProps
-  // if (plan && usage) {
-  // const freeSpaceGB = plan.gigabytes - usage.gigabytes
-  // const freeSpacePercentage = freeSpaceGB / plan.gigabytes
-  // planProps = {
-  // onUpgrade: () => logger.debug('todo'),
-  // onDowngrade: () => logger.debug('todo'),
-  // onInfo: () => logger.debug('todo'),
-  // selectedLevel: plan.planLevel,
-  // freeSpace: freeSpaceGB + 'GB',
-  // freeSpacePercentage,
-  // lowSpaceWarning: false,
-  // paymentInfo,
-  // onChangePaymentInfo: () => logger.debug('todo'),
-  // }
-  // }
-
-  // When enabling planProps, we should check both for bootstrapDone:
-  // let bootstrapDone = accountProps && planProps
   let bootstrapDone = !!accountProps
 
   return {
     bootstrapDone: bootstrapDone,
     originalProps: {
       account: accountProps,
-      // plan: planProps,
-      // plans: availablePlans,
     },
   }
 }
@@ -76,7 +52,7 @@ const mapDispatchToProps = (dispatch: (a: any) => void) => ({
     dispatch(RouteTreeGen.createNavigateAppend({path: [{props: {selectedLevel}, selected: 'changePlan'}]})),
 })
 
-const mergeProps = (stateProps, dispatchProps) => {
+const mergeProps = (stateProps, dispatchProps, _: OwnProps) => {
   if (!stateProps.bootstrapDone) {
     return {
       ...stateProps,
@@ -104,11 +80,4 @@ const mergeProps = (stateProps, dispatchProps) => {
   }
 }
 
-export default compose(
-  connect(
-    mapStateToProps,
-    mapDispatchToProps,
-    mergeProps
-  ),
-  Bootstrapable
-)(Landing)
+export default compose(connect(mapStateToProps, mapDispatchToProps, mergeProps), Bootstrapable)(Landing)

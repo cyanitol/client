@@ -19,13 +19,13 @@ type RemoteExternalAPIKeySource struct {
 func NewRemoteExternalAPIKeySource(g *globals.Context, ri func() chat1.RemoteInterface) *RemoteExternalAPIKeySource {
 	return &RemoteExternalAPIKeySource{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "RemoteExternalAPIKeySource", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "RemoteExternalAPIKeySource", false),
 		ri:           ri,
 	}
 }
 
 func (r *RemoteExternalAPIKeySource) GetKey(ctx context.Context, typ chat1.ExternalAPIKeyTyp) (res chat1.ExternalAPIKey, err error) {
-	defer r.Trace(ctx, func() error { return err }, "GetKey")()
+	defer r.Trace(ctx, &err, "GetKey")()
 	keys, err := r.ri().GetExternalAPIKeys(ctx, []chat1.ExternalAPIKeyTyp{typ})
 	if err != nil {
 		return res, err
@@ -44,6 +44,6 @@ func (r *RemoteExternalAPIKeySource) GetKey(ctx context.Context, typ chat1.Exter
 }
 
 func (r *RemoteExternalAPIKeySource) GetAllKeys(ctx context.Context) (res []chat1.ExternalAPIKey, err error) {
-	defer r.Trace(ctx, func() error { return err }, "GetAllKeys")()
+	defer r.Trace(ctx, &err, "GetAllKeys")()
 	return r.ri().GetExternalAPIKeys(ctx, nil)
 }

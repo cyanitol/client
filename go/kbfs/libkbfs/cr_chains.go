@@ -348,9 +348,32 @@ func (cc *crChain) identifyType(ctx context.Context, fbo *folderBlockOps,
 	if !found {
 		// If the node can't be found, then the entry has been removed
 		// already, and there won't be any conflicts to resolve
-		// anyway.  Mark it as deleted and return gracefully.
+		// anyway.  Mark it as deleted.
 		chains.deletedOriginals[cc.original] = true
+
+		// However, we still might be able to determine the type of
+		// the entry via the `rmOp` that actually deleted it.  This
+		// could be important if the entry ends up being recreated due
+		// to a conflict with another branch (e.g. HOTPOT-719).  So we
+		// still want to make an attempt to recover that entry type
+		// from the parent chain.
+		parentChain, ok := chains.byOriginal[parentOriginal]
+		if ok {
+			for _, op := range parentChain.ops {
+				rop, ok := op.(*rmOp)
+				if !ok {
+					continue
+				}
+				unrefs := rop.Unrefs()
+				if len(unrefs) > 0 && unrefs[0] == cc.mostRecent {
+					cc.file = rop.RemovedType == data.File ||
+						rop.RemovedType == data.Exec
+					break
+				}
+			}
+		}
 	}
+
 	return nil
 }
 
@@ -1154,11 +1177,9 @@ func (ccs *crChains) changeOriginal(oldOriginal data.BlockPointer,
 		delete(ccs.deletedOriginals, oldOriginal)
 		ccs.deletedOriginals[newOriginal] = true
 	}
-	if _, ok := ccs.createdOriginals[oldOriginal]; ok {
-		delete(ccs.createdOriginals, oldOriginal)
-		// We're swapping in an original made on some other branch, so
-		// it shouldn't go in the `createdOriginals` map.
-	}
+	delete(ccs.createdOriginals, oldOriginal)
+	// We're swapping in an original made on some other branch, so
+	// it shouldn't go in the `createdOriginals` map.
 	if ri, ok := ccs.renamedOriginals[oldOriginal]; ok {
 		delete(ccs.renamedOriginals, oldOriginal)
 		ccs.renamedOriginals[newOriginal] = ri
@@ -1420,19 +1441,21 @@ func (ccs *crChains) remove(ctx context.Context, log logger.Logger,
 	return chainsWithRemovals
 }
 
-func (ccs *crChains) revertRenames(oldOps []op) {
-	for _, op := range oldOps {
-		if rop, ok := op.(*renameOp); ok {
+func (ccs *crChains) revertRenames(oldOps []op) error {
+	for _, oldOp := range oldOps {
+		if rop, ok := oldOp.(*renameOp); ok {
 			// Replace the corresponding createOp, and remove the
 			// rmOp.
 			oldChain, ok := ccs.byMostRecent[rop.OldDir.Ref]
 			if !ok {
 				continue
 			}
+			found := false
 			for i, oldOp := range oldChain.ops {
 				if rmop, ok := oldOp.(*rmOp); ok &&
 					rmop.OldName == rop.OldName {
 					rop.oldFinalPath = rmop.getFinalPath()
+					found = true
 					oldChain.ops = append(
 						oldChain.ops[:i], oldChain.ops[i+1:]...)
 					// The first rm should be the one that matches, as
@@ -1442,7 +1465,7 @@ func (ccs *crChains) revertRenames(oldOps []op) {
 				}
 			}
 
-			if !rop.oldFinalPath.IsValid() {
+			if !found || !rop.oldFinalPath.IsValid() {
 				// We don't need to revert any renames without an
 				// rmOp, because it was probably just created and
 				// renamed within a single journal update.
@@ -1451,18 +1474,48 @@ func (ccs *crChains) revertRenames(oldOps []op) {
 
 			newChain := oldChain
 			if rop.NewDir != (blockUpdate{}) {
-				newChain = ccs.byMostRecent[rop.NewDir.Ref]
+				newChain, ok = ccs.byMostRecent[rop.NewDir.Ref]
+				if !ok {
+					// There was a corresponding rmOp, and the node
+					// was renamed across directories, but for some
+					// unknown reason we can't find the chain for the
+					// new directory.
+					return errors.Errorf(
+						"Cannot find new directory %s for rename op: %s",
+						rop.NewDir.Ref, rop)
+				}
 			}
 
+			added := false
 			for i, newOp := range newChain.ops {
 				if cop, ok := newOp.(*createOp); ok &&
 					cop.renamed && cop.NewName == rop.NewName {
 					ropCopy := rop.deepCopy()
 					ropCopy.setFinalPath(cop.getFinalPath())
 					newChain.ops[i] = ropCopy
+					added = true
 					break
+				}
+			}
+			if !added {
+				// If we didn't find the create op to replace, then
+				// this node may have been renamed and then removed,
+				// with the create op being eliminated in the process.
+				// We need to keep the rename op there though if there
+				// is a remove operation, so that any remove
+				// operations within the renamed directory are
+				// processed correctly (see HOTPOT-616).
+				for _, newOp := range newChain.ops {
+					if rmop, ok := newOp.(*rmOp); ok &&
+						rop.NewName == rmop.OldName {
+						ropCopy := rop.deepCopy()
+						ropCopy.setFinalPath(rmop.getFinalPath())
+						newChain.ops = append([]op{ropCopy}, newChain.ops...)
+						break
+					}
 				}
 			}
 		}
 	}
+	return nil
 }

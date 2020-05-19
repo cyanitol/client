@@ -1,6 +1,7 @@
 import * as React from 'react'
 import * as Sb from '../../../../stories/storybook'
-import {List, Set} from 'immutable'
+import * as RPCChatTypes from '../../../../constants/types/rpc-chat-gen'
+import * as TeamTypes from '../../../../constants/types/teams'
 import {Box2} from '../../../../common-adapters/box'
 import {platformStyles} from '../../../../styles'
 import Input, {Props as InputProps} from '.'
@@ -36,7 +37,7 @@ const provider = Sb.createPropProviderWithCommon({
   }),
   Typing: ownProps => ({
     conversationIDKey: ownProps.conversationIDKey,
-    names: Set(),
+    names: new Set(),
   }),
   UserMentionHud: ownProps => {
     const users = [
@@ -64,7 +65,7 @@ type Props = {
   isEditing: boolean
   isExploding: boolean
   explodingModeSeconds: number
-  minWriterRole?: string
+  minWriterRole?: TeamTypes.TeamRoleType
   pendingWaiting: boolean
 }
 
@@ -83,6 +84,7 @@ const boxProps = {
 
 const InputContainer = (props: Props) => {
   const inputProps: InputProps = {
+    botRestrictMap: new Map(),
     cannotWrite: props.cannotWrite || false,
     clearInboxFilter: Sb.action('clearInboxFilter'),
     conversationIDKey: stringToConversationIDKey('fake conversation id key'),
@@ -93,12 +95,13 @@ const InputContainer = (props: Props) => {
       Sb.action('getUnsentText')()
       return props.isEditing ? 'some text' : ''
     },
+    infoPanelShowing: false,
     isActiveForFocus: true,
     isEditExploded: props.isEditExploded,
     isEditing: props.isEditing,
     isExploding: props.isExploding,
     isSearching: false,
-    minWriterRole: props.minWriterRole || 'writer',
+    minWriterRole: props.minWriterRole || ('writer' as const),
     onAttach: (paths: Array<string>) => {
       // This will always be called with an empty array, since some
       // browsers don't have the path property set on File.
@@ -106,13 +109,17 @@ const InputContainer = (props: Props) => {
     },
     onCancelEditing: Sb.action('onCancelEditing'),
     onCancelReply: Sb.action('onCancelReply'),
+    onChannelSuggestionsTriggered: Sb.action('onChannelSuggestionsTriggered'),
     onEditLastMessage: Sb.action('onEditLastMessage'),
+    onFetchEmoji: Sb.action('onFetchEmoji'),
     onFilePickerError: Sb.action('onFilePickerError'),
+    onGiphyToggle: Sb.action('onGiphyToggle'),
     onRequestScrollDown: Sb.action('onRequestScrollDown'),
     onRequestScrollUp: Sb.action('onRequestScrollUp'),
     onSubmit: (text: string) => {
       Sb.action('onSubmit')(text)
     },
+    prependText: null,
     quoteCounter: 0,
     quoteText: '',
     sendTyping: Sb.action('sendTyping'),
@@ -123,13 +130,38 @@ const InputContainer = (props: Props) => {
     showReplyPreview: false,
     showTypingStatus: false,
     showWalletsIcon: !props.isEditing,
-    suggestAllChannels: List([
+    suggestAllChannels: [
       {channelname: 'general', teamname: 'keybase'},
       {channelname: 'spooner', teamname: 'keybase'},
       {channelname: 'general', teamname: 'got'},
       {channelname: 'live', teamname: 'got'},
-    ]),
-    suggestChannels: List(['general', 'random', 'spelunky', 'music', 'vidya-games']),
+    ],
+    suggestBotCommands: [
+      {
+        description: 'Build the app',
+        hasHelpText: true,
+        name: 'build',
+        usage: '[platform]',
+        username: 'mikem',
+      },
+      {description: '', hasHelpText: true, name: 'help', usage: '', username: 'mikem'},
+      {
+        description: 'What is this bot doing',
+        hasHelpText: false,
+        name: 'status',
+        usage: '[--extended]',
+        username: 'mikem',
+      },
+    ],
+    suggestBotCommandsUpdateStatus: RPCChatTypes.UIBotCommandsUpdateStatusTyp.updating,
+    suggestChannels: [
+      {channelname: 'general'},
+      {channelname: 'random'},
+      {channelname: 'spelunky'},
+      {channelname: 'music'},
+      {channelname: 'vidya-games'},
+    ],
+    suggestChannelsLoading: true,
     suggestCommands: [
       {description: 'Hide current or given conv', hasHelpText: false, name: 'hide', usage: '[conversation]'},
       {description: 'Message a user', hasHelpText: false, name: 'msg', usage: '<conversation> <msg>'},
@@ -139,14 +171,16 @@ const InputContainer = (props: Props) => {
       {fullName: '', teamname: 'keybase', username: ''},
       {fullName: '', teamname: 'got', username: ''},
     ],
-    suggestUsers: List([
+    suggestUsers: [
       {fullName: 'Danny Ayoub', username: 'ayoubd'},
       {fullName: 'Chris Nojima', username: 'chrisnojima'},
       {fullName: 'Mike Maxim', username: 'mikem'},
       {fullName: 'Alex Gessner', username: 'xgess'},
-    ]),
+    ],
+    unsentText: null,
     unsentTextChanged: Sb.action('unsentTextChanged'),
-    unsentTextRefresh: false,
+    userEmojis: [],
+    userEmojisLoading: true,
   }
 
   return (

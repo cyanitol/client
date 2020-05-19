@@ -41,7 +41,7 @@ const platform = argv.platform ? argv.platform.toString() : os.platform()
 const appVersion: string = (argv.appVersion as any) || '0.0.0'
 const comment = argv.comment || ''
 const outDir = argv.outDir || ''
-const appCopyright = 'Copyright (c) 2018, Keybase'
+const appCopyright = 'Copyright (c) 2019, Keybase'
 const companyName = 'Keybase, Inc.'
 
 const packagerOpts: any = {
@@ -50,16 +50,51 @@ const packagerOpts: any = {
   appVersion: appVersion,
   asar: shouldUseAsar,
   buildVersion: String(appVersion) + String(comment),
+  darwinDarkModeSupport: true,
   dir: desktopPath('./build'),
+  download: {
+    mirrorOptions: {
+      mirror: 'https://kbelectron.keybase.pub/electron-download/',
+    },
+  },
   electronVersion: 0,
+  // macOS file association to saltpack files
+  extendInfo: {
+    CFBundleDocumentTypes: [
+      {
+        CFBundleTypeExtensions: ['saltpack'],
+        CFBundleTypeIconFile: 'saltpack.icns',
+        CFBundleTypeName: 'io.keybase.saltpack',
+        CFBundleTypeRole: 'Editor',
+        LSHandlerRank: 'Owner',
+        LSItemContentTypes: ['io.keybase.saltpack'],
+      },
+    ],
+    UTExportedTypeDeclarations: [
+      {
+        UTTypeConformsTo: ['public.data'],
+        UTTypeDescription: 'Saltpack file format',
+        UTTypeIconFile: 'saltpack.icns',
+        UTTypeIdentifier: 'io.keybase.saltpack',
+        UTTypeReferenceURL: 'https://saltpack.org',
+        UTTypeTagSpecification: {
+          'public.filename-extension': ['saltpack'],
+        },
+      },
+    ],
+  },
+  // Any paths placed here will be moved to the final bundle
+  extraResource: [],
   helperBundleId: 'keybase.ElectronHelper',
   icon: null,
   ignore: ['.map', '/test($|/)', '/tools($|/)', '/release($|/)', '/node_modules($|/)'],
   name: appName,
-  protocols: [{
-    name: 'Keybase',
-    schemes: ['web+stellar'],
-  }],
+  protocols: [
+    {
+      name: 'Keybase',
+      schemes: ['keybase', 'web+stellar'],
+    },
+  ],
 }
 
 function main() {
@@ -81,9 +116,18 @@ function main() {
   })
 
   const icon = argv.icon
+  const saltpackIcon = argv.saltpackIcon
 
   if (icon) {
     packagerOpts.icon = icon
+  }
+
+  if (saltpackIcon) {
+    packagerOpts.extraResource = [...packagerOpts.extraResource, saltpackIcon]
+  } else {
+    console.warn(
+      `Missing 'saltpack.icns' from yarn package arguments. Need an icon to associate ".saltpack" files with Electron on macOS, Windows, and Linux.`
+    )
   }
 
   // use the same version as the currently-installed electron

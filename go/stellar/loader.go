@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/keybase/client/go/chat/utils"
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/chat1"
 	"github.com/keybase/client/go/protocol/stellar1"
@@ -77,7 +78,7 @@ func DefaultLoader(g *libkb.GlobalContext) *Loader {
 
 	if defaultLoader == nil {
 		defaultLoader = NewLoader(g)
-		g.PushShutdownHook(func() error {
+		g.PushShutdownHook(func(mctx libkb.MetaContext) error {
 			defaultLock.Lock()
 			err := defaultLoader.Shutdown()
 			defaultLoader = nil
@@ -90,12 +91,18 @@ func DefaultLoader(g *libkb.GlobalContext) *Loader {
 }
 
 func (p *Loader) GetPaymentLocal(ctx context.Context, paymentID stellar1.PaymentID) (*stellar1.PaymentLocal, bool) {
+	p.Lock()
+	defer p.Unlock()
+	return p.getPaymentLocalLocked(ctx, paymentID)
+}
+
+func (p *Loader) getPaymentLocalLocked(ctx context.Context, paymentID stellar1.PaymentID) (*stellar1.PaymentLocal, bool) {
 	pmt, ok := p.payments[paymentID]
 	return pmt, ok
 }
 
 func (p *Loader) LoadPayment(ctx context.Context, convID chat1.ConversationID, msgID chat1.MessageID, senderUsername string, paymentID stellar1.PaymentID) *chat1.UIPaymentInfo {
-	defer libkb.CTrace(ctx, p.G().GetLog(), fmt.Sprintf("Loader.LoadPayment(cid=%s,mid=%s,pid=%s)", convID, msgID, paymentID), func() error { return nil })()
+	defer p.G().CTrace(ctx, fmt.Sprintf("Loader.LoadPayment(cid=%s,mid=%s,pid=%s)", convID, msgID, paymentID), nil)()
 
 	p.Lock()
 	defer p.Unlock()
@@ -125,7 +132,7 @@ func (p *Loader) LoadPayment(ctx context.Context, convID chat1.ConversationID, m
 		m.Warning("existing payment message info does not match load info: (%v, %v) != (%v, %v)", msg.convID, msg.msgID, convID, msgID)
 	}
 
-	payment, ok := p.GetPaymentLocal(ctx, paymentID)
+	payment, ok := p.getPaymentLocalLocked(ctx, paymentID)
 	if ok {
 		info := p.uiPaymentInfo(m, payment, msg)
 		p.G().NotifyRouter.HandleChatPaymentInfo(m.Ctx(), p.G().ActiveDevice.UID(), convID, msgID, *info)
@@ -144,7 +151,7 @@ func (p *Loader) LoadPayment(ctx context.Context, convID chat1.ConversationID, m
 }
 
 func (p *Loader) LoadRequest(ctx context.Context, convID chat1.ConversationID, msgID chat1.MessageID, senderUsername string, requestID stellar1.KeybaseRequestID) *chat1.UIRequestInfo {
-	defer libkb.CTrace(ctx, p.G().GetLog(), fmt.Sprintf("Loader.LoadRequest(cid=%s,mid=%s,rid=%s)", convID, msgID, requestID), func() error { return nil })()
+	defer p.G().CTrace(ctx, fmt.Sprintf("Loader.LoadRequest(cid=%s,mid=%s,rid=%s)", convID, msgID, requestID), nil)()
 
 	p.Lock()
 	defer p.Unlock()
@@ -237,7 +244,9 @@ func (p *Loader) Shutdown() error {
 
 func (p *Loader) runPayments() {
 	for id := range p.pqueue {
-		p.loadPayment(id)
+		if err := p.loadPayment(libkb.NewMetaContextTODO(p.G()), id); err != nil {
+			p.G().GetLog().CDebugf(context.TODO(), "Unable to load payment: %v", err)
+		}
 		p.cleanPayments(maxPayments)
 	}
 }
@@ -251,13 +260,13 @@ func (p *Loader) runRequests() {
 
 func (p *Loader) LoadPaymentSync(ctx context.Context, paymentID stellar1.PaymentID) {
 	mctx := libkb.NewMetaContext(ctx, p.G())
-	defer mctx.TraceTimed(fmt.Sprintf("LoadPaymentSync(%s)", paymentID), func() error { return nil })()
+	defer mctx.Trace(fmt.Sprintf("LoadPaymentSync(%s)", paymentID), nil)()
 
 	backoffPolicy := libkb.BackoffPolicy{
-		Millis: []int{500, 500, 500, 500, 500, 500, 500, 1000},
+		Millis: []int{2000, 3000, 5000},
 	}
-	for i := 0; i <= 30; i++ {
-		err := p.loadPayment(paymentID)
+	for i := 0; i <= 3; i++ {
+		err := p.loadPayment(mctx, paymentID)
 		if err == nil {
 			break
 		}
@@ -266,15 +275,13 @@ func (p *Loader) LoadPaymentSync(ctx context.Context, paymentID stellar1.Payment
 	}
 }
 
-func (p *Loader) loadPayment(id stellar1.PaymentID) (err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+func (p *Loader) loadPayment(mctx libkb.MetaContext, id stellar1.PaymentID) (err error) {
+	mctx, cancel := mctx.BackgroundWithLogTags().WithLogTag("LP").WithTimeout(15 * time.Second)
 	defer cancel()
-
-	mctx := libkb.NewMetaContext(ctx, p.G())
-	defer mctx.TraceTimed(fmt.Sprintf("loadPayment(%s)", id), func() error { return nil })()
+	defer mctx.Trace(fmt.Sprintf("loadPayment(%s)", id), nil)()
 
 	s := getGlobal(p.G())
-	details, err := s.remoter.PaymentDetailsGeneric(ctx, stellar1.TransactionIDFromPaymentID(id).String())
+	details, err := s.remoter.PaymentDetailsGeneric(mctx.Ctx(), stellar1.TransactionIDFromPaymentID(id).String())
 	if err != nil {
 		mctx.Debug("error getting payment details for %s: %s", id, err)
 		return err
@@ -298,7 +305,7 @@ func (p *Loader) loadRequest(id stellar1.KeybaseRequestID) {
 	defer cancel()
 
 	m := libkb.NewMetaContext(ctx, p.G())
-	defer m.TraceTimed(fmt.Sprintf("loadRequest(%s)", id), func() error { return nil })()
+	defer m.Trace(fmt.Sprintf("loadRequest(%s)", id), nil)()
 
 	s := getGlobal(p.G())
 	details, err := s.remoter.RequestDetails(ctx, id)
@@ -328,7 +335,8 @@ func (p *Loader) uiPaymentInfo(m libkb.MetaContext, summary *stellar1.PaymentLoc
 		Worth:             summary.Worth,
 		WorthAtSendTime:   summary.WorthAtSendTime,
 		Delta:             summary.Delta,
-		Note:              summary.Note,
+		Note:              utils.EscapeForDecorate(m.Ctx(), summary.Note),
+		IssuerDescription: summary.IssuerDescription,
 		PaymentID:         summary.Id,
 		SourceAmount:      summary.SourceAmountActual,
 		SourceAsset:       summary.SourceAsset,

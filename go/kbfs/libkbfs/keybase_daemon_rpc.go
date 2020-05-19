@@ -36,12 +36,6 @@ type KeybaseDaemonRPC struct {
 	// calls triggers a server.Register.
 	server *rpc.Server
 
-	// simplefs is the simplefs implementation used (if not nil)
-	simplefs keybase1.SimpleFSInterface
-
-	// gitHandler is the git implementation used (if not nil)
-	gitHandler keybase1.KBFSGitInterface
-
 	notifyService keybase1.NotifyServiceInterface
 }
 
@@ -142,7 +136,9 @@ func (k *KeybaseDaemonRPC) fillClients(client rpc.GenericClient) {
 		keybase1.FavoriteClient{Cli: client},
 		keybase1.KbfsClient{Cli: client},
 		keybase1.KbfsMountClient{Cli: client},
-		keybase1.GitClient{Cli: client})
+		keybase1.GitClient{Cli: client},
+		keybase1.KvstoreClient{Cli: client},
+	)
 }
 
 type daemonLogUI struct {
@@ -303,7 +299,10 @@ func (k *KeybaseDaemonRPC) AddProtocols(protocols []rpc.Protocol) {
 	// If we are already connected, register these protocols.
 	if k.server != nil {
 		for _, p := range protocols {
-			k.registerProtocol(k.server, p)
+			err := k.registerProtocol(k.server, p)
+			if err != nil {
+				k.log.Debug("Couldn't register protocol: %+v", err)
+			}
 		}
 	}
 }
@@ -396,7 +395,6 @@ func (k *KeybaseDaemonRPC) ShouldRetryOnConnect(err error) bool {
 }
 
 func (k *KeybaseDaemonRPC) sendPing(ctx context.Context) {
-	const sessionID = 0
 	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 	err := k.sessionClient.SessionPing(ctx)
@@ -452,6 +450,14 @@ func (s *notifyServiceHandler) Shutdown(_ context.Context, code int) error {
 	if runtime.GOOS == "windows" {
 		os.Exit(code)
 	}
+	return nil
+}
+
+func (s *notifyServiceHandler) HTTPSrvInfoUpdate(_ context.Context, info keybase1.HttpSrvInfo) error {
+	return nil
+}
+
+func (s *notifyServiceHandler) HandleKeybaseLink(_ context.Context, _ keybase1.HandleKeybaseLinkArg) error {
 	return nil
 }
 

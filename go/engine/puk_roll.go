@@ -55,8 +55,8 @@ func (e *PerUserKeyRoll) SubConsumers() []libkb.UIConsumer {
 
 // Run starts the engine.
 func (e *PerUserKeyRoll) Run(mctx libkb.MetaContext) (err error) {
-	defer mctx.Trace("PerUserKeyRoll", func() error { return err })()
-	return e.inner(mctx)
+	defer mctx.Trace("PerUserKeyRoll", &err)()
+	return retryOnEphemeralRace(mctx, e.inner)
 }
 
 func (e *PerUserKeyRoll) inner(mctx libkb.MetaContext) error {
@@ -210,7 +210,7 @@ func (e *PerUserKeyRoll) inner(mctx libkb.MetaContext) error {
 // Includes all the user's device subkeys.
 func (e *PerUserKeyRoll) getPukReceivers(mctx libkb.MetaContext, meUPAK *keybase1.UserPlusAllKeys) (res []libkb.NaclDHKeyPair, err error) {
 	for _, dk := range meUPAK.Base.DeviceKeys {
-		if dk.IsSibkey == false && !dk.IsRevoked {
+		if !dk.IsSibkey && !dk.IsRevoked {
 			receiver, err := libkb.ImportNaclDHKeyPairFromHex(dk.KID.String())
 			if err != nil {
 				return res, err

@@ -50,6 +50,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/keybase/go-framed-msgpack-rpc/rpc"
@@ -119,7 +120,7 @@ type httpsDialer struct {
 
 func (d httpsDialer) Dial(network string, addr string) (net.Conn, error) {
 	// Start by making a direct dialer and dialing and then wrap TLS around it
-	dd := directDialer{opts: d.opts}
+	dd := directDialer(d)
 	conn, err := dd.Dial(network, addr)
 	if err != nil {
 		return nil, err
@@ -220,10 +221,20 @@ func (s *httpConnectProxy) Dial(network string, addr string) (net.Conn, error) {
 	return proxyConn, nil
 }
 
-// Must be called in order for the proxy library to support HTTP connect proxies
+var registerLock = sync.Mutex{}
+var hasBeenRegistered = false
+
+// Must be called in order for the proxy library to support HTTP connect proxies. The proxy library uses a map to store
+// this information which can lead to a `fatal error: concurrent map writes` so we use a lock to serialize it and a
+// bool to make it so we only register once (avoid acquiring a lock every time we start a proxy connection).
 func registerHTTPConnectProxies() {
-	proxy.RegisterDialerType("http", newHTTPConnectProxy)
-	proxy.RegisterDialerType("https", newHTTPConnectProxy)
+	if !hasBeenRegistered {
+		registerLock.Lock()
+		proxy.RegisterDialerType("http", newHTTPConnectProxy)
+		proxy.RegisterDialerType("https", newHTTPConnectProxy)
+		hasBeenRegistered = true
+		registerLock.Unlock()
+	}
 }
 
 type ProxyDialOpts struct {
@@ -285,9 +296,17 @@ func ProxyDialWithOpts(ctx context.Context, env *Env, network string, address st
 }
 
 // The equivalent of http.Get except it uses the proxy configured in Env
-func ProxyHTTPGet(env *Env, u string) (*http.Response, error) {
-	client := &http.Client{Transport: &http.Transport{Proxy: MakeProxy(env)}}
-
+// `instrumentationTag` should be a static tag for all requests identifying the
+// type of request we are proxying so we don't leak URL information to the
+// instrumenter.
+func ProxyHTTPGet(g *GlobalContext, env *Env, u, instrumentationTag string) (*http.Response, error) {
+	xprt := NewInstrumentedRoundTripper(g, func(*http.Request) string { return instrumentationTag },
+		&http.Transport{
+			Proxy: MakeProxy(env),
+		})
+	client := &http.Client{
+		Transport: xprt,
+	}
 	return client.Get(u)
 }
 

@@ -1,4 +1,4 @@
-import ChooseAsset, {DisplayItem, OtherItem} from '.'
+import ChooseAsset, {DisplayItem} from '.'
 import * as Container from '../../../util/container'
 import * as WalletsGen from '../../../actions/wallets-gen'
 import * as RouteTreeGen from '../../../actions/route-tree-gen'
@@ -14,10 +14,9 @@ const mapStateToProps = state => {
 
   return {
     accountID,
-    currencies: Constants.getDisplayCurrencies(state).toArray(),
+    currencies: Constants.getDisplayCurrencies(state),
     isRequest: state.wallets.building.isRequest,
     selected,
-    sendAssets: state.wallets.building.sendAssetChoices,
     to,
   }
 }
@@ -34,7 +33,7 @@ const mapDispatchToProps = dispatch => ({
   onBack: () => dispatch(RouteTreeGen.createNavigateUp()),
 })
 
-const mergeProps = (stateProps, dispatchProps) => ({
+const mergeProps = (stateProps, dispatchProps, _: OwnProps) => ({
   displayChoices: (stateProps.currencies || []).map(c => ({
     currencyCode: c.code,
     selected: c.code === stateProps.selected,
@@ -43,18 +42,14 @@ const mergeProps = (stateProps, dispatchProps) => ({
   })),
   isRequest: stateProps.isRequest,
   onBack: dispatchProps.onBack,
-  onChoose: (item: DisplayItem | OtherItem) => dispatchProps._onChoose(item.currencyCode),
+  onChoose: (item: DisplayItem) => dispatchProps._onChoose(item.currencyCode),
   onRefresh: () => dispatchProps._onRefresh(stateProps.accountID, stateProps.to),
-  otherChoices: (stateProps.sendAssets || []).map(a => ({
-    currencyCode: a.asset.code,
-    disabledExplanation: a.subtext || 'Support for other assets coming soon',
-    issuer: a.asset.issuer,
-    selected: a.asset.code === stateProps.selected,
-    type: 'other choice',
-  })),
   selected: stateProps.selected,
 })
 
-export default Container.namedConnect(mapStateToProps, mapDispatchToProps, mergeProps, 'ChooseAsset')(
-  ChooseAsset
-)
+export default Container.namedConnect(
+  mapStateToProps,
+  mapDispatchToProps,
+  mergeProps,
+  'ChooseAsset'
+)(ChooseAsset)

@@ -157,8 +157,12 @@ func mustGetChatFlags(keys ...string) (flags []cli.Flag) {
 	return flags
 }
 
+func getInboxResolverFlags() []cli.Flag {
+	return mustGetChatFlags("topic-type", "public", "private")
+}
+
 func getConversationResolverFlags() []cli.Flag {
-	return mustGetChatFlags("topic-type", "channel", "public", "private")
+	return append(getInboxResolverFlags(), mustGetChatFlags("channel")...)
 }
 
 func getMessageFetcherFlags() []cli.Flag {
@@ -166,21 +170,30 @@ func getMessageFetcherFlags() []cli.Flag {
 }
 
 func getInboxFetcherUnreadFirstFlags() []cli.Flag {
-	return append(mustGetChatFlags("at-least", "at-most", "since", "show-device-name"), getConversationResolverFlags()...)
+	return append(mustGetChatFlags("at-least", "at-most", "since", "show-device-name"), getInboxResolverFlags()...)
 }
 
 func getInboxFetcherActivitySortedFlags() []cli.Flag {
-	return append(mustGetChatFlags("number", "since", "include-hidden"), getConversationResolverFlags()...)
+	return append(mustGetChatFlags("number", "since", "include-hidden"), getInboxResolverFlags()...)
 }
 
 func parseConversationTopicType(ctx *cli.Context) (topicType chat1.TopicType, err error) {
-	switch t := strings.ToLower(ctx.String("topic-type")); t {
+	strTopicType := strings.ToLower(ctx.String("topic-type"))
+	if len(strTopicType) == 0 {
+		return chat1.TopicType_CHAT, nil
+	}
+	switch strTopicType {
 	case "chat":
 		topicType = chat1.TopicType_CHAT
 	case "dev":
 		topicType = chat1.TopicType_DEV
+	case "emoji":
+		topicType = chat1.TopicType_EMOJI
+	case "emojicross":
+		topicType = chat1.TopicType_EMOJICROSS
 	default:
-		err = fmt.Errorf("invalid topic-type '%s'. Has to be one of %v", t, []string{"chat", "dev"})
+		err = fmt.Errorf("invalid topic-type '%s'. Has to be one of %v", strTopicType,
+			[]string{"chat", "dev", "emoji"})
 	}
 	return topicType, err
 }
@@ -224,7 +237,7 @@ func annotateResolvingRequest(g *libkb.GlobalContext, req *chatConversationResol
 	}
 	if req.TopicType == chat1.TopicType_CHAT && len(req.TopicName) != 0 &&
 		req.MembersType != chat1.ConversationMembersType_TEAM {
-		return errors.New("multiple topics only supported for teams and dev channels")
+		return errors.New("channel name only supported for team and dev conversations")
 	}
 
 	// Set the default topic name to #general if none is specified
@@ -242,6 +255,7 @@ func makeChatCLIConversationFetcher(ctx *cli.Context, tlfName string, markAsRead
 		chat1.MessageType_JOIN,
 		chat1.MessageType_LEAVE,
 		chat1.MessageType_SYSTEM,
+		chat1.MessageType_HEADLINE,
 		chat1.MessageType_SENDPAYMENT,
 		chat1.MessageType_REQUESTPAYMENT,
 	}
@@ -285,7 +299,7 @@ func makeChatCLIInboxFetcherActivitySorted(ctx *cli.Context) (fetcher chatCLIInb
 		fetcher.query.Status = utils.VisibleChatConversationStatuses()
 	}
 
-	return fetcher, err
+	return fetcher, nil
 }
 
 func makeChatCLIInboxFetcherUnreadFirst(ctx *cli.Context) (fetcher chatCLIInboxFetcher, err error) {

@@ -30,7 +30,7 @@ func NewSigHint(jw *jsonw.Wrapper) (sh *SigHint, err error) {
 		return nil, nil
 	}
 	sh = &SigHint{}
-	sh.sigID, err = GetSigID(jw.AtKey("sig_id"), true)
+	sh.sigID, err = GetSigID(jw.AtKey("sig_id"))
 	sh.remoteID, _ = jw.AtKey("remote_id").GetString()
 	sh.apiURL, _ = jw.AtKey("api_url").GetString()
 	sh.humanURL, _ = jw.AtKey("human_url").GetString()
@@ -52,12 +52,12 @@ func NewVerifiedSigHint(sigID keybase1.SigID, remoteID, apiURL, humanURL, checkT
 
 func (sh SigHint) MarshalToJSON() *jsonw.Wrapper {
 	ret := jsonw.NewDictionary()
-	ret.SetKey("sig_id", jsonw.NewString(sh.sigID.ToString(true)))
-	ret.SetKey("remote_id", jsonw.NewString(sh.remoteID))
-	ret.SetKey("api_url", jsonw.NewString(sh.apiURL))
-	ret.SetKey("human_url", jsonw.NewString(sh.humanURL))
-	ret.SetKey("proof_text_check", jsonw.NewString(sh.checkText))
-	ret.SetKey("is_verified", jsonw.NewBool(sh.isVerified))
+	_ = ret.SetKey("sig_id", jsonw.NewString(sh.sigID.String()))
+	_ = ret.SetKey("remote_id", jsonw.NewString(sh.remoteID))
+	_ = ret.SetKey("api_url", jsonw.NewString(sh.apiURL))
+	_ = ret.SetKey("human_url", jsonw.NewString(sh.humanURL))
+	_ = ret.SetKey("proof_text_check", jsonw.NewString(sh.checkText))
+	_ = ret.SetKey("is_verified", jsonw.NewBool(sh.isVerified))
 	return ret
 }
 
@@ -65,7 +65,7 @@ type SigHints struct {
 	Contextified
 	uid     keybase1.UID
 	version int
-	hints   map[keybase1.SigID]*SigHint
+	hints   map[keybase1.SigIDMapKey]*SigHint
 	dirty   bool
 }
 
@@ -84,7 +84,7 @@ func NewSigHints(jw *jsonw.Wrapper, uid keybase1.UID, dirty bool, g *GlobalConte
 }
 
 func (sh SigHints) Lookup(i keybase1.SigID) *SigHint {
-	obj := sh.hints[i]
+	obj := sh.hints[i.ToMapKey()]
 	return obj
 }
 
@@ -99,7 +99,7 @@ func (sh *SigHints) PopulateWith(jw *jsonw.Wrapper) (err error) {
 		return
 	}
 
-	sh.hints = make(map[keybase1.SigID]*SigHint)
+	sh.hints = make(map[keybase1.SigIDMapKey]*SigHint)
 	var n int
 	n, err = jw.AtKey("hints").Len()
 	if err != nil {
@@ -111,7 +111,7 @@ func (sh *SigHints) PopulateWith(jw *jsonw.Wrapper) (err error) {
 		if tmpe != nil {
 			sh.G().Log.Warning("Bad SigHint Loaded: %s", tmpe)
 		} else {
-			sh.hints[hint.sigID] = hint
+			sh.hints[hint.sigID.ToMapKey()] = hint
 		}
 	}
 	return
@@ -119,11 +119,11 @@ func (sh *SigHints) PopulateWith(jw *jsonw.Wrapper) (err error) {
 
 func (sh SigHints) MarshalToJSON() *jsonw.Wrapper {
 	ret := jsonw.NewDictionary()
-	ret.SetKey("version", jsonw.NewInt(sh.version))
-	ret.SetKey("hints", jsonw.NewArray(len(sh.hints)))
+	_ = ret.SetKey("version", jsonw.NewInt(sh.version))
+	_ = ret.SetKey("hints", jsonw.NewArray(len(sh.hints)))
 	i := 0
 	for _, v := range sh.hints {
-		ret.AtKey("hints").SetIndex(i, v.MarshalToJSON())
+		_ = ret.AtKey("hints").SetIndex(i, v.MarshalToJSON())
 		i++
 	}
 	return ret
@@ -142,7 +142,7 @@ func (sh *SigHints) Store(m MetaContext) (err error) {
 }
 
 func LoadSigHints(m MetaContext, uid keybase1.UID) (sh *SigHints, err error) {
-	defer m.Trace(fmt.Sprintf("+ LoadSigHints(%s)", uid), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("+ LoadSigHints(%s)", uid), &err)()
 	var jw *jsonw.Wrapper
 	jw, err = m.G().LocalDb.Get(DbKeyUID(DBSigHints, uid))
 	if err != nil {
@@ -159,7 +159,7 @@ func LoadSigHints(m MetaContext, uid keybase1.UID) (sh *SigHints, err error) {
 }
 
 func (sh *SigHints) Refresh(m MetaContext) (err error) {
-	defer m.Trace(fmt.Sprintf("Refresh SigHints for uid=%s", sh.uid), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("Refresh SigHints for uid=%s", sh.uid), &err)()
 	res, err := m.G().API.Get(m, APIArg{
 		Endpoint:    "sig/hints",
 		SessionType: APISessionTypeNONE,
@@ -176,7 +176,7 @@ func (sh *SigHints) Refresh(m MetaContext) (err error) {
 }
 
 func (sh *SigHints) RefreshWith(m MetaContext, jw *jsonw.Wrapper) (err error) {
-	defer m.Trace("RefreshWith", func() error { return err })()
+	defer m.Trace("RefreshWith", &err)()
 
 	n, err := jw.AtKey("hints").Len()
 	if err != nil {

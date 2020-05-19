@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/keybase/client/go/chat/globals"
 	"github.com/keybase/client/go/chat/utils"
 	"github.com/keybase/client/go/protocol/chat1"
@@ -57,23 +56,23 @@ func (h *Location) isStop(toks []string) bool {
 
 func (h *Location) Execute(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	tlfName, text string, replyTo *chat1.MessageID) (err error) {
-	defer h.Trace(ctx, func() error { return err }, "Location")()
+	defer h.Trace(ctx, &err, "Location")()
 	if !h.Match(ctx, text) {
 		return ErrInvalidCommand
 	}
 	toks := strings.Split(text, " ")
 	if h.isStop(toks) {
 		h.G().LiveLocationTracker.StopAllTracking(ctx)
-		h.getChatUI().ChatCommandStatus(ctx, convID, "All location tracking stopped",
+		err := h.getChatUI().ChatCommandStatus(ctx, convID, "All location tracking stopped",
 			chat1.UICommandStatusDisplayTyp_STATUS, nil)
+		if err != nil {
+			h.Debug(ctx, "Execute: error with command status: %+v", err)
+		}
 		return nil
 	}
 	var liveLocation chat1.LiveLocation
 	liveLocationEndTime := h.isLiveLocation(toks)
 	if liveLocationEndTime != nil {
-		statusStr := fmt.Sprintf("Sharing location until %s. Keybase will try to use your location when the app is not in use.", humanize.Time(gregor1.FromTime(*liveLocationEndTime)))
-		h.getChatUI().ChatCommandStatus(ctx, convID, statusStr, chat1.UICommandStatusDisplayTyp_STATUS,
-			[]chat1.UICommandStatusActionTyp{chat1.UICommandStatusActionTyp_APPSETTINGS})
 		liveLocation.EndTime = *liveLocationEndTime
 	}
 	if _, err := h.G().ChatHelper.SendMsgByIDNonblock(ctx, convID, tlfName,
@@ -90,27 +89,35 @@ func (h *Location) Preview(ctx context.Context, uid gregor1.UID, convID chat1.Co
 	tlfName, text string) {
 	h.Lock()
 	defer h.Unlock()
-	defer h.Trace(ctx, func() error { return nil }, "Preview")()
+	defer h.Trace(ctx, nil, "Preview")()
 	if !h.Match(ctx, text) {
 		if h.displayed {
-			h.getChatUI().ChatCommandMarkdown(ctx, convID, nil)
+			err := h.getChatUI().ChatCommandMarkdown(ctx, convID, nil)
+			if err != nil {
+				h.Debug(ctx, "Preview: error with markdown: %+v", err)
+			}
 			h.displayed = false
 		}
 		return
 	}
 	usage := fmt.Sprintf(locationUsage, "```", "```")
-	h.getChatUI().ChatCommandMarkdown(ctx, convID, &chat1.UICommandMarkdown{
+	err := h.getChatUI().ChatCommandMarkdown(ctx, convID, &chat1.UICommandMarkdown{
 		Body:  utils.DecorateWithLinks(ctx, utils.EscapeForDecorate(ctx, usage)),
 		Title: &locationTitle,
 	})
+	if err != nil {
+		h.Debug(ctx, "Preview: error with markdown: %+v", err)
+	}
 	h.displayed = true
 }
 
-var locationTitle = `*/location*`
+var locationTitle = `*/location*
+Post your current location and a map rendered through the use of Google Maps.
+`
 
-var locationUsage = `Location posts consist of your current location coordinate, and a map rendered through the use of Google Maps. We take care to guard your privacy: https://keybase.io/docs/chat/location. Variations: %s
-/location          # post your current location
-/location live 1h  # post your live location for the next hour
-/location stop     # stop posting live location%s
-- The location sender obtains the map from Google without using their IP address directly. The map is then sent as an encrypted attachment into the conversation.
-- Other members in the conversation obtain the map as an encrypted attachment, and never talk to Google at all.`
+var locationUsage = `We take care to guard your privacy: https://keybase.io/docs/chat/location.
+Variations: %s
+/location
+/location live 1h
+/location stop%s
+`

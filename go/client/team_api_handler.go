@@ -96,20 +96,10 @@ func (t *teamAPIHandler) handleV1(ctx context.Context, c Call, w io.Writer) erro
 	}
 }
 
-type memberEmail struct {
-	Email string `json:"email"`
-	Role  string `json:"role"`
-}
-
-type memberUsername struct {
-	Username string `json:"username"`
-	Role     string `json:"role"`
-}
-
 type addMembersOptions struct {
-	Team      string           `json:"team"`
-	Emails    []memberEmail    `json:"emails"`
-	Usernames []memberUsername `json:"usernames"`
+	Team      string                    `json:"team"`
+	Emails    []keybase1.MemberEmail    `json:"emails"`
+	Usernames []keybase1.MemberUsername `json:"usernames"`
 }
 
 func (a *addMembersOptions) Check() error {
@@ -154,6 +144,11 @@ func (t *teamAPIHandler) addMembers(ctx context.Context, c Call, w io.Writer) er
 		return t.encodeErr(c, err, w)
 	}
 
+	teamID, err := t.cli.GetTeamID(ctx, opts.Team)
+	if err != nil {
+		return err
+	}
+
 	// currently service endpoint can only handle one at a time
 	// can improve this when CORE-6172 is complete
 	var args []keybase1.TeamAddMemberArg
@@ -163,9 +158,9 @@ func (t *teamAPIHandler) addMembers(ctx context.Context, c Call, w io.Writer) er
 			return t.encodeErr(c, err, w)
 		}
 		arg := keybase1.TeamAddMemberArg{
-			Name:  opts.Team,
-			Email: e.Email,
-			Role:  role,
+			TeamID: teamID,
+			Email:  e.Email,
+			Role:   role,
 		}
 		args = append(args, arg)
 	}
@@ -175,7 +170,7 @@ func (t *teamAPIHandler) addMembers(ctx context.Context, c Call, w io.Writer) er
 			return t.encodeErr(c, err, w)
 		}
 		arg := keybase1.TeamAddMemberArg{
-			Name:     opts.Team,
+			TeamID:   teamID,
 			Username: u.Username,
 			Role:     role,
 		}
@@ -214,22 +209,14 @@ func (t *teamAPIHandler) createTeam(ctx context.Context, c Call, w io.Writer) er
 		return t.encodeErr(c, err, w)
 	}
 
-	type createResExportT struct {
-		ChatSent     bool `codec:"chatSent" json:"chatSent"`
-		CreatorAdded bool `codec:"creatorAdded" json:"creatorAdded"`
-	}
 	createRes, err := t.cli.TeamCreate(context.TODO(), keybase1.TeamCreateArg{
 		Name: name.String(),
 	})
 	if err != nil {
 		return t.encodeErr(c, err, w)
 	}
-	createResExport := createResExportT{
-		ChatSent:     createRes.ChatSent,
-		CreatorAdded: createRes.CreatorAdded,
-	}
 
-	return t.encodeResult(c, createResExport, w)
+	return t.encodeResult(c, createRes, w)
 }
 
 type editMemberOptions struct {
@@ -392,9 +379,16 @@ func (t *teamAPIHandler) removeMember(ctx context.Context, c Call, w io.Writer) 
 		return t.encodeErr(c, err, w)
 	}
 
+	teamID, err := t.cli.GetTeamID(ctx, opts.Team)
+	if err != nil {
+		return err
+	}
+
 	arg := keybase1.TeamRemoveMemberArg{
-		Name:     opts.Team,
-		Username: opts.Username,
+		TeamID: teamID,
+		Member: keybase1.NewTeamMemberToRemoveWithAssertion(keybase1.AssertionTeamMemberToRemove{
+			Assertion: opts.Username,
+		}),
 	}
 	if err := t.cli.TeamRemoveMember(ctx, arg); err != nil {
 		return t.encodeErr(c, err, w)

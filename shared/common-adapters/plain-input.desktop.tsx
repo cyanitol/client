@@ -1,9 +1,8 @@
 import * as React from 'react'
+import * as Styles from '../styles'
 import {getStyle as getTextStyle} from './text.desktop'
-import {collapseStyles, globalColors, styled, styleSheetCreate, platformStyles} from '../styles'
-import {pick} from 'lodash-es'
+import pick from 'lodash/pick'
 import logger from '../logger'
-
 import {_StylesDesktop} from '../styles/css'
 import {InternalProps, TextInfo, Selection} from './plain-input'
 import {checkTextInfo} from './input.shared'
@@ -15,8 +14,10 @@ const maybeParseInt = (input: string | number, radix: number): number =>
 class PlainInput extends React.PureComponent<InternalProps> {
   _input: HTMLTextAreaElement | HTMLInputElement | null = null
   _isComposingIME: boolean = false
+  private mounted: boolean = true
 
   static defaultProps = {
+    allowKeyboardEvents: true,
     textType: 'Body',
   }
 
@@ -39,20 +40,29 @@ class PlainInput extends React.PureComponent<InternalProps> {
     this._autoResize()
   }
 
-  _smartAutoresize = {
-    pivotLength: -1,
-    width: -1,
-  }
-
+  _autoResizeLast = ''
   _autoResize = () => {
     if (!this.props.multiline) {
       // no resizing height on single-line inputs
       return
     }
+
+    // Allow textarea to layout automatically
+    if (this.props.growAndScroll) {
+      return
+    }
+
     const n = this._input
     if (!n) {
       return
     }
+
+    // ignore if value hasn't changed
+    if (n.value === this._autoResizeLast) {
+      return
+    }
+    this._autoResizeLast = n.value
+
     n.style.height = '1px'
     n.style.height = `${n.scrollHeight}px`
   }
@@ -128,8 +138,11 @@ class PlainInput extends React.PureComponent<InternalProps> {
   }
 
   _onKeyDown = (e: React.KeyboardEvent) => {
+    if (this._isComposingIME) {
+      return
+    }
     if (this.props.onKeyDown) {
-      this.props.onKeyDown(e, this._isComposingIME)
+      this.props.onKeyDown(e)
     }
     if (this.props.onEnterKeyDown && e.key === 'Enter' && !(e.shiftKey || e.ctrlKey || e.altKey)) {
       this.props.onEnterKeyDown(e)
@@ -137,13 +150,26 @@ class PlainInput extends React.PureComponent<InternalProps> {
   }
 
   _onKeyUp = (e: React.KeyboardEvent) => {
+    if (this._isComposingIME) {
+      return
+    }
     if (this.props.onKeyUp) {
-      this.props.onKeyUp(e, this._isComposingIME)
+      this.props.onKeyUp(e)
     }
   }
 
   _onFocus = () => {
     this.props.onFocus && this.props.onFocus()
+    this.props.selectTextOnFocus &&
+      // doesn't work within the same tick
+      setTimeout(
+        () =>
+          this.mounted &&
+          this.setSelection({
+            end: this.props.value?.length || 0,
+            start: 0,
+          })
+      )
   }
 
   _onBlur = () => {
@@ -154,7 +180,7 @@ class PlainInput extends React.PureComponent<InternalProps> {
     let commonProps: any = {
       ...pick(this.props, ['maxLength', 'value']), // Props we should only passthrough if supplied
       autoFocus: this.props.autoFocus,
-      className: this.props.className,
+      className: Styles.classNames(this.props.allowKeyboardEvents && 'mousetrap', this.props.className),
       onBlur: this._onBlur,
       onChange: this._onChange,
       onClick: this.props.onClick,
@@ -165,6 +191,7 @@ class PlainInput extends React.PureComponent<InternalProps> {
       onKeyUp: this._onKeyUp,
       placeholder: this.props.placeholder,
       placeholderColor: this.props.placeholderColor,
+      placeholderTextType: this.props.placeholderTextType,
       ref: this._setInputRef,
     }
     if (this.props.disabled) {
@@ -177,21 +204,30 @@ class PlainInput extends React.PureComponent<InternalProps> {
     const rows = this.props.rowsMin || Math.min(2, this.props.rowsMax || 2)
     const textStyle: any = getTextStyle(this.props.textType)
     const heightStyles: any = {
-      minHeight: rows * (textStyle.fontSize || 20),
+      minHeight:
+        rows * (maybeParseInt(textStyle.lineHeight, 10) || 20) +
+        (this.props.padding ? Styles.globalMargins[this.props.padding] * 2 : 0),
     }
     if (this.props.rowsMax) {
       heightStyles.maxHeight = this.props.rowsMax * (maybeParseInt(textStyle.lineHeight, 10) || 20)
     } else {
       heightStyles.overflowY = 'hidden'
     }
+
+    const paddingStyles: any = this.props.padding
+      ? Styles.padding(Styles.globalMargins[this.props.padding])
+      : {}
     return {
       ...this._getCommonProps(),
       rows,
-      style: collapseStyles([
+      style: Styles.collapseStyles([
         styles.noChrome, // noChrome comes before because we want lineHeight set in multiline
         textStyle,
         styles.multiline,
         heightStyles,
+        paddingStyles,
+        this.props.resize && styles.resize,
+        this.props.growAndScroll && styles.growAndScroll,
         this.props.style,
       ]),
     }
@@ -201,7 +237,7 @@ class PlainInput extends React.PureComponent<InternalProps> {
     const textStyle = getTextStyle(this.props.textType)
     return {
       ...this._getCommonProps(),
-      style: collapseStyles([
+      style: Styles.collapseStyles([
         textStyle,
         styles.noChrome, // noChrome comes after to unset lineHeight in singleline
         this.props.flexable && styles.flexable,
@@ -215,18 +251,19 @@ class PlainInput extends React.PureComponent<InternalProps> {
     return this.props.multiline ? this._getMultilineProps() : this._getSinglelineProps()
   }
 
-  componentDidMount = () => {
+  componentDidMount() {
     this.props.globalCaptureKeypress && this._registerBodyEvents(true)
   }
 
-  componentDidUpdate = (prevProps: InternalProps) => {
+  componentDidUpdate(prevProps: InternalProps) {
     if (this.props.globalCaptureKeypress !== prevProps.globalCaptureKeypress) {
       this._registerBodyEvents(!!this.props.globalCaptureKeypress)
     }
   }
 
-  componentWillUnmount = () => {
+  componentWillUnmount() {
     this._registerBodyEvents(false)
+    this.mounted = false
   }
 
   _registerBodyEvents = (add: boolean) => {
@@ -264,37 +301,57 @@ class PlainInput extends React.PureComponent<InternalProps> {
     }
   }
 
-  render = () => {
+  render() {
     const inputProps = this._getInputProps()
-    return (
-      <React.Fragment>
-        {this.props.multiline ? <StyledTextArea {...inputProps} /> : <StyledInput {...inputProps} />}
-      </React.Fragment>
-    )
+    return <>{this.props.multiline ? <StyledTextArea {...inputProps} /> : <StyledInput {...inputProps} />}</>
   }
 }
 
-// @ts-ignore this type is wrong
-const StyledTextArea = styled.textarea<'textarea', {placeholderColor: any}>(props => ({
-  '&::-webkit-inner-spin-button': {WebkitAppearance: 'none', margin: 0},
-  '&::-webkit-input-placeholder': {color: props.placeholderColor || globalColors.black_50},
-  '&::-webkit-outer-spin-button': {WebkitAppearance: 'none', margin: 0},
-}))
+const StyledTextArea = Styles.styled.textarea<'textarea'>(
+  // @ts-ignore
+  (props: {placeholderColor: any; placeholderTextType: any}) => {
+    const placeholderStyle = props.placeholderTextType ? getTextStyle(props.placeholderTextType) : {}
+    return {
+      '&::-webkit-inner-spin-button': {WebkitAppearance: 'none', margin: 0},
+      '&::-webkit-input-placeholder': {
+        ...placeholderStyle,
+        color: props.placeholderColor || Styles.globalColors.black_35,
+      },
+      '&::-webkit-outer-spin-button': {WebkitAppearance: 'none', margin: 0},
+    }
+  }
+)
 
-// @ts-ignore this type is wrong
-const StyledInput = styled.input<'input', {placeholderColor: any}>(props => ({
-  '&::-webkit-inner-spin-button': {WebkitAppearance: 'none', margin: 0},
-  '&::-webkit-input-placeholder': {color: props.placeholderColor || globalColors.black_50},
-  '&::-webkit-outer-spin-button': {WebkitAppearance: 'none', margin: 0},
-}))
+const StyledInput = Styles.styled.input<'input'>(
+  // @ts-ignore
+  (props: {placeholderColor: any; placeholderTextType: any}) => {
+    const placeholderStyle = props.placeholderTextType ? getTextStyle(props.placeholderTextType) : {}
+    return {
+      '&::-webkit-inner-spin-button': {WebkitAppearance: 'none', margin: 0},
+      '&::-webkit-input-placeholder': {
+        ...placeholderStyle,
+        color: props.placeholderColor || Styles.globalColors.black_35,
+      },
+      '&::-webkit-outer-spin-button': {WebkitAppearance: 'none', margin: 0},
+    }
+  }
+)
 
-const styles = styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   flexable: {
     flex: 1,
     minWidth: 0,
-    width: '100%',
+    // "width: 0" is needed for the input to shrink in flex
+    // https://stackoverflow.com/questions/42421361/input-button-elements-not-shrinking-in-a-flex-container
+    width: 0,
   },
-  multiline: platformStyles({
+  growAndScroll: Styles.platformStyles({
+    isElectron: {
+      maxHeight: '100%',
+      overflowY: 'scroll',
+    },
+  }),
+  multiline: Styles.platformStyles({
     isElectron: {
       height: 'initial',
       paddingBottom: 0,
@@ -303,13 +360,16 @@ const styles = styleSheetCreate({
       width: '100%',
     },
   }),
-  noChrome: platformStyles({
+  noChrome: Styles.platformStyles({
     isElectron: {
       borderWidth: 0,
       lineHeight: 'unset',
       outline: 'none',
     },
   }),
-})
+  resize: Styles.platformStyles({
+    isElectron: {resize: 'vertical'},
+  }),
+}))
 
 export default PlainInput

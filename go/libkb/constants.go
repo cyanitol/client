@@ -53,16 +53,29 @@ const (
 	ProductionGregorServerURI = "fmprpc+tls://chat-0.core.keybaseapi.com:443"
 )
 
+const (
+	DevelMpackAPIServerURI      = "fmprpc://localhost:9914"
+	StagingMpackAPIServerURI    = "fmprpc+tls://api.dev.keybase.io:4443"
+	ProductionMpackAPIServerURI = "fmprpc+tls://mpack-0.core.keybaseapi.com:443"
+)
+
 var GregorServerLookup = map[RunMode]string{
 	DevelRunMode:      DevelGregorServerURI,
 	StagingRunMode:    StagingGregorServerURI,
 	ProductionRunMode: ProductionGregorServerURI,
 }
 
+var MpackAPIServerLookup = map[RunMode]string{
+	DevelRunMode:      DevelMpackAPIServerURI,
+	StagingRunMode:    StagingMpackAPIServerURI,
+	ProductionRunMode: ProductionMpackAPIServerURI,
+}
+
 const (
 	ConfigFile           = "config.json"
 	SessionFile          = "session.json"
 	UpdaterConfigFile    = "updater.json"
+	GUIConfigFile        = "gui_config.json"
 	DeviceCloneStateFile = "device_clone.json"
 	DBFile               = "keybase.leveldb"
 	ChatDBFile           = "keybase.chat.leveldb"
@@ -152,7 +165,9 @@ const (
 	EphemeralKeyMerkleFreshness = 30 * time.Second
 
 	// By default, only 48 files can be opened.
-	LevelDBNumFiles = 48
+	LevelDBNumFiles            = 48
+	LevelDBWriteBufferMB       = 12
+	LevelDBWriteBufferMBMobile = 8
 
 	HomeCacheTimeout       = (time.Hour - time.Minute)
 	HomePeopleCacheTimeout = 10 * time.Minute
@@ -213,6 +228,7 @@ const (
 const (
 	SCOk                                        = int(keybase1.StatusCode_SCOk)
 	SCInputError                                = int(keybase1.StatusCode_SCInputError)
+	SCAssertionParseError                       = int(keybase1.StatusCode_SCAssertionParseError)
 	SCLoginRequired                             = int(keybase1.StatusCode_SCLoginRequired)
 	SCBadSession                                = int(keybase1.StatusCode_SCBadSession)
 	SCNoSession                                 = int(keybase1.StatusCode_SCNoSession)
@@ -234,8 +250,16 @@ const (
 	SCProfileNotPublic                          = int(keybase1.StatusCode_SCProfileNotPublic)
 	SCRateLimit                                 = int(keybase1.StatusCode_SCRateLimit)
 	SCBadSignupUsernameTaken                    = int(keybase1.StatusCode_SCBadSignupUsernameTaken)
+	SCBadSignupUsernameReserved                 = int(keybase1.StatusCode_SCBadSignupUsernameReserved)
 	SCBadInvitationCode                         = int(keybase1.StatusCode_SCBadInvitationCode)
+	SCBadSignupTeamName                         = int(keybase1.StatusCode_SCBadSignupTeamName)
 	SCFeatureFlag                               = int(keybase1.StatusCode_SCFeatureFlag)
+	SCEmailTaken                                = int(keybase1.StatusCode_SCEmailTaken)
+	SCEmailAlreadyAdded                         = int(keybase1.StatusCode_SCEmailAlreadyAdded)
+	SCEmailLimitExceeded                        = int(keybase1.StatusCode_SCEmailLimitExceeded)
+	SCEmailCannotDeletePrimary                  = int(keybase1.StatusCode_SCEmailCannotDeletePrimary)
+	SCEmailUnknown                              = int(keybase1.StatusCode_SCEmailUnknown)
+	SCNoUpdate                                  = int(keybase1.StatusCode_SCNoUpdate)
 	SCMissingResult                             = int(keybase1.StatusCode_SCMissingResult)
 	SCKeyNotFound                               = int(keybase1.StatusCode_SCKeyNotFound)
 	SCKeyCorrupted                              = int(keybase1.StatusCode_SCKeyCorrupted)
@@ -256,8 +280,10 @@ const (
 	SCSibkeyAlreadyExists                       = int(keybase1.StatusCode_SCSibkeyAlreadyExists)
 	SCSigCreationDisallowed                     = int(keybase1.StatusCode_SCSigCreationDisallowed)
 	SCDecryptionKeyNotFound                     = int(keybase1.StatusCode_SCDecryptionKeyNotFound)
+	SCVerificationKeyNotFound                   = int(keybase1.StatusCode_SCVerificationKeyNotFound)
 	SCBadTrackSession                           = int(keybase1.StatusCode_SCBadTrackSession)
 	SCDeviceBadName                             = int(keybase1.StatusCode_SCDeviceBadName)
+	SCDeviceBadStatus                           = int(keybase1.StatusCode_SCDeviceBadStatus)
 	SCDeviceNameInUse                           = int(keybase1.StatusCode_SCDeviceNameInUse)
 	SCDeviceNotFound                            = int(keybase1.StatusCode_SCDeviceNotFound)
 	SCDeviceMismatch                            = int(keybase1.StatusCode_SCDeviceMismatch)
@@ -269,6 +295,7 @@ const (
 	SCStreamExists                              = int(keybase1.StatusCode_SCStreamExists)
 	SCStreamNotFound                            = int(keybase1.StatusCode_SCStreamNotFound)
 	SCStreamWrongKind                           = int(keybase1.StatusCode_SCStreamWrongKind)
+	SCStreamUnknown                             = int(keybase1.StatusCode_SCStreamUnknown)
 	SCStreamEOF                                 = int(keybase1.StatusCode_SCStreamEOF)
 	SCGenericAPIError                           = int(keybase1.StatusCode_SCGenericAPIError)
 	SCAPINetworkError                           = int(keybase1.StatusCode_SCAPINetworkError)
@@ -286,6 +313,7 @@ const (
 	SCWrongCryptoFormat                         = int(keybase1.StatusCode_SCWrongCryptoFormat)
 	SCGPGUnavailable                            = int(keybase1.StatusCode_SCGPGUnavailable)
 	SCDecryptionError                           = int(keybase1.StatusCode_SCDecryptionError)
+	SCWrongCryptoMsgType                        = int(keybase1.StatusCode_SCWrongCryptoMsgType)
 	SCChatInternal                              = int(keybase1.StatusCode_SCChatInternal)
 	SCChatRateLimit                             = int(keybase1.StatusCode_SCChatRateLimit)
 	SCChatConvExists                            = int(keybase1.StatusCode_SCChatConvExists)
@@ -301,6 +329,7 @@ const (
 	SCChatStalePreviousState                    = int(keybase1.StatusCode_SCChatStalePreviousState)
 	SCChatEphemeralRetentionPolicyViolatedError = int(keybase1.StatusCode_SCChatEphemeralRetentionPolicyViolatedError)
 	SCMerkleClientError                         = int(keybase1.StatusCode_SCMerkleClientError)
+	SCMerkleUpdateRoot                          = int(keybase1.StatusCode_SCMerkleUpdateRoot)
 	SCBadEmail                                  = int(keybase1.StatusCode_SCBadEmail)
 	SCIdentifySummaryError                      = int(keybase1.StatusCode_SCIdentifySummaryError)
 	SCNeedSelfRekey                             = int(keybase1.StatusCode_SCNeedSelfRekey)
@@ -308,16 +337,20 @@ const (
 	SCChatMessageCollision                      = int(keybase1.StatusCode_SCChatMessageCollision)
 	SCChatDuplicateMessage                      = int(keybase1.StatusCode_SCChatDuplicateMessage)
 	SCChatClientError                           = int(keybase1.StatusCode_SCChatClientError)
+	SCChatUsersAlreadyInConversationError       = int(keybase1.StatusCode_SCChatUsersAlreadyInConversationError)
+	SCChatBadConversationError                  = int(keybase1.StatusCode_SCChatBadConversationError)
 	SCAccountReset                              = int(keybase1.StatusCode_SCAccountReset)
 	SCIdentifiesFailed                          = int(keybase1.StatusCode_SCIdentifiesFailed)
 	SCTeamReadError                             = int(keybase1.StatusCode_SCTeamReadError)
 	SCTeamWritePermDenied                       = int(keybase1.StatusCode_SCTeamWritePermDenied)
 	SCNoOp                                      = int(keybase1.StatusCode_SCNoOp)
+	SCTeamBadGeneration                         = int(keybase1.StatusCode_SCTeamBadGeneration)
 	SCTeamNotFound                              = int(keybase1.StatusCode_SCTeamNotFound)
 	SCTeamTarDuplicate                          = int(keybase1.StatusCode_SCTeamTarDuplicate)
 	SCTeamTarNotFound                           = int(keybase1.StatusCode_SCTeamTarNotFound)
 	SCTeamMemberExists                          = int(keybase1.StatusCode_SCTeamMemberExists)
 	SCTeamFTLOutdated                           = int(keybase1.StatusCode_SCTeamFTLOutdated)
+	SCTeamContactSettingsBlock                  = int(keybase1.StatusCode_SCTeamContactSettingsBlock)
 	SCLoginStateTimeout                         = int(keybase1.StatusCode_SCLoginStateTimeout)
 	SCRevokeCurrentDevice                       = int(keybase1.StatusCode_SCRevokeCurrentDevice)
 	SCRevokeLastDevice                          = int(keybase1.StatusCode_SCRevokeLastDevice)
@@ -354,6 +387,9 @@ const (
 	SCPhoneNumberLimitExceeded                  = int(keybase1.StatusCode_SCPhoneNumberLimitExceeded)
 	SCNoPaperKeys                               = int(keybase1.StatusCode_SCNoPaperKeys)
 	SCTeambotKeyGenerationExists                = int(keybase1.StatusCode_SCTeambotKeyGenerationExists)
+	SCTeamStorageWrongRevision                  = int(keybase1.StatusCode_SCTeamStorageWrongRevision)
+	SCTeamStorageBadGeneration                  = int(keybase1.StatusCode_SCTeamStorageBadGeneration)
+	SCTeamStorageNotFound                       = int(keybase1.StatusCode_SCTeamStorageNotFound)
 )
 
 const (
@@ -375,6 +411,8 @@ const (
 	LinkTypeWebServiceBinding LinkType = "web_service_binding"
 	LinkTypePerUserKey        LinkType = "per_user_key"
 	LinkTypeWalletStellar     LinkType = "wallet.stellar"
+	LinkTypeWotVouch          LinkType = "wot.vouch"
+	LinkTypeWotReact          LinkType = "wot.react"
 
 	// team links
 	LinkTypeTeamRoot         LinkType = "team.root"
@@ -391,6 +429,7 @@ const (
 	LinkTypeDeleteUpPointer  LinkType = "team.delete_up_pointer"
 	LinkTypeKBFSSettings     LinkType = "team.kbfs"
 	LinkTypeSettings         LinkType = "team.settings"
+	LinkTypeTeamBotSettings  LinkType = "team.bot_settings"
 
 	DelegationTypeEldest    DelegationType = "eldest"
 	DelegationTypePGPUpdate DelegationType = "pgp_update"
@@ -425,15 +464,6 @@ const (
 	DeviceStatusNone    = 0
 	DeviceStatusActive  = 1
 	DeviceStatusDefunct = 2
-)
-
-// these strings need to match the keys in
-// keybase/lib_public/public_constants.iced ->
-// public_constants.device.type
-const (
-	DeviceTypeDesktop = "desktop"
-	DeviceTypeMobile  = "mobile"
-	DeviceTypePaper   = "backup"
 )
 
 const DownloadURL = "https://keybase.io/download"
@@ -570,12 +600,15 @@ const (
 )
 
 const (
-	ServiceLogFileName = "keybase.service.log"
-	EKLogFileName      = "keybase.ek.log"
-	KBFSLogFileName    = kbconst.KBFSLogFileName
-	GitLogFileName     = "keybase.git.log"
-	UpdaterLogFileName = "keybase.updater.log"
-	DesktopLogFileName = "Keybase.app.log"
+	ServiceLogFileName  = "keybase.service.log"
+	EKLogFileName       = "keybase.ek.log"
+	PerfLogFileName     = "keybase.perf.log"
+	KBFSLogFileName     = kbconst.KBFSLogFileName
+	KBFSPerfLogFileName = "keybase.kbfs.perf.log"
+	GitLogFileName      = "keybase.git.log"
+	GitPerfLogFileName  = "keybase.git.perf.log"
+	UpdaterLogFileName  = "keybase.updater.log"
+	GUILogFileName      = "Keybase.app.log"
 	// StartLogFileName is where services can log to (on startup) before they handle their own logging
 	StartLogFileName = "keybase.start.log"
 )
@@ -599,7 +632,10 @@ const (
 	EncryptionReasonTeamsHiddenLocalStorage EncryptionReason = "Keybase-Teams-Hidden-Local-Storage-1"
 	EncryptionReasonErasableKVLocalStorage  EncryptionReason = "Keybase-Erasable-KV-Local-Storage-1"
 	EncryptionReasonTeambotEphemeralKey     EncryptionReason = "Keybase-Teambot-Ephemeral-Key-1"
+	EncryptionReasonTeambotKey              EncryptionReason = "Keybase-Teambot-Key-1"
 	EncryptionReasonContactsLocalStorage    EncryptionReason = "Keybase-Contacts-Local-Storage-1"
+	EncryptionReasonContactsResolvedServer  EncryptionReason = "Keybase-Contacts-Resolved-Server-1"
+	EncryptionReasonTeambotKeyLocalStorage  EncryptionReason = "Keybase-Teambot-Key-Local-Storage-1"
 	EncryptionReasonKBFSFavorites           EncryptionReason = "kbfs.favorites" // legacy const for kbfs favorites
 )
 
@@ -614,11 +650,12 @@ const (
 	DeriveReasonPUKStellarNoteSelf   DeriveReason = "Derived-User-NaCl-SecretBox-StellarSelfNote-1"
 	DeriveReasonPUKStellarAcctBundle DeriveReason = "Derived-User-NaCl-SecretBox-StellarAcctBundle-1"
 
-	DeriveReasonDeviceEKEncryption  DeriveReason = "Derived-Ephemeral-Device-NaCl-DH-1"
-	DeriveReasonUserEKEncryption    DeriveReason = "Derived-Ephemeral-User-NaCl-DH-1"
-	DeriveReasonTeamEKEncryption    DeriveReason = "Derived-Ephemeral-Team-NaCl-DH-1"
-	DeriveReasonTeambotEKEncryption DeriveReason = "Derived-Ephemeral-Team-Bot-NaCl-DH-1"
-	DeriveReasonTeamEKExplodingChat DeriveReason = "Derived-Ephemeral-Team-NaCl-SecretBox-ExplodingChat-1"
+	DeriveReasonDeviceEKEncryption   DeriveReason = "Derived-Ephemeral-Device-NaCl-DH-1"
+	DeriveReasonUserEKEncryption     DeriveReason = "Derived-Ephemeral-User-NaCl-DH-1"
+	DeriveReasonTeamEKEncryption     DeriveReason = "Derived-Ephemeral-Team-NaCl-DH-1"
+	DeriveReasonTeamEKExplodingChat  DeriveReason = "Derived-Ephemeral-Team-NaCl-SecretBox-ExplodingChat-1"
+	DeriveReasonTeambotEKEncryption  DeriveReason = "Derived-Ephemeral-Teambot-NaCl-DH-1"
+	DeriveReasonTeambotKeyEncryption DeriveReason = "Derived-Teambot-Key-NaCl-DH-1"
 
 	DeriveReasonChatPairwiseMAC DeriveReason = "Derived-Chat-Pairwise-HMAC-SHA256-1"
 
@@ -628,7 +665,7 @@ const (
 // Not a DeriveReason because it is not used in the same way.
 const DeriveReasonPUKStellarNoteShared string = "Keybase-Derived-Stellar-Note-PUK-Sbox-NaCl-DH-1"
 
-// FirstPRodMerkleSeqnoWithSkips is the first merkle root on production that
+// FirstProdMerkleSeqnoWithSkips is the first merkle root on production that
 // has skip pointers indicating log(n) previous merkle roots.
 var FirstProdMerkleSeqnoWithSkips = keybase1.Seqno(835903)
 
@@ -639,6 +676,10 @@ var FirstProdMerkleSeqnoWithSigs = keybase1.Seqno(796)
 // on, we have the modern shape. It's possible to tweak our clients to handle both
 // shapes, but it's not really worth it at this time.
 var FirstProdMerkleTreeWithModernShape = keybase1.Seqno(531408)
+
+// FirstProdMerkleSeqnoWithHiddenRootHash is the first merkle root on production that
+// contains the hash of a blind merkle tree root.
+var FirstProdMerkleSeqnoWithHiddenRootHash = keybase1.Seqno(14145980)
 
 type AppType string
 
@@ -674,6 +715,7 @@ const (
 	TeamGitMetadataDerivationString      = "Keybase-Derived-Team-NaCl-GitMetadata-1"
 	TeamSeitanTokenDerivationString      = "Keybase-Derived-Team-NaCl-SeitanInviteToken-1"
 	TeamStellarRelayDerivationString     = "Keybase-Derived-Team-NaCl-StellarRelay-1"
+	TeamKVStoreDerivationString          = "Keybase-Derived-Team-NaCl-KVStore-1"
 	TeamKeySeedCheckDerivationString     = "Keybase-Derived-Team-Seedcheck-1"
 )
 
@@ -699,13 +741,15 @@ const MinEphemeralContentLifetime = time.Second * 30
 // NOTE: If you change this value you should change it in lib/constants.iced
 // and go/ekreaperd/reaper.go as well.
 // Devices are considered stale and not included in new keys after this interval
-const MaxEphemeralKeyStaleness = time.Hour * 24 * 30 * 3 // three months
+const MaxEphemeralKeyStaleness = time.Hour * 24 * 38 // 1.25 months
 // Everyday we want to generate a new key if possible
 const EphemeralKeyGenInterval = time.Hour * 24 // one day
 // Our keys must last at least this long.
 const MinEphemeralKeyLifetime = MaxEphemeralContentLifetime + EphemeralKeyGenInterval
 
 const MaxTeamMembersForPairwiseMAC = 100
+
+const TeamBackoffBeforeAuditOnNeedRotate = time.Minute
 
 const (
 	MaxStellarPaymentNoteLength       = 500
@@ -733,4 +777,21 @@ const ProfileProofSuggestions = true
 const (
 	ExternalURLsBaseKey         = "external_urls"
 	ExternalURLsStellarPartners = "stellar_partners"
+)
+
+type LoginAttempt int
+
+const (
+	LoginAttemptNone    LoginAttempt = 0
+	LoginAttemptOffline LoginAttempt = 1
+	LoginAttemptOnline  LoginAttempt = 2
+)
+
+const (
+	// Do not fetch the merkle root again if it was fetched within this
+	// threshold. Note that the server can always not tell us about a new root
+	// even if we set this threshold to a very short value (unless we learn
+	// about it otherwise), and that if we poll an honest server will tell us if
+	// we should update the root (which will override this threshold).
+	DefaultMerkleRootFreshness = 1 * time.Minute
 )

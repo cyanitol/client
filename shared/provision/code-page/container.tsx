@@ -1,50 +1,47 @@
 import * as ProvisionGen from '../../actions/provision-gen'
 import * as RouteTreeGen from '../../actions/route-tree-gen'
 import CodePage2 from '.'
-import {compose, connect, isMobile, safeSubmit} from '../../util/container'
+import * as Container from '../../util/container'
 import HiddenString from '../../util/hidden-string'
-import {RouteProps} from '../../route-tree/render-route'
+import * as DevicesConstants from '../../constants/devices'
+import * as Constants from '../../constants/provision'
 
-type OwnProps = RouteProps
+type OwnProps = Container.RouteProps<{}>
 
-const mapStateToProps = (state, ownProps: OwnProps) => {
-  const currentDeviceAlreadyProvisioned = !!state.config.deviceName
-  return {
-    currentDeviceAlreadyProvisioned,
-    // we either have a name for real or we asked on a previous screen
-    currentDeviceName:
-      (currentDeviceAlreadyProvisioned ? state.config.deviceName : state.provision.deviceName) || '',
-    currentDeviceType: isMobile ? 'mobile' : 'desktop',
-    error: state.provision.error.stringValue(),
-    otherDeviceName: state.provision.codePageOtherDeviceName,
-    otherDeviceType: state.provision.codePageOtherDeviceType,
-    textCode: state.provision.codePageIncomingTextCode.stringValue(),
-  }
-}
-
-const mapDispatchToProps = (dispatch, ownProps: OwnProps) => ({
-  onBack: () => dispatch(RouteTreeGen.createNavigateUp()),
-  onSubmitTextCode: (code: string) =>
-    dispatch(ProvisionGen.createSubmitTextCode({phrase: new HiddenString(code)})),
-})
-
-const mergeProps = (stateProps, dispatchProps, ownProps) => ({
-  currentDeviceAlreadyProvisioned: stateProps.currentDeviceAlreadyProvisioned,
-  currentDeviceName: stateProps.currentDeviceName,
-  currentDeviceType: stateProps.currentDeviceType,
-  error: stateProps.error,
-  onBack: dispatchProps.onBack,
-  onSubmitTextCode: dispatchProps.onSubmitTextCode,
-  otherDeviceName: stateProps.otherDeviceName,
-  otherDeviceType: stateProps.otherDeviceType,
-  textCode: stateProps.textCode,
-})
-
-export default compose(
-  connect(
-    mapStateToProps,
-    mapDispatchToProps,
-    mergeProps
-  ),
-  safeSubmit(['onBack', 'onSubmitTextCode'], ['error'])
-)(CodePage2)
+const prov = Container.connect(
+  (state: Container.TypedState) => {
+    const currentDeviceAlreadyProvisioned = !!state.config.deviceName
+    return {
+      currentDeviceAlreadyProvisioned,
+      // we either have a name for real or we asked on a previous screen
+      currentDeviceName:
+        (currentDeviceAlreadyProvisioned ? state.config.deviceName : state.provision.deviceName) || '',
+      device: DevicesConstants.getDevice(state, state.config.deviceID),
+      error: state.provision.error.stringValue(),
+      iconNumber: DevicesConstants.getDeviceIconNumber(state, state.provision.codePageOtherDevice.id),
+      otherDevice: state.provision.codePageOtherDevice,
+      textCode: state.provision.codePageIncomingTextCode.stringValue(),
+      waiting: Container.anyWaiting(state, Constants.waitingKey),
+    }
+  },
+  (dispatch: Container.TypedDispatch) => ({
+    onBack: () => dispatch(RouteTreeGen.createNavigateUp()),
+    onClose: () => dispatch(ProvisionGen.createCancelProvision()),
+    onSubmitTextCode: (code: string) =>
+      dispatch(ProvisionGen.createSubmitTextCode({phrase: new HiddenString(code)})),
+  }),
+  (stateProps, dispatchProps, _: OwnProps) => ({
+    currentDevice: stateProps.device,
+    currentDeviceAlreadyProvisioned: stateProps.currentDeviceAlreadyProvisioned,
+    currentDeviceName: stateProps.currentDeviceName,
+    error: stateProps.error,
+    iconNumber: stateProps.iconNumber,
+    onBack: dispatchProps.onBack,
+    onClose: dispatchProps.onClose,
+    onSubmitTextCode: (code: string) => !stateProps.waiting && dispatchProps.onSubmitTextCode(code),
+    otherDevice: stateProps.otherDevice,
+    textCode: stateProps.textCode,
+    waiting: stateProps.waiting,
+  })
+)(Container.safeSubmit(['onBack', 'onSubmitTextCode'], ['error'])(CodePage2))
+export default prov

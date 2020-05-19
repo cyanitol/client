@@ -3,11 +3,6 @@ package chat
 import (
 	"fmt"
 	"testing"
-	"time"
-
-	"github.com/keybase/client/go/badges"
-
-	"github.com/keybase/client/go/protocol/keybase1"
 
 	"sync"
 
@@ -15,8 +10,10 @@ import (
 
 	"github.com/keybase/client/go/chat/storage"
 	"github.com/keybase/client/go/chat/types"
+	"github.com/keybase/client/go/chat/utils"
 	"github.com/keybase/client/go/kbtest"
 	"github.com/keybase/client/go/protocol/chat1"
+	"github.com/keybase/client/go/protocol/gregor1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,7 +41,7 @@ func TestInboxSourceUpdateRace(t *testing.T) {
 	require.NoError(t, err)
 
 	ib, _, err := tc.ChatG.InboxSource.Read(ctx, u.User.GetUID().ToBytes(),
-		types.ConversationLocalizerBlocking, types.InboxSourceDataSourceAll, nil, nil, nil)
+		types.ConversationLocalizerBlocking, types.InboxSourceDataSourceAll, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, chat1.InboxVers(0), ib.Version, "wrong version")
 
@@ -70,7 +67,7 @@ func TestInboxSourceUpdateRace(t *testing.T) {
 	wg.Wait()
 
 	ib, _, err = tc.ChatG.InboxSource.Read(ctx, u.User.GetUID().ToBytes(),
-		types.ConversationLocalizerBlocking, types.InboxSourceDataSourceAll, nil, nil, nil)
+		types.ConversationLocalizerBlocking, types.InboxSourceDataSourceAll, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, chat1.InboxVers(1), ib.Version, "wrong version")
 }
@@ -90,7 +87,7 @@ func TestInboxSourceSkipAhead(t *testing.T) {
 
 	assertInboxVersion := func(v int) {
 		ib, _, err := tc.ChatG.InboxSource.Read(ctx, u.User.GetUID().ToBytes(),
-			types.ConversationLocalizerBlocking, types.InboxSourceDataSourceAll, nil, nil, nil)
+			types.ConversationLocalizerBlocking, types.InboxSourceDataSourceAll, nil, nil)
 		require.Equal(t, chat1.InboxVers(v), ib.Version, "wrong version")
 		require.NoError(t, err)
 	}
@@ -114,9 +111,7 @@ func TestInboxSourceSkipAhead(t *testing.T) {
 
 	t.Logf("add message but drop oobm")
 
-	rc := types.RemoteConversation{
-		Conv: conv,
-	}
+	rc := utils.RemoteConv(conv)
 	localConvs, _, err := tc.Context().InboxSource.Localize(ctx, uid, []types.RemoteConversation{rc},
 		types.ConversationLocalizerBlocking)
 	require.NoError(t, err)
@@ -174,62 +169,6 @@ func TestInboxSourceSkipAhead(t *testing.T) {
 	require.Equal(t, 1, syncCalled)
 }
 
-func TestInboxSourceFlushLoop(t *testing.T) {
-	ctx, world, ri, _, sender, _ := setupTest(t, 2)
-	defer world.Cleanup()
-
-	u := world.GetUsers()[0]
-	u2 := world.GetUsers()[1]
-	uid := u.User.GetUID().ToBytes()
-	tc := world.Tcs[u.Username]
-	<-tc.Context().ConvLoader.Stop(context.TODO())
-	ibs := tc.Context().InboxSource
-	hbs, ok := ibs.(*HybridInboxSource)
-	if !ok {
-		t.Skip()
-	}
-	newBlankConv(ctx, t, tc, uid, ri, sender, u.Username)
-	_, err := hbs.ReadUnverified(ctx, uid, types.InboxSourceDataSourceAll, nil, nil)
-	require.NoError(t, err)
-	inbox := hbs.createInbox()
-	flushCh := make(chan struct{}, 10)
-	hbs.testFlushCh = flushCh
-	_, _, err = inbox.ReadAll(ctx, uid, false)
-	require.Error(t, err)
-	require.IsType(t, storage.MissError{}, err)
-	_, rc, err := inbox.ReadAll(ctx, uid, true)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(rc))
-	world.Fc.Advance(time.Hour)
-	select {
-	case <-flushCh:
-	case <-time.After(20 * time.Second):
-		require.Fail(t, "no flush")
-	}
-	_, rc, err = inbox.ReadAll(ctx, uid, false)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(rc))
-	_, rc, err = inbox.ReadAll(ctx, uid, true)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(rc))
-
-	newBlankConv(ctx, t, tc, uid, ri, sender, u.Username+","+u2.Username)
-	_, rc, err = inbox.ReadAll(ctx, uid, false)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(rc))
-	_, rc, err = inbox.ReadAll(ctx, uid, true)
-	require.NoError(t, err)
-	require.Equal(t, 2, len(rc))
-	tc.Context().MobileAppState.Update(keybase1.MobileAppState_BACKGROUND)
-	select {
-	case <-flushCh:
-	case <-time.After(20 * time.Second):
-		require.Fail(t, "no flush")
-	}
-	_, rc, err = inbox.ReadAll(ctx, uid, false)
-	require.Equal(t, 2, len(rc))
-}
-
 func TestInboxSourceLocalOnly(t *testing.T) {
 	ctc := makeChatTestContext(t, "TestInboxSourceLocalOnly", 1)
 	defer ctc.cleanup()
@@ -239,6 +178,7 @@ func TestInboxSourceLocalOnly(t *testing.T) {
 
 	listener := newServerChatListener()
 	ctc.as(t, users[0]).h.G().NotifyRouter.AddListener(listener)
+	ctc.world.Tcs[users[0].Username].ChatG.UIInboxLoader = types.DummyUIInboxLoader{}
 	ctc.world.Tcs[users[0].Username].ChatG.Syncer.(*Syncer).isConnected = true
 
 	ctx := ctc.as(t, users[0]).startCtx
@@ -253,7 +193,7 @@ func TestInboxSourceLocalOnly(t *testing.T) {
 		ib, err := tc.Context().InboxSource.ReadUnverified(ctx, uid, mode,
 			&chat1.GetInboxQuery{
 				ConvID: &conv.Id,
-			}, nil)
+			})
 		if success {
 			require.NoError(t, err)
 			require.Equal(t, 1, len(ib.ConvsUnverified))
@@ -266,7 +206,7 @@ func TestInboxSourceLocalOnly(t *testing.T) {
 
 	attempt(types.InboxSourceDataSourceAll, true)
 	attempt(types.InboxSourceDataSourceLocalOnly, true)
-	require.NoError(t, tc.Context().InboxSource.Clear(ctx, uid))
+	require.NoError(t, tc.Context().InboxSource.Clear(ctx, uid, nil))
 	attempt(types.InboxSourceDataSourceLocalOnly, false)
 	attempt(types.InboxSourceDataSourceRemoteOnly, true)
 	attempt(types.InboxSourceDataSourceLocalOnly, false)
@@ -274,83 +214,24 @@ func TestInboxSourceLocalOnly(t *testing.T) {
 	attempt(types.InboxSourceDataSourceLocalOnly, true)
 }
 
-func TestInboxSourceMarkAsRead(t *testing.T) {
-	ctc := makeChatTestContext(t, "TestInboxSourceMarkAsRead", 2)
-	defer ctc.cleanup()
-	users := ctc.users()
-	useRemoteMock = false
-	defer func() { useRemoteMock = true }()
-
-	listener0 := newServerChatListener()
-	listener1 := newServerChatListener()
-	ctc.as(t, users[0]).h.G().NotifyRouter.AddListener(listener0)
-	ctc.as(t, users[1]).h.G().NotifyRouter.AddListener(listener1)
-	ctc.world.Tcs[users[0].Username].ChatG.Syncer.(*Syncer).isConnected = true
-	ctc.world.Tcs[users[1].Username].ChatG.Syncer.(*Syncer).isConnected = true
-	tc1 := ctc.world.Tcs[users[1].Username]
-	inboxSource := tc1.Context().InboxSource.(*HybridInboxSource)
-	syncer := ctc.world.Tcs[users[1].Username].ChatG.Syncer.(*Syncer)
-	badger := badges.NewBadger(tc1.G)
-	badger.SetLocalChatState(inboxSource)
-	pusher := tc1.Context().PushHandler.(*PushHandler)
-	pusher.SetBadger(badger)
-	ctx1 := ctc.as(t, users[1]).startCtx
-	uid1 := users[1].User.GetUID().ToBytes()
-	syncer.RegisterOfflinable(inboxSource)
-
-	conv := mustCreateConversationForTest(t, ctc, users[0], chat1.TopicType_CHAT,
-		chat1.ConversationMembersType_IMPTEAMNATIVE, users[1])
-	consumeNewConversation(t, listener0, conv.Id)
-	consumeNewConversation(t, listener1, conv.Id)
-	mustPostLocalForTest(t, ctc, users[0], conv, chat1.NewMessageBodyWithText(chat1.MessageText{Body: "HI"}))
-	consumeNewMsgRemote(t, listener0, chat1.MessageType_TEXT)
-	msg := consumeNewMsgRemote(t, listener1, chat1.MessageType_TEXT)
-
-	badgeState, err := badger.State().Export(context.TODO())
-	require.NoError(t, err)
-	require.Equal(t, 1, len(badgeState.Conversations))
-	require.Equal(t, 1, badgeState.Conversations[0].UnreadMessages)
-
-	ri := inboxSource.getChatInterface
-	inboxSource.SetRemoteInterface(func() chat1.RemoteInterface {
-		return chat1.RemoteClient{Cli: OfflineClient{}}
+func TestChatConversationDeleted(t *testing.T) {
+	runWithMemberTypes(t, func(mt chat1.ConversationMembersType) {
+		switch mt {
+		case chat1.ConversationMembersType_TEAM:
+		default:
+			return
+		}
+		ctc := makeChatTestContext(t, "TestChatConversationDeleted", 1)
+		defer ctc.cleanup()
+		users := ctc.users()
+		ctx := context.TODO()
+		uid := gregor1.UID(users[0].User.GetUID().ToBytes())
+		ctc.as(t, users[0])
+		g := ctc.world.Tcs[users[0].Username].Context()
+		_, _, err := g.InboxSource.Read(ctx, uid, types.ConversationLocalizerBlocking, types.InboxSourceDataSourceRemoteOnly, nil,
+			&chat1.GetInboxLocalQuery{
+				ConvIDs: []chat1.ConversationID{chat1.ConversationID("dead")},
+			})
+		require.NoError(t, err)
 	})
-	require.NoError(t, inboxSource.MarkAsRead(ctx1, conv.Id, uid1, msg.GetMessageID()))
-	syncer.Disconnected(context.TODO())
-	pusher.testingIgnoreBroadcasts = true
-
-	// make sure we didn't get any remote call through
-	select {
-	case <-listener1.readMessage:
-		require.Fail(t, "no read message yet")
-	default:
-	}
-	badgeState, err = badger.State().Export(context.TODO())
-	require.NoError(t, err)
-	require.Equal(t, 1, len(badgeState.Conversations))
-	require.Equal(t, 0, badgeState.Conversations[0].UnreadMessages)
-
-	// send another message we have unread state when coming back online
-	mustPostLocalForTest(t, ctc, users[0], conv, chat1.NewMessageBodyWithText(chat1.MessageText{Body: "HI"}))
-	consumeNewMsgRemote(t, listener0, chat1.MessageType_TEXT)
-	select {
-	case <-listener1.newMessageRemote:
-		require.Fail(t, "no read message yet")
-	default:
-	}
-
-	pusher.testingIgnoreBroadcasts = false
-	inboxSource.getChatInterface = ri
-	syncer.Connected(context.TODO(), ri(), uid1, nil)
-	select {
-	case info := <-listener1.readMessage:
-		require.Equal(t, conv.Id, info.ConvID)
-		require.Equal(t, msg.GetMessageID(), info.MsgID)
-	case <-time.After(2 * time.Second):
-		require.Fail(t, "no read message info")
-	}
-	badgeState, err = badger.State().Export(context.TODO())
-	require.NoError(t, err)
-	require.Equal(t, 1, len(badgeState.Conversations))
-	require.Equal(t, 1, badgeState.Conversations[0].UnreadMessages)
 }

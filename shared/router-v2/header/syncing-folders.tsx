@@ -1,6 +1,7 @@
 import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Constants from '../../constants/fs'
+import * as Types from '../../constants/types/fs'
 import {namedConnect} from '../../util/typed-connect'
 import PieSlice from '../../fs/common/pie-slice'
 
@@ -16,7 +17,7 @@ type Props = {
 
 const SyncingFolders = (props: Props) =>
   props.show && props.progress !== 1.0 ? (
-    <Kb.WithTooltip text={props.tooltip}>
+    <Kb.WithTooltip tooltip={props.tooltip} containerStyle={{alignSelf: 'center'}}>
       <Kb.Box2 direction="horizontal" alignItems="center">
         <PieSlice degrees={props.progress * 360} animated={true} negative={props.negative} />
         <Kb.Text type="BodyTiny" negative={props.negative} style={{marginLeft: 5}}>
@@ -28,12 +29,12 @@ const SyncingFolders = (props: Props) =>
 
 const mapStateToProps = state => ({
   _syncingFoldersProgress: state.fs.overallSyncStatus.syncingFoldersProgress,
-  online: state.fs.kbfsDaemonStatus.online,
+  online: state.fs.kbfsDaemonStatus.onlineStatus !== Types.KbfsDaemonOnlineStatus.Offline,
 })
 
-const mapDispatchToProps = dispatch => ({})
+const mapDispatchToProps = () => ({})
 
-const mergeProps = (s, d, o: OwnProps) => {
+const mergeProps = (s, _, o: OwnProps) => {
   if (s._syncingFoldersProgress.bytesTotal === 0) {
     return {progress: 0, show: false, tooltip: ''}
   }

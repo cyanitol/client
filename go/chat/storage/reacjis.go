@@ -4,32 +4,96 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/keybase/client/go/chat/globals"
+	"github.com/keybase/client/go/chat/types"
 	"github.com/keybase/client/go/chat/utils"
 	"github.com/keybase/client/go/encrypteddb"
 	"github.com/keybase/client/go/libkb"
+	"github.com/keybase/client/go/protocol/chat1"
 	"github.com/keybase/client/go/protocol/gregor1"
 	"github.com/keybase/client/go/protocol/keybase1"
 	"github.com/kyokomi/emoji"
 	context "golang.org/x/net/context"
 )
 
-const reacjiDiskVersion = 3
+func init() {
+	// Don't add padding between emojis, we want skin tones to be rendered
+	// correctly.
+	emoji.ReplacePadding = ""
+}
 
-var codeMap map[string]string
+const (
+	minScoringMinutes = 1           // one minute
+	maxScoringMinutes = 7 * 24 * 60 // one week
+	frequencyWeight   = 2
+	mtimeWeight       = 1
+	reacjiDiskVersion = 3
+)
 
 // If the user has less than 5 favorite reacjis we stuff these defaults in.
-var DefaultTopReacjis = []string{":+1:", ":-1:", ":joy:", ":sunglasses:", ":tada:"}
+var DefaultTopReacjis = []keybase1.UserReacji{
+	{Name: ":+1:"},
+	{Name: ":-1:"},
+	{Name: ":joy:"},
+	{Name: ":sunglasses:"},
+	{Name: ":tada:"},
+}
+
+func EmojiAliasList(shortCode string) []string {
+	return emojiRevCodeMap[emojiCodeMap[shortCode]]
+}
+
+// EmojiHasAlias flags if the given `shortCode` has multiple aliases with other
+// codes.
+func EmojiHasAlias(shortCode string) bool {
+	return len(EmojiAliasList(shortCode)) > 1
+}
+
+// EmojiExists flags if the given `shortCode` is a valid emoji
+func EmojiExists(shortCode string) bool {
+	return len(EmojiAliasList(shortCode)) > 0
+}
+
+// NormalizeShortCode normalizes a given `shortCode` to a deterministic alias.
+func NormalizeShortCode(shortCode string) string {
+	shortLists := EmojiAliasList(shortCode)
+	if len(shortLists) == 0 {
+		return shortCode
+	}
+	return shortLists[0]
+}
 
 type ReacjiInternalStorage struct {
 	FrequencyMap map[string]int
+	MtimeMap     map[string]gregor1.Time
 	SkinTone     keybase1.ReacjiSkinTone
 }
 
-func NewReacjiInternalStorage() *ReacjiInternalStorage {
-	return &ReacjiInternalStorage{
+func (i ReacjiInternalStorage) score(name string) float64 {
+	freq := i.FrequencyMap[name]
+	mtime, ok := i.MtimeMap[name]
+	// if we are missing an mtime just backdate to a week ago
+	if !ok {
+		mtime = gregor1.ToTime(time.Now().Add(-time.Hour * 24 * 7))
+	}
+	minutes := time.Since(mtime.Time()).Minutes()
+	var mtimeScore float64
+	if minutes > maxScoringMinutes {
+		mtimeScore = 0
+	} else if minutes < minScoringMinutes {
+		mtimeScore = 1
+	} else {
+		mtimeScore = 1 - minutes/(maxScoringMinutes-minScoringMinutes)
+	}
+	return float64(freq*frequencyWeight) + mtimeScore*mtimeWeight
+}
+
+func NewReacjiInternalStorage() ReacjiInternalStorage {
+	return ReacjiInternalStorage{
 		FrequencyMap: make(map[string]int),
+		MtimeMap:     make(map[string]gregor1.Time),
 	}
 }
 
@@ -37,7 +101,7 @@ type reacjiMemCacheImpl struct {
 	sync.RWMutex
 
 	uid  gregor1.UID
-	data *ReacjiInternalStorage
+	data ReacjiInternalStorage
 }
 
 func newReacjiMemCacheImpl() *reacjiMemCacheImpl {
@@ -46,7 +110,7 @@ func newReacjiMemCacheImpl() *reacjiMemCacheImpl {
 	}
 }
 
-func (i *reacjiMemCacheImpl) Get(uid gregor1.UID) (bool, *ReacjiInternalStorage) {
+func (i *reacjiMemCacheImpl) Get(uid gregor1.UID) (bool, ReacjiInternalStorage) {
 	i.RLock()
 	defer i.RUnlock()
 	if !uid.Eq(i.uid) {
@@ -55,7 +119,7 @@ func (i *reacjiMemCacheImpl) Get(uid gregor1.UID) (bool, *ReacjiInternalStorage)
 	return true, i.data
 }
 
-func (i *reacjiMemCacheImpl) Put(uid gregor1.UID, data *ReacjiInternalStorage) {
+func (i *reacjiMemCacheImpl) Put(uid gregor1.UID, data ReacjiInternalStorage) {
 	i.Lock()
 	defer i.Unlock()
 	i.uid = uid
@@ -82,8 +146,17 @@ func (i *reacjiMemCacheImpl) OnDbNuke(mctx libkb.MetaContext) error {
 var reacjiMemCache = newReacjiMemCacheImpl()
 
 type reacjiPair struct {
-	name string
-	freq int
+	name  string
+	score float64
+	freq  int
+}
+
+func newReacjiPair(name string, freq int, score float64) reacjiPair {
+	return reacjiPair{
+		name:  name,
+		freq:  freq,
+		score: score,
+	}
 }
 
 type reacjiDiskEntry struct {
@@ -93,8 +166,10 @@ type reacjiDiskEntry struct {
 }
 
 type ReacjiStore struct {
+	globals.Contextified
 	sync.Mutex
 	utils.DebugLabeler
+
 	encryptedDB *encrypteddb.EncryptedDB
 }
 
@@ -108,13 +183,14 @@ type ReacjiStore struct {
 //         },
 func NewReacjiStore(g *globals.Context) *ReacjiStore {
 	keyFn := func(ctx context.Context) ([32]byte, error) {
-		return GetSecretBoxKey(ctx, g.ExternalG(), DefaultSecretUI)
+		return GetSecretBoxKey(ctx, g.ExternalG())
 	}
 	dbFn := func(g *libkb.GlobalContext) *libkb.JSONLocalDb {
 		return g.LocalChatDb
 	}
 	return &ReacjiStore{
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "ReacjiStore", false),
+		Contextified: globals.NewContextified(g),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "ReacjiStore", false),
 		encryptedDB:  encrypteddb.New(g.ExternalG(), dbFn, keyFn),
 	}
 }
@@ -126,52 +202,76 @@ func (s *ReacjiStore) dbKey(uid gregor1.UID) libkb.DbKey {
 	}
 }
 
-func (s *ReacjiStore) populateCacheLocked(ctx context.Context, uid gregor1.UID) *ReacjiInternalStorage {
-	if found, data := reacjiMemCache.Get(uid); found {
-		return data
+func (s *ReacjiStore) populateCacheLocked(ctx context.Context, uid gregor1.UID) (cache ReacjiInternalStorage) {
+	if found, cache := reacjiMemCache.Get(uid); found {
+		return cache
 	}
 
 	// populate the cache after we fetch from disk
-	data := NewReacjiInternalStorage()
-	defer func() { reacjiMemCache.Put(uid, data) }()
+	cache = NewReacjiInternalStorage()
+	defer func() { reacjiMemCache.Put(uid, cache) }()
 
 	dbKey := s.dbKey(uid)
 	var entry reacjiDiskEntry
 	found, err := s.encryptedDB.Get(ctx, dbKey, &entry)
 	if err != nil || !found {
 		s.Debug(ctx, "reacji map not found on disk")
-		return data
+		return cache
 	}
 
 	if entry.Version != reacjiDiskVersion {
 		// drop the history if our format changed
+		s.Debug(ctx, "Deleting reacjiCache found version %d, current version %d", entry.Version, reacjiDiskVersion)
 		if err = s.encryptedDB.Delete(ctx, dbKey); err != nil {
 			s.Debug(ctx, "unable to delete cache entry: %v", err)
 		}
-		return data
+		return cache
 	}
-	data = &entry.Data
-	return data
+
+	if entry.Data.FrequencyMap == nil {
+		entry.Data.FrequencyMap = make(map[string]int)
+	}
+	if entry.Data.MtimeMap == nil {
+		entry.Data.MtimeMap = make(map[string]gregor1.Time)
+	}
+
+	cache = entry.Data
+	// Normalized duplicated aliases
+	for name, freq := range cache.FrequencyMap {
+		normalized := NormalizeShortCode(name)
+		if name != normalized {
+			cache.FrequencyMap[normalized] += freq
+			if cache.MtimeMap[name] > cache.MtimeMap[normalized] {
+				cache.MtimeMap[normalized] = cache.MtimeMap[name]
+			}
+			delete(cache.FrequencyMap, name)
+			delete(cache.MtimeMap, name)
+		}
+	}
+	return cache
 }
 
-func (s *ReacjiStore) PutReacji(ctx context.Context, uid gregor1.UID, reacji string) error {
+func (s *ReacjiStore) PutReacji(ctx context.Context, uid gregor1.UID, shortCode string) error {
 	s.Lock()
 	defer s.Unlock()
-	if codeMap == nil {
-		codeMap = emoji.CodeMap()
-	}
-	if _, ok := codeMap[reacji]; !ok {
+	if !(EmojiHasAlias(shortCode) || globals.EmojiPattern.MatchString(shortCode)) {
 		return nil
 	}
-
 	cache := s.populateCacheLocked(ctx, uid)
-	cache.FrequencyMap[reacji]++
-	reacjiMemCache.Put(uid, cache)
+	shortCode = NormalizeShortCode(shortCode)
+	cache.FrequencyMap[shortCode]++
+	cache.MtimeMap[shortCode] = gregor1.ToTime(time.Now())
+
 	dbKey := s.dbKey(uid)
-	return s.encryptedDB.Put(ctx, dbKey, reacjiDiskEntry{
+	err := s.encryptedDB.Put(ctx, dbKey, reacjiDiskEntry{
 		Version: reacjiDiskVersion,
-		Data:    *cache,
+		Data:    cache,
 	})
+	if err != nil {
+		return err
+	}
+	reacjiMemCache.Put(uid, cache)
+	return nil
 }
 
 func (s *ReacjiStore) PutSkinTone(ctx context.Context, uid gregor1.UID,
@@ -179,16 +279,25 @@ func (s *ReacjiStore) PutSkinTone(ctx context.Context, uid gregor1.UID,
 	s.Lock()
 	defer s.Unlock()
 
+	if skinTone > 5 {
+		skinTone = 0
+	}
+
 	cache := s.populateCacheLocked(ctx, uid)
 	cache.SkinTone = skinTone
 	dbKey := s.dbKey(uid)
-	return s.encryptedDB.Put(ctx, dbKey, reacjiDiskEntry{
+	err := s.encryptedDB.Put(ctx, dbKey, reacjiDiskEntry{
 		Version: reacjiDiskVersion,
-		Data:    *cache,
+		Data:    cache,
 	})
+	if err != nil {
+		return err
+	}
+	reacjiMemCache.Put(uid, cache)
+	return nil
 }
 
-func (s *ReacjiStore) GetInternalStore(ctx context.Context, uid gregor1.UID) *ReacjiInternalStorage {
+func (s *ReacjiStore) GetInternalStore(ctx context.Context, uid gregor1.UID) ReacjiInternalStorage {
 	s.Lock()
 	defer s.Unlock()
 	return s.populateCacheLocked(ctx, uid)
@@ -201,35 +310,80 @@ func (s *ReacjiStore) UserReacjis(ctx context.Context, uid gregor1.UID) keybase1
 	s.Lock()
 	defer s.Unlock()
 
+	customMap := make(map[string]string)
+	customMapNoAnim := make(map[string]string)
 	cache := s.populateCacheLocked(ctx, uid)
-	pairs := []reacjiPair{}
+	// resolve custom emoji
+	for name := range cache.FrequencyMap {
+		if s.G().EmojiSource.IsStockEmoji(name) {
+			continue
+		}
+		harvested, err := s.G().EmojiSource.Harvest(ctx, name, uid, chat1.ConversationID{},
+			types.EmojiHarvestModeFast)
+		if err != nil {
+			s.Debug(ctx, "UserReacjis: failed to harvest possible custom: %s", err)
+			delete(cache.FrequencyMap, name)
+			continue
+		}
+		if len(harvested) == 0 {
+			s.Debug(ctx, "UserReacjis: no harvest results for possible custom")
+			delete(cache.FrequencyMap, name)
+			continue
+		}
+		source, noAnimSource, err := s.G().EmojiSource.RemoteToLocalSource(ctx, uid, harvested[0].Source)
+		if err != nil {
+			s.Debug(ctx, "UserReacjis: failed to convert to local source: %s", err)
+			delete(cache.FrequencyMap, name)
+			continue
+		}
+		if !source.IsHTTPSrv() || !noAnimSource.IsHTTPSrv() {
+			s.Debug(ctx, "UserReacjis: not http srv source")
+			delete(cache.FrequencyMap, name)
+			continue
+		}
+		customMap[name] = source.Httpsrv()
+		customMapNoAnim[name] = noAnimSource.Httpsrv()
+	}
+
 	// add defaults if needed so we always return some values
 	for _, el := range DefaultTopReacjis {
 		if len(cache.FrequencyMap) >= len(DefaultTopReacjis) {
 			break
 		}
-		if _, ok := cache.FrequencyMap[el]; !ok {
-			cache.FrequencyMap[el] = 0
+		if _, ok := cache.FrequencyMap[el.Name]; !ok {
+			cache.FrequencyMap[el.Name] = 0
+			cache.MtimeMap[el.Name] = 0
 		}
 	}
 
+	pairs := make([]reacjiPair, 0, len(cache.FrequencyMap))
 	for name, freq := range cache.FrequencyMap {
-		pairs = append(pairs, reacjiPair{name: name, freq: freq})
+		score := cache.score(name)
+		pairs = append(pairs, newReacjiPair(name, freq, score))
 	}
 	// sort by frequency and then alphabetically
 	sort.Slice(pairs, func(i, j int) bool {
-		if pairs[i].freq == pairs[j].freq {
+		if pairs[i].score == pairs[j].score {
 			return pairs[i].name < pairs[j].name
 		}
-		return pairs[i].freq > pairs[j].freq
+		return pairs[i].score > pairs[j].score
 	})
-
-	reacjis := []string{}
+	reacjis := make([]keybase1.UserReacji, 0, len(pairs))
 	for _, p := range pairs {
 		if len(reacjis) >= len(DefaultTopReacjis) && p.freq == 0 {
 			delete(cache.FrequencyMap, p.name)
+			delete(cache.MtimeMap, p.name)
 		} else {
-			reacjis = append(reacjis, p.name)
+			reacji := keybase1.UserReacji{
+				Name: p.name,
+			}
+			if addr, ok := customMap[p.name]; ok {
+				reacji.CustomAddr = &addr
+			}
+			if addr, ok := customMapNoAnim[p.name]; ok {
+				reacji.CustomAddrNoAnim = &addr
+			}
+			reacjis = append(reacjis, reacji)
 		}
 	}
 

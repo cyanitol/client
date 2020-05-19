@@ -3,19 +3,16 @@ import * as Kb from '../../../../../common-adapters'
 import * as Styles from '../../../../../styles'
 import {resolveRootAsURL} from '../../../../../desktop/app/resolve-root.desktop'
 import {urlsToImgSet} from '../../../../../common-adapters/icon.desktop'
-import {Props} from './index.types'
+import {Props} from '.'
 import SharedTimer, {SharedTimerID} from '../../../../../util/shared-timers'
-
-const explodedIllustration = resolveRootAsURL('../images/icons/pattern-ashes-desktop-400-68.png')
-const explodedIllustrationUrl = urlsToImgSet({'68': explodedIllustration}, 68)
 
 const copyChildren = (children: React.ReactNode): React.ReactNode =>
   // @ts-ignore
   React.Children.map(children, child => (child ? React.cloneElement(child) : child))
 
-export const animationDuration = 1500
+export const animationDuration = 2000
 
-const retainedHeights = {}
+const retainedHeights = new Set<string>()
 
 type State = {
   animating: boolean
@@ -25,7 +22,11 @@ type State = {
 
 class ExplodingHeightRetainer extends React.PureComponent<Props, State> {
   _boxRef = React.createRef<HTMLDivElement>()
-  state = {animating: false, children: copyChildren(this.props.children), height: 17}
+  state = {
+    animating: false,
+    children: this.props.retainHeight ? null : copyChildren(this.props.children), // no children if we already exploded
+    height: 17,
+  }
   timerID?: SharedTimerID
 
   static getDerivedStateFromProps(nextProps: Props, _: State) {
@@ -34,8 +35,8 @@ class ExplodingHeightRetainer extends React.PureComponent<Props, State> {
 
   componentDidMount() {
     // remeasure if we are already exploded
-    if (this.props.retainHeight && retainedHeights[this.props.messageKey] && this.props.measure) {
-      delete retainedHeights[this.props.messageKey]
+    if (this.props.retainHeight && retainedHeights.has(this.props.messageKey) && this.props.measure) {
+      retainedHeights.delete(this.props.messageKey)
       this.props.measure()
     }
   }
@@ -63,7 +64,7 @@ class ExplodingHeightRetainer extends React.PureComponent<Props, State> {
     if (node instanceof HTMLElement) {
       const height = node.clientHeight
       if (height && height !== this.state.height) {
-        retainedHeights[this.props.messageKey] = true
+        retainedHeights.add(this.props.messageKey)
         this.setState({height})
       }
     }
@@ -83,7 +84,6 @@ class ExplodingHeightRetainer extends React.PureComponent<Props, State> {
           // to make sure we don't rewrap text when showing the animation
           this.props.retainHeight && {
             height: this.state.height,
-            overflow: 'hidden',
             paddingRight: 28,
             position: 'relative',
           },
@@ -102,25 +102,6 @@ class ExplodingHeightRetainer extends React.PureComponent<Props, State> {
   }
 }
 
-// @ts-ignore
-const AshBox = Styles.styled.div({
-  '&.full-width': {
-    overflow: 'visible',
-    transition: `width ${animationDuration}ms linear`,
-    width: '100%',
-  },
-  backgroundColor: Styles.globalColors.white, // exploded messages don't have hover effects and we need to cover the message
-  backgroundImage: explodedIllustrationUrl,
-  backgroundRepeat: 'repeat',
-  backgroundSize: '400px 68px',
-  bottom: 0,
-  left: 0,
-  overflow: 'hidden',
-  position: 'absolute',
-  top: 0,
-  transition: `width 0s`,
-  width: 0,
-})
 const Ashes = (props: {doneExploding: boolean; exploded: boolean; explodedBy?: string; height: number}) => {
   let explodedTag: React.ReactNode = null
   if (props.doneExploding) {
@@ -128,9 +109,9 @@ const Ashes = (props: {doneExploding: boolean; exploded: boolean; explodedBy?: s
       <Kb.Text type="BodyTiny" style={styles.exploded}>
         EXPLODED BY{' '}
         <Kb.ConnectedUsernames
-          type="BodySmallSemibold"
+          type="BodySmallBold"
           onUsernameClicked="profile"
-          usernames={[props.explodedBy]}
+          usernames={props.explodedBy}
           inline={true}
           colorFollowing={true}
           colorYou={true}
@@ -151,16 +132,22 @@ const Ashes = (props: {doneExploding: boolean; exploded: boolean; explodedBy?: s
   )
 }
 
-const maxFlameWidth = 10
-const flameOffset = 5
 const FlameFront = (props: {height: number; stop: boolean}) => {
   if (props.stop) {
     return null
   }
-  const numBoxes = Math.ceil(props.height / 15)
+  const numBoxes = Math.max(Math.ceil(props.height / 17) - 1, 1)
   const children: Array<React.ReactNode> = []
   for (let i = 0; i < numBoxes; i++) {
-    children.push(<Flame key={i} />)
+    children.push(
+      <Kb.Box style={styles.flame}>
+        <Kb.Animation
+          animationType={Styles.isDarkMode() ? 'darkExploding' : 'exploding'}
+          width={64}
+          height={64}
+        />
+      </Kb.Box>
+    )
   }
   return (
     <Kb.Box className="flame-container" style={styles.flameContainer}>
@@ -169,70 +156,64 @@ const FlameFront = (props: {height: number; stop: boolean}) => {
   )
 }
 
-const colors = ['yellow', 'red', Styles.globalColors.greyDark, Styles.globalColors.black]
-const randWidth = () => Math.round(Math.random() * maxFlameWidth) + flameOffset
-const randColor = () => colors[Math.floor(Math.random() * colors.length)]
+const explodedIllustrationUrl = (): string =>
+  Styles.isDarkMode()
+    ? urlsToImgSet({'68': resolveRootAsURL('../images/icons/dark-pattern-ashes-desktop-400-68.png')}, 68)
+    : urlsToImgSet({'68': resolveRootAsURL('../images/icons/pattern-ashes-desktop-400-68.png')}, 68)
 
-class Flame extends React.Component<{}, {color: string; timer: number; width: number}> {
-  state = {color: randColor(), timer: 0, width: randWidth()}
-  intervalID?: NodeJS.Timer
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      ashBox: Styles.platformStyles({
+        isElectron: {
+          backgroundColor: Styles.globalColors.white, // exploded messages don't have hover effects and we need to cover the message
+          backgroundImage: explodedIllustrationUrl(),
+          backgroundRepeat: 'repeat',
+          backgroundSize: '400px 68px',
+          bottom: 0,
+          left: 0,
+          overflow: 'hidden',
+          position: 'absolute',
+          top: 0,
+          transition: `width 0s`,
+          width: 0,
+        },
+      }),
+      container: {...Styles.globalStyles.flexBoxColumn, flex: 1},
+      exploded: Styles.platformStyles({
+        isElectron: {
+          backgroundColor: Styles.globalColors.white,
+          bottom: 0,
+          color: Styles.globalColors.black_20_on_white,
+          padding: 2,
+          paddingLeft: Styles.globalMargins.tiny,
+          paddingTop: 0,
+          position: 'absolute',
+          right: 0,
+          whiteSpace: 'nowrap',
+        },
+      }),
+      flame: {
+        height: 17,
+      },
+      flameContainer: {
+        position: 'absolute',
+        right: -32,
+        top: -22,
+        width: 64,
+      },
+    } as const)
+)
 
-  componentDidMount() {
-    this.intervalID = setInterval(this._randomize, 100)
-  }
-
-  componentWillUnmount() {
-    if (this.intervalID) {
-      clearInterval(this.intervalID)
-      this.intervalID = undefined
-    }
-  }
-
-  _randomize = () =>
-    this.setState(prevState => ({
-      color: randColor(),
-      timer: prevState.timer + 100,
-      width: randWidth(),
-    }))
-
-  render() {
-    return (
-      <Kb.Box
-        style={Styles.collapseStyles([
-          {backgroundColor: this.state.color, width: this.state.width * (1 + this.state.timer / 1000)},
-          styles.flame,
-        ])}
-      />
-    )
-  }
-}
-
-const styles = Styles.styleSheetCreate({
-  container: {...Styles.globalStyles.flexBoxColumn, flex: 1},
-  exploded: Styles.platformStyles({
-    isElectron: {
-      backgroundColor: Styles.globalColors.white,
-      bottom: 0,
-      color: Styles.globalColors.black_20_on_white,
-      padding: 2,
-      paddingLeft: Styles.globalMargins.tiny,
-      paddingTop: 0,
-      position: 'absolute',
-      right: 0,
-      whiteSpace: 'nowrap',
+const AshBox = Styles.styled.div(
+  {
+    '&.full-width': {
+      overflow: 'visible',
+      transition: `width ${animationDuration}ms linear`,
+      width: '100%',
     },
-  }),
-  flame: {
-    height: 17,
-    marginBottom: 1,
-    marginTop: 1,
-    opacity: 1,
   },
-  flameContainer: {
-    position: 'absolute',
-    right: -1 * (maxFlameWidth + flameOffset),
-    width: maxFlameWidth + flameOffset,
-  },
-})
+  () => styles.ashBox
+)
 
 export default ExplodingHeightRetainer

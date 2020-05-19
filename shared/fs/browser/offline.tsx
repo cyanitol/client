@@ -16,7 +16,7 @@ const OfflineFolder = (props: Props) => (
     <TopBar path={props.path} />
     <Kb.Box2 direction="vertical" style={styles.emptyContainer} fullWidth={true} centerChildren={true}>
       <Kb.Icon
-        type={props.syncEnabled ? 'iconfont-time' : 'iconfont-cloud'}
+        type={props.syncEnabled ? 'iconfont-clock' : 'iconfont-cloud'}
         sizeType="Huge"
         color={Styles.globalColors.black_10}
       />
@@ -29,16 +29,19 @@ const OfflineFolder = (props: Props) => (
   </Kb.Box2>
 )
 
-const styles = Styles.styleSheetCreate({
-  contentContainer: {
-    flex: 1,
-  },
-  emptyContainer: {
-    ...Styles.globalStyles.flexGrow,
-    backgroundColor: Styles.globalColors.blueGrey,
-    flex: 1,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      contentContainer: {
+        flex: 1,
+      },
+      emptyContainer: {
+        ...Styles.globalStyles.flexGrow,
+        backgroundColor: Styles.globalColors.blueGrey,
+        flex: 1,
+      },
+    } as const)
+)
 
 type OwnProps = {
   path: Types.Path
@@ -48,7 +51,7 @@ const mapStateToProps = (state, {path}) => ({
   syncConfig: Constants.getTlfFromPath(state.fs.tlfs, path).syncConfig,
 })
 
-const mergeProps = (stateProps, dispatchProps, ownProps: OwnProps) => ({
+const mergeProps = (stateProps, _, ownProps: OwnProps) => ({
   ...ownProps,
   syncEnabled: !!stateProps.syncConfig && stateProps.syncConfig.mode === Types.TlfSyncMode.Enabled,
 })

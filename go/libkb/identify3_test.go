@@ -25,6 +25,7 @@ func (i *id3FakeUIRouter) GetRekeyUI() (keybase1.RekeyUIInterface, int, error)  
 func (i *id3FakeUIRouter) GetRekeyUINoSessionID() (keybase1.RekeyUIInterface, error) { return nil, nil }
 func (i *id3FakeUIRouter) GetHomeUI() (keybase1.HomeUIInterface, error)              { return nil, nil }
 func (i *id3FakeUIRouter) GetChatUI() (ChatUI, error)                                { return nil, nil }
+func (i *id3FakeUIRouter) GetLogUI() (LogUI, error)                                  { return nil, nil }
 func (i *id3FakeUIRouter) GetIdentify3UIAdapter(MetaContext) (IdentifyUI, error) {
 	return nil, nil
 }
@@ -35,6 +36,10 @@ func (i *id3FakeUIRouter) Shutdown() {}
 
 func (i *id3FakeUIRouter) GetIdentify3UI(MetaContext) (keybase1.Identify3UiInterface, error) {
 	return &i.ui, nil
+}
+
+func (i *id3FakeUIRouter) WaitForUIType(uiKind UIKind, timeout time.Duration) bool {
+	return false
 }
 
 type id3FakeUI struct {
@@ -66,6 +71,9 @@ func (i *id3FakeUI) Identify3TrackerTimedOut(_ context.Context, id keybase1.Iden
 	return nil
 }
 func (i *id3FakeUI) Identify3Result(context.Context, keybase1.Identify3ResultArg) error { return nil }
+func (i *id3FakeUI) Identify3Summary(_ context.Context, summary keybase1.Identify3Summary) error {
+	return nil
+}
 
 func TestIdentify3State(t *testing.T) {
 	tc := SetupTest(t, "TestIdentify3State()", 1)
@@ -123,11 +131,14 @@ func TestIdentify3State(t *testing.T) {
 	epsilon := inc / 2
 
 	// put in 3 items all inc time apart.
-	id3state.Put(mkSession(1))
+	err := id3state.Put(mkSession(1))
+	require.NoError(t, err)
 	fakeClock.Advance(inc)
-	id3state.Put(mkSession(2))
+	err = id3state.Put(mkSession(2))
+	require.NoError(t, err)
 	fakeClock.Advance(inc)
-	id3state.Put(mkSession(3))
+	err = id3state.Put(mkSession(3))
+	require.NoError(t, err)
 
 	// make sure that all 3 items hit the cache, and in the right order.
 	set := []int{1, 2, 3}

@@ -32,24 +32,22 @@ const ConfirmHeader = (props: Props) => (
   </Kb.Box2>
 )
 
-export default (props: Props) => (
+const PathItemActionConfirm = (props: Props) => (
   <Kb.FloatingMenu
     closeOnSelect={false}
     closeText="Cancel"
     containerStyle={props.floatingMenuProps.containerStyle}
     attachTo={props.floatingMenuProps.attachTo}
     visible={props.floatingMenuProps.visible}
-    onHidden={props.floatingMenuProps.hideOnce}
+    onHidden={props.floatingMenuProps.hide}
     position="bottom right"
-    header={{
-      title: 'unused',
-      view: <ConfirmHeader {...props} />,
-    }}
+    header={<ConfirmHeader {...props} />}
     items={
       props.confirm
         ? [
             {
               disabled: props.confirm === 'disabled',
+              icon: 'iconfont-check',
               onClick: props.confirm !== 'disabled' ? props.confirm : undefined,
               title: 'Yes, continue',
             },
@@ -58,22 +56,26 @@ export default (props: Props) => (
     }
   />
 )
+export default PathItemActionConfirm
 
-const styles = Styles.styleSheetCreate({
-  confirmText: {
-    textAlign: 'center',
-  },
-  confirmTextBox: {
-    padding: Styles.globalMargins.medium,
-  },
-  menuRowText: {
-    color: Styles.globalColors.blueDark,
-  },
-  menuRowTextDisabled: {
-    color: Styles.globalColors.blueDark,
-    opacity: 0.6,
-  },
-  progressIndicator: {
-    marginRight: Styles.globalMargins.xtiny,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      confirmText: {
+        textAlign: 'center',
+      },
+      confirmTextBox: {
+        padding: Styles.globalMargins.medium,
+      },
+      menuRowText: {
+        color: Styles.globalColors.blueDark,
+      },
+      menuRowTextDisabled: {
+        color: Styles.globalColors.blueDark,
+        opacity: 0.6,
+      },
+      progressIndicator: {
+        marginRight: Styles.globalMargins.xtiny,
+      },
+    } as const)
+)

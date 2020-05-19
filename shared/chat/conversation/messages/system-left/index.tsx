@@ -1,19 +1,20 @@
 import * as React from 'react'
 import * as Kb from '../../../../common-adapters'
-import * as Styles from '../../../../styles'
+import UserNotice from '../user-notice'
 
 type Props = {
   channelname: string
   isBigTeam: boolean
+  leavers: Array<string>
   teamname: string
+  timestamp: number
 }
 
-export default (props: Props) => (
-  <Kb.Text type="BodySmall" style={styles.text}>
-    left {props.isBigTeam ? `#${props.channelname}` : props.teamname}.
-  </Kb.Text>
+const SystemLeftMessage = (props: Props) => (
+  <UserNotice>
+    <Kb.Text type="BodySmall">{`left ${
+      props.isBigTeam ? `#${props.channelname}` : props.teamname
+    }.`}</Kb.Text>
+  </UserNotice>
 )
-
-const styles = Styles.styleSheetCreate({
-  text: {flexGrow: 1},
-})
+export default SystemLeftMessage

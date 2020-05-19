@@ -128,7 +128,7 @@ func NewProofAPIError(s keybase1.ProofStatus, u string, d string, a ...interface
 
 func XapiError(err error, u string) *ProofAPIError {
 	if ae, ok := err.(*APIError); ok {
-		code := keybase1.ProofStatus_NONE
+		var code keybase1.ProofStatus
 		switch ae.Code / 100 {
 		case 3:
 			code = keybase1.ProofStatus_HTTP_300
@@ -156,7 +156,7 @@ type FailedAssertionError struct {
 }
 
 func (u FailedAssertionError) Error() string {
-	v := make([]string, len(u.bad), len(u.bad))
+	v := make([]string, len(u.bad))
 	for i, u := range u.bad {
 		v[i] = u.String()
 	}
@@ -166,8 +166,20 @@ func (u FailedAssertionError) Error() string {
 
 //=============================================================================
 
+type AssertionParseErrorReason int
+
+const (
+	AssertionParseErrorReasonGeneric      AssertionParseErrorReason = 0
+	AssertionParseErrorReasonUnexpectedOR AssertionParseErrorReason = 1
+)
+
 type AssertionParseError struct {
-	err string
+	err    string
+	reason AssertionParseErrorReason
+}
+
+func (e AssertionParseError) Reason() AssertionParseErrorReason {
+	return e.reason
 }
 
 func (e AssertionParseError) Error() string {
@@ -176,8 +188,19 @@ func (e AssertionParseError) Error() string {
 
 func NewAssertionParseError(s string, a ...interface{}) AssertionParseError {
 	return AssertionParseError{
-		err: fmt.Sprintf(s, a...),
+		reason: AssertionParseErrorReasonGeneric,
+		err:    fmt.Sprintf(s, a...),
 	}
+}
+func NewAssertionParseErrorWithReason(reason AssertionParseErrorReason, s string, a ...interface{}) AssertionParseError {
+	return AssertionParseError{
+		reason: reason,
+		err:    fmt.Sprintf(s, a...),
+	}
+}
+func IsAssertionParseErrorWithReason(err error, reason AssertionParseErrorReason) bool {
+	aerr, ok := err.(AssertionParseError)
+	return ok && aerr.reason == reason
 }
 
 //=============================================================================
@@ -376,9 +399,7 @@ func (e TooManyKeysError) Error() string {
 
 //=============================================================================
 
-type NoSelectedKeyError struct {
-	wanted *PGPFingerprint
-}
+type NoSelectedKeyError struct{}
 
 func (n NoSelectedKeyError) Error() string {
 	return "Please login again to verify your public key"
@@ -424,6 +445,25 @@ func (p PassphraseError) Error() string {
 		msg = msg + ": " + p.Msg + "."
 	}
 	return msg
+}
+
+//=============================================================================
+
+type PaperKeyError struct {
+	msg      string
+	tryAgain bool
+}
+
+func (p PaperKeyError) Error() string {
+	msg := "Bad paper key: " + p.msg
+	if p.tryAgain {
+		msg += ". Please try again."
+	}
+	return msg
+}
+
+func NewPaperKeyError(s string, t bool) error {
+	return PaperKeyError{msg: s, tryAgain: t}
 }
 
 //=============================================================================
@@ -511,8 +551,30 @@ func IsAppStatusCode(err error, code keybase1.StatusCode) bool {
 	switch err := err.(type) {
 	case AppStatusError:
 		return err.Code == int(code)
+	default:
+		return false
 	}
-	return false
+}
+
+func IsEphemeralRetryableError(err error) bool {
+	switch err := err.(type) {
+	case AppStatusError:
+		switch keybase1.StatusCode(err.Code) {
+		case keybase1.StatusCode_SCSigWrongKey,
+			keybase1.StatusCode_SCSigOldSeqno,
+			keybase1.StatusCode_SCEphemeralKeyBadGeneration,
+			keybase1.StatusCode_SCEphemeralKeyUnexpectedBox,
+			keybase1.StatusCode_SCEphemeralKeyMissingBox,
+			keybase1.StatusCode_SCEphemeralKeyWrongNumberOfKeys,
+			keybase1.StatusCode_SCTeambotKeyBadGeneration,
+			keybase1.StatusCode_SCTeambotKeyOldBoxedGeneration:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
 }
 
 //=============================================================================
@@ -1412,15 +1474,35 @@ func (e NoDecryptionKeyError) Error() string {
 
 //=============================================================================
 
+type ErrorCause struct {
+	Err        error
+	StatusCode int
+}
+
+// DecryptionError is the default decryption error
 type DecryptionError struct {
-	Cause error
+	Cause ErrorCause
 }
 
 func (e DecryptionError) Error() string {
-	if e.Cause == nil {
+	if e.Cause.Err == nil {
 		return "Decryption error"
 	}
-	return fmt.Sprintf("Decryption error: %v", e.Cause)
+	return fmt.Sprintf("Decryption error: %+v", e.Cause)
+}
+
+//=============================================================================
+
+// VerificationError is the default verification error
+type VerificationError struct {
+	Cause ErrorCause
+}
+
+func (e VerificationError) Error() string {
+	if e.Cause.Err == nil {
+		return "Verification error"
+	}
+	return fmt.Sprintf("Verification error: %+v", e.Cause)
 }
 
 //=============================================================================
@@ -1961,11 +2043,12 @@ func (e ChatUnknownTLFIDError) Error() string {
 //=============================================================================
 
 type ChatNotInConvError struct {
-	UID gregor.UID
+	UID    gregor.UID
+	ConvID chat1.ConversationID
 }
 
 func (e ChatNotInConvError) Error() string {
-	return fmt.Sprintf("user is not in conversation: uid: %s", e.UID.String())
+	return fmt.Sprintf("user is not in conversation: %s uid: %s", e.ConvID.String(), e.UID.String())
 }
 
 func (e ChatNotInConvError) IsImmediateFail() (chat1.OutboxErrorType, bool) {
@@ -1975,11 +2058,12 @@ func (e ChatNotInConvError) IsImmediateFail() (chat1.OutboxErrorType, bool) {
 //=============================================================================
 
 type ChatNotInTeamError struct {
-	UID gregor.UID
+	UID   gregor.UID
+	TlfID chat1.TLFID
 }
 
 func (e ChatNotInTeamError) Error() string {
-	return fmt.Sprintf("user is not in team: uid: %s", e.UID.String())
+	return fmt.Sprintf("user is not in team: %v uid: %s", e.TlfID, e.UID.String())
 }
 
 func (e ChatNotInTeamError) IsImmediateFail() (chat1.OutboxErrorType, bool) {
@@ -2051,6 +2135,19 @@ func (e ChatAlreadyDeletedError) IsImmediateFail() (chat1.OutboxErrorType, bool)
 
 //=============================================================================
 
+type ChatBadConversationError struct {
+	Msg string
+}
+
+func (e ChatBadConversationError) Error() string {
+	return e.Msg
+}
+
+func (e ChatBadConversationError) IsImmediateFail() (chat1.OutboxErrorType, bool) {
+	return chat1.OutboxErrorType_MISC, true
+}
+
+//=============================================================================
 type ChatTLFFinalizedError struct {
 	TlfID chat1.TLFID
 }
@@ -2084,7 +2181,20 @@ func (e ChatClientError) Error() string {
 }
 
 func (e ChatClientError) IsImmediateFail() (chat1.OutboxErrorType, bool) {
+	if strings.HasPrefix(e.Msg, "Admins have set that you must be a team") {
+		return chat1.OutboxErrorType_MINWRITER, true
+	}
 	return chat1.OutboxErrorType_MISC, true
+}
+
+//=============================================================================
+
+type ChatUsersAlreadyInConversationError struct {
+	Uids []keybase1.UID
+}
+
+func (e ChatUsersAlreadyInConversationError) Error() string {
+	return fmt.Sprintf("Cannot readd existing users to this conversation")
 }
 
 //=============================================================================
@@ -2315,9 +2425,12 @@ func (e RevokeCurrentDeviceError) Error() string {
 	return "cannot revoke the current device without confirmation"
 }
 
-type RevokeLastDeviceError struct{}
+type RevokeLastDeviceError struct{ NoPassphrase bool }
 
 func (e RevokeLastDeviceError) Error() string {
+	if e.NoPassphrase {
+		return "cannot revoke the last device; set a passphrase first"
+	}
 	return "cannot revoke the last device in your account without confirmation"
 }
 
@@ -2556,22 +2669,6 @@ func NewRecipientNotFoundError(message string) error {
 
 //=============================================================================
 
-type TeamFTLOutdatedError struct {
-	msg string
-}
-
-func NewTeamFTLOutdatedError(s string) error {
-	return TeamFTLOutdatedError{s}
-}
-
-func (t TeamFTLOutdatedError) Error() string {
-	return fmt.Sprintf("FTL outdated: %s", t.msg)
-}
-
-var _ error = TeamFTLOutdatedError{}
-
-//=============================================================================
-
 type FeatureFlagError struct {
 	msg     string
 	feature Feature
@@ -2648,12 +2745,8 @@ func (e InvalidStellarAccountIDError) Verbose() string {
 type ResetWithActiveDeviceError struct {
 }
 
-func NewResetWithActiveDeviceError() error {
-	return ResetWithActiveDeviceError{}
-}
-
 func (e ResetWithActiveDeviceError) Error() string {
-	return "You cannot reset your account if you have an active device!"
+	return "You cannot reset your account from a logged-in device."
 }
 
 //=============================================================================
@@ -2682,6 +2775,25 @@ func NewChainLinkBadUnstubError(s string) error {
 
 func (c ChainLinkBadUnstubError) Error() string {
 	return c.msg
+}
+
+//============================================================================
+
+// AppOutdatedError indicates that an operation failed because the client does
+// not support some necessary feature and needs to be updated.
+type AppOutdatedError struct {
+	cause error
+}
+
+func NewAppOutdatedError(cause error) AppOutdatedError {
+	return AppOutdatedError{cause: cause}
+}
+
+func (e AppOutdatedError) Error() string {
+	if e.cause != nil {
+		return fmt.Sprintf("AppOutdatedError: %v", e.cause.Error())
+	}
+	return fmt.Sprintf("AppOutdatedError")
 }
 
 //============================================================================
@@ -2731,4 +2843,124 @@ func HumanError(err error) error {
 		err = cause.Cause()
 	}
 	return err
+}
+
+//============================================================================
+
+type TeamContactSettingsBlockError struct {
+	blockedUIDs      []keybase1.UID
+	blockedUsernames []NormalizedUsername
+}
+
+func (e TeamContactSettingsBlockError) BlockedUIDs() []keybase1.UID {
+	return e.blockedUIDs
+}
+
+func (e TeamContactSettingsBlockError) BlockedUsernames() []NormalizedUsername {
+	return e.blockedUsernames
+}
+
+func (e TeamContactSettingsBlockError) Error() string {
+	var tmp []string
+	for _, u := range e.blockedUsernames {
+		tmp = append(tmp, u.String())
+	}
+	return fmt.Sprintf("some users couldn't be contacted due to privacy settings (%s)", strings.Join(tmp, ","))
+}
+
+func NewTeamContactSettingsBlockError(s *AppStatus) TeamContactSettingsBlockError {
+	e := TeamContactSettingsBlockError{}
+	for k, v := range s.Fields {
+		switch k {
+		case "uids":
+			e.blockedUIDs = parseUIDsFromString(v)
+		case "usernames":
+			e.blockedUsernames = parseUsernamesFromString(v)
+		}
+	}
+	return e
+}
+
+// parseUIDsFromString takes a comma-separate string of UIDs and returns an array of UIDs,
+// **ignoring any errors** since sometimes need to call this code on an error path.
+func parseUIDsFromString(s string) []keybase1.UID {
+	tmp := strings.Split(s, ",")
+	var res []keybase1.UID
+	for _, elem := range tmp {
+		u, err := keybase1.UIDFromString(elem)
+		if err == nil {
+			res = append(res, u)
+		}
+	}
+	return res
+}
+
+// parseUsernamesFromString takes a string that's a comma-separated list of usernames and then
+// returns a slice of NormalizedUsernames after splitting them. Does no error checking.
+func parseUsernamesFromString(s string) []NormalizedUsername {
+	tmp := strings.Split(s, ",")
+	var res []NormalizedUsername
+	for _, elem := range tmp {
+		res = append(res, NewNormalizedUsername(elem))
+	}
+	return res
+}
+
+//=============================================================================
+
+type HiddenChainDataMissingError struct {
+	note string
+}
+
+func (e HiddenChainDataMissingError) Error() string {
+	return fmt.Sprintf("hidden chain data missing error: %s", e.note)
+}
+
+func NewHiddenChainDataMissingError(format string, args ...interface{}) HiddenChainDataMissingError {
+	return HiddenChainDataMissingError{fmt.Sprintf(format, args...)}
+}
+
+var _ error = HiddenChainDataMissingError{}
+
+type HiddenMerkleErrorType int
+
+const (
+	HiddenMerkleErrorNone HiddenMerkleErrorType = iota
+
+	HiddenMerkleErrorInconsistentLeaf
+	HiddenMerkleErrorInconsistentUncommittedSeqno
+	HiddenMerkleErrorInvalidHiddenResponseType
+	HiddenMerkleErrorInvalidLeafType
+	HiddenMerkleErrorNoHiddenChainInLeaf
+	HiddenMerkleErrorOldLinkNotYetCommitted
+	HiddenMerkleErrorRollbackCommittedSeqno
+	HiddenMerkleErrorRollbackUncommittedSeqno
+	HiddenMerkleErrorServerWitholdingLinks
+	HiddenMerkleErrorUnexpectedAbsenceProof
+)
+
+type HiddenMerkleError struct {
+	m string
+	t HiddenMerkleErrorType
+}
+
+func NewHiddenMerkleError(t HiddenMerkleErrorType, format string, args ...interface{}) HiddenMerkleError {
+	return HiddenMerkleError{
+		t: t,
+		m: fmt.Sprintf(format, args...),
+	}
+}
+
+func (e HiddenMerkleError) ErrorType() HiddenMerkleErrorType {
+	return e.t
+}
+
+func (e HiddenMerkleError) Error() string {
+	return fmt.Sprintf("hidden merkle client error (type %v): %s", e.t, e.m)
+}
+
+var _ error = HiddenMerkleError{}
+
+func IsTooManyFilesError(err error) bool {
+	return strings.Contains(strings.ToLower(err.Error()), "too many open files")
 }

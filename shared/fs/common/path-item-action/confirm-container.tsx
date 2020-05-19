@@ -12,18 +12,12 @@ type OwnProps = {
 
 const mapStateToProps = (state: Container.TypedState, {path}: OwnProps) => ({
   _pathItemActionMenu: state.fs.pathItemActionMenu,
-  size: state.fs.pathItems.get(path, Constants.unknownPathItem).size,
+  size: Constants.getPathItem(state.fs.pathItems, path).size,
 })
 
 const mapDispatchToProps = (dispatch: Container.TypedDispatch, {path}: OwnProps) => ({
   _confirm: ({view, previousView}) => {
-    const key = Constants.makeDownloadKey(path)
-    dispatch(
-      view === 'confirm-save-media'
-        ? FsGen.createSaveMedia({key, path})
-        : FsGen.createShareNative({key, path})
-    )
-    dispatch(FsGen.createSetPathItemActionMenuDownloadKey({key}))
+    dispatch(view === 'confirm-save-media' ? FsGen.createSaveMedia({path}) : FsGen.createShareNative({path}))
     dispatch(FsGen.createSetPathItemActionMenuView({view: previousView}))
   },
 })

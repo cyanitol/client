@@ -1,35 +1,39 @@
 import React, {PureComponent} from 'react'
 import {FlatList, View} from 'react-native'
-import {globalStyles, collapseStyles, styleSheetCreate} from '../styles'
-
+import * as Styles from '../styles'
 import {Props} from './list'
+import Animated from 'react-native-reanimated'
+import noop from 'lodash/noop'
 
-class List extends PureComponent<Props<any>> {
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList)
+
+class List<Item> extends PureComponent<Props<Item>> {
   static defaultProps = {
     keyboardShouldPersistTaps: 'handled',
   }
-  _itemRender = ({item, index}) => {
+  _itemRender = ({item, index}: {item: Item; index: number}) => {
     return this.props.renderItem(index, item)
   }
 
-  _getItemLayout = (data, index) => ({
+  _getItemLayout = (_: Array<Item> | null, index: number) => ({
     index,
     length: this.props.fixedHeight || 0,
     offset: (this.props.fixedHeight || 0) * index,
   })
 
-  _keyExtractor = (item, index: number) => {
+  _keyExtractor = (item: Item, index: number) => {
     if (this.props.indexAsKey || !item) {
       return String(index)
     }
 
     const keyProp = this.props.keyProperty || 'key'
-    return item[keyProp]
+    return item[keyProp] ?? String(index)
   }
 
   render() {
+    const List = this.props.reAnimated ? AnimatedFlatList : FlatList
     return (
-      <View style={collapseStyles([styles.outerView, this.props.style])}>
+      <View style={Styles.collapseStyles([styles.outerView, this.props.style])}>
         {/* need windowSize so iphone 6 doesn't have OOM issues */}
         {/* We can use
             initialScrollIndex={this.props.fixedHeight ? this.props.selectedIndex : undefined}
@@ -39,8 +43,9 @@ class List extends PureComponent<Props<any>> {
           rows below, and a touch will cause it to 'snap back' so that the
           end of the list is at the bottom.
        */}
-        <View style={globalStyles.fillAbsolute}>
-          <FlatList
+        <View style={Styles.globalStyles.fillAbsolute}>
+          <List
+            onScrollToIndexFailed={noop}
             bounces={this.props.bounces}
             contentContainerStyle={this.props.contentContainerStyle}
             renderItem={this._itemRender}
@@ -50,8 +55,10 @@ class List extends PureComponent<Props<any>> {
             keyboardShouldPersistTaps={this.props.keyboardShouldPersistTaps}
             ListHeaderComponent={this.props.ListHeaderComponent}
             onEndReached={this.props.onEndReached}
+            onEndReachedThreshold={this.props.onEndReachedThreshold}
             windowSize={this.props.windowSize || 10}
             debug={false /* set to true to debug the list */}
+            onScroll={this.props.onScroll}
           />
         </View>
       </View>
@@ -59,11 +66,11 @@ class List extends PureComponent<Props<any>> {
   }
 }
 
-const styles = styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   outerView: {
     flexGrow: 1,
     position: 'relative',
   },
-})
+}))
 
 export default List

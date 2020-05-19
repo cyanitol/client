@@ -1,57 +1,87 @@
+import * as Container from '../../../../util/container'
+import * as Chat2Gen from '../../../../actions/chat2-gen'
 import * as RouteTreeGen from '../../../../actions/route-tree-gen'
-import * as Constants from '../../../../constants/chat2/'
+import * as Constants from '../../../../constants/chat2'
 import * as Types from '../../../../constants/types/chat2'
-import {getRole, isAdmin} from '../../../../constants/teams'
+import * as TeamConstants from '../../../../constants/teams'
+import {TeamID} from '../../../../constants/types/teams'
 import SystemAddedToTeam from '.'
 import {teamsTab} from '../../../../constants/tabs'
-import {connect} from '../../../../util/container'
 
 type OwnProps = {
   message: Types.MessageSystemAddedToTeam
 }
 
-const mapStateToProps = (state, ownProps) => {
-  const teamname = Constants.getMeta(state, ownProps.message.conversationIDKey).teamname
-  return {
-    addee: ownProps.message.addee,
-    adder: ownProps.message.adder,
-    isAdmin: isAdmin(getRole(state, teamname)),
-    teamname,
-    timestamp: ownProps.message.timestamp,
-    you: state.config.username || '',
-  }
-}
-
-const mapDispatchToProps = dispatch => ({
-  _onManageChannels: (teamname: string) =>
-    dispatch(
-      RouteTreeGen.createNavigateAppend({path: [{props: {teamname}, selected: 'chatManageChannels'}]})
-    ),
-  _onManageNotifications: conversationIDKey =>
-    dispatch(
-      RouteTreeGen.createNavigateAppend({
-        path: [{props: {conversationIDKey: conversationIDKey, tab: 'settings'}, selected: 'chatInfoPanel'}],
-      })
-    ),
-  _onViewTeam: (teamname: string) => {
-    dispatch(RouteTreeGen.createNavigateTo({path: [teamsTab, {props: {teamname}, selected: 'team'}]}))
+const Connected = Container.connect(
+  (state, ownProps: OwnProps) => {
+    const {teamID, teamname, teamType} = Constants.getMeta(state, ownProps.message.conversationIDKey)
+    const authorIsAdmin = TeamConstants.userIsRoleInTeam(state, teamID, ownProps.message.author, 'admin')
+    const authorIsOwner = TeamConstants.userIsRoleInTeam(state, teamID, ownProps.message.author, 'owner')
+    return {
+      addee: ownProps.message.addee,
+      adder: ownProps.message.adder,
+      bulkAdds: ownProps.message.bulkAdds,
+      isAdmin: authorIsAdmin || authorIsOwner,
+      isTeam: teamType === 'big' || teamType === 'small',
+      role: ownProps.message.role,
+      teamID,
+      teamname,
+      timestamp: ownProps.message.timestamp,
+      you: state.config.username,
+    }
   },
-})
-
-const mergeProps = (stateProps, dispatchProps, ownProps) => ({
-  addee: stateProps.addee,
-  adder: stateProps.adder,
-  isAdmin: stateProps.isAdmin,
-  onManageChannels: () => dispatchProps._onManageChannels(stateProps.teamname),
-  onManageNotifications: () => dispatchProps._onManageNotifications(ownProps.message.conversationIDKey),
-  onViewTeam: () => dispatchProps._onViewTeam(stateProps.teamname),
-  teamname: stateProps.teamname,
-  timestamp: stateProps.timestamp,
-  you: stateProps.you,
-})
-
-export default connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  mergeProps
+  (dispatch, ownProps: OwnProps) => ({
+    _onManageNotifications: (conversationIDKey: Types.ConversationIDKey) =>
+      dispatch(
+        Chat2Gen.createShowInfoPanel({
+          conversationIDKey,
+          show: true,
+          tab: 'settings',
+        })
+      ),
+    _onViewBot: (username: string) => {
+      dispatch(
+        RouteTreeGen.createNavigateAppend({
+          path: [
+            {
+              props: {
+                botUsername: username,
+                conversationIDKey: ownProps.message.conversationIDKey,
+                namespace: 'chat2',
+              },
+              selected: 'chatInstallBot',
+            },
+          ],
+        })
+      )
+    },
+    _onViewTeam: (teamID: TeamID, conversationIDKey: Types.ConversationIDKey) => {
+      if (teamID) {
+        dispatch(RouteTreeGen.createNavigateAppend({path: [teamsTab, {props: {teamID}, selected: 'team'}]}))
+      } else {
+        dispatch(
+          Chat2Gen.createShowInfoPanel({
+            conversationIDKey,
+            show: true,
+            tab: 'settings',
+          })
+        )
+      }
+    },
+  }),
+  (stateProps, dispatchProps, ownProps: OwnProps) => ({
+    addee: stateProps.addee,
+    adder: stateProps.adder,
+    bulkAdds: stateProps.bulkAdds,
+    isAdmin: stateProps.isAdmin,
+    isTeam: stateProps.isTeam,
+    onManageNotifications: () => dispatchProps._onManageNotifications(ownProps.message.conversationIDKey),
+    onViewBot: () => dispatchProps._onViewBot(stateProps.addee),
+    onViewTeam: () => dispatchProps._onViewTeam(stateProps.teamID, ownProps.message.conversationIDKey),
+    role: stateProps.role,
+    teamname: stateProps.teamname,
+    timestamp: stateProps.timestamp,
+    you: stateProps.you,
+  })
 )(SystemAddedToTeam)
+export default Connected

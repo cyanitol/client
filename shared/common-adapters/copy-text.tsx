@@ -3,211 +3,253 @@ import * as ConfigGen from '../actions/config-gen'
 import {Box2} from './box'
 import Icon from './icon'
 import Button, {Props as ButtonProps} from './button'
-import Text from './text'
+import Text, {LineClampType, TextType} from './text'
 import Toast from './toast'
-import HOCTimers, {PropsWithTimer} from './hoc-timers'
+import {useTimeout} from './use-timers'
 import * as Styles from '../styles'
-import {compose, namedConnect} from '../util/container'
+import * as Container from '../util/container'
+import logger from '../logger'
 
-type TProps = PropsWithTimer<{
-  getAttachmentRef: () => React.Component<any> | null
-}>
-
-type TState = {
-  showingToast: boolean
+type Props = {
+  buttonType?: ButtonProps['type']
+  containerStyle?: Styles.StylesCrossPlatform
+  disabled?: boolean
+  multiline?: boolean | LineClampType
+  onCopy?: () => void
+  hideOnCopy?: boolean
+  onReveal?: () => void
+  withReveal?: boolean
+  text?: string
+  textType?: TextType
+  placeholderText?: string
+  shareSheet?: boolean // (mobile only) show share sheet instead of copying
+  loadText?: () => void
 }
 
-export class _ToastContainer extends React.Component<TProps, TState> {
-  state = {showingToast: false}
-  copy = () => {
-    this.setState({showingToast: true}, () =>
-      this.props.setTimeout(() => this.setState({showingToast: false}), 1500)
-    )
+const CopyText = (props: Props) => {
+  const {withReveal, text, loadText, onCopy, hideOnCopy} = props
+  const [revealed, setRevealed] = React.useState(!props.withReveal)
+  const [showingToast, setShowingToast] = React.useState(false)
+  const [requestedCopy, setRequestedCopy] = React.useState(false)
+  const shareSheet = props.shareSheet && Styles.isMobile
+  const setShowingToastFalseLater = useTimeout(() => setShowingToast(false), 1500)
+  React.useEffect(() => {
+    showingToast && setShowingToastFalseLater()
+  }, [showingToast, setShowingToastFalseLater])
+
+  React.useEffect(() => {
+    if (!withReveal && !text) {
+      // only try to load text if withReveal is false
+      if (!loadText) {
+        logger.warn('no loadText method provided')
+        return
+      }
+      loadText()
+    }
+  }, [withReveal, text, loadText])
+
+  const attachmentRef = React.useRef<Box2>(null)
+  const textRef = React.useRef<Text>(null)
+
+  const dispatch = Container.useDispatch()
+
+  const copy = React.useCallback(() => {
+    if (!text) {
+      if (!loadText) {
+        logger.warn('no text to copy and no loadText method provided')
+        return
+      }
+      setRequestedCopy(true)
+    } else {
+      if (shareSheet) {
+        dispatch(ConfigGen.createShowShareActionSheet({message: text, mimeType: 'text/plain'}))
+      } else {
+        setShowingToast(true)
+        textRef.current && textRef.current.highlightText()
+        dispatch(ConfigGen.createCopyToClipboard({text}))
+      }
+      onCopy && onCopy()
+      if (hideOnCopy) {
+        setRevealed(false)
+      }
+    }
+  }, [text, loadText, shareSheet, dispatch, onCopy, hideOnCopy])
+
+  React.useEffect(() => {
+    if (requestedCopy && loadText) {
+      // we're requesting a copy
+      if (!text) {
+        // no text has been loaded
+        loadText()
+      } else {
+        // we want to copy something + have something to copy
+        copy() // props.text exists so this will not cause a recursive loop
+        setRequestedCopy(false)
+      }
+    }
+  }, [requestedCopy, text, copy, loadText])
+
+  const reveal = () => {
+    if (!props.text && props.loadText) {
+      // if we don't have text to copy we should load it
+      props.loadText()
+    }
+    props.onReveal && props.onReveal()
+    setRevealed(true)
   }
 
-  render() {
-    return (
-      <Toast position="top center" attachTo={this.props.getAttachmentRef} visible={this.state.showingToast}>
-        {Styles.isMobile && <Icon type="iconfont-clipboard" color="white" fontSize={22} />}
+  const isRevealed = !props.withReveal || revealed
+  const lineClamp = props.multiline
+    ? typeof props.multiline === 'number'
+      ? (props.multiline as LineClampType)
+      : null
+    : isRevealed
+    ? 1
+    : null
+
+  return (
+    <Box2
+      ref={attachmentRef}
+      direction="horizontal"
+      style={Styles.collapseStyles([
+        styles.container,
+        props.disabled && styles.containerDisabled,
+        props.containerStyle,
+      ])}
+    >
+      <Toast position="top center" attachTo={() => attachmentRef.current} visible={showingToast}>
+        {Styles.isMobile && <Icon type="iconfont-clipboard" color={Styles.globalColors.whiteOrWhite} />}
         <Text type={Styles.isMobile ? 'BodySmallSemibold' : 'BodySmall'} style={styles.toastText}>
           Copied to clipboard
         </Text>
       </Toast>
-    )
-  }
-}
-export const ToastContainer = HOCTimers(_ToastContainer)
-
-type OwnProps = {
-  buttonType?: ButtonProps['type']
-  containerStyle?: Styles.StylesCrossPlatform
-  multiline?: boolean
-  withReveal?: boolean
-  text: string
-}
-
-export type Props = PropsWithTimer<
-  {
-    copyToClipboard: (arg0: string) => void
-  } & OwnProps
->
-
-type State = {
-  revealed: boolean
-}
-
-class _CopyText extends React.Component<Props, State> {
-  state = {revealed: !this.props.withReveal}
-
-  _attachmentRef: Box2 | null = null
-  _toastRef: _ToastContainer | null = null
-  _textRef: Text | null = null
-
-  copy = () => {
-    this._toastRef && this._toastRef.copy()
-    this._textRef && this._textRef.highlightText()
-    this.props.copyToClipboard(this.props.text)
-  }
-
-  reveal = () => {
-    this.setState({revealed: true})
-  }
-
-  _isRevealed = () => !this.props.withReveal || this.state.revealed
-  _getAttachmentRef = () => this._attachmentRef
-
-  render() {
-    const lineClamp = !this.props.multiline && this._isRevealed() ? 1 : null
-    return (
-      <Box2
-        ref={r => (this._attachmentRef = r)}
-        direction="horizontal"
-        style={Styles.collapseStyles([styles.container, this.props.containerStyle])}
+      <Text
+        lineClamp={lineClamp}
+        type={props.textType || 'BodySmallSemibold'}
+        selectable={true}
+        center={true}
+        style={Styles.collapseStyles([styles.text, props.disabled && styles.textDisabled])}
+        allowHighlightText={true}
+        ref={textRef}
       >
-        <ToastContainer ref={(r: any) => (this._toastRef = r)} getAttachmentRef={this._getAttachmentRef} />
-        <Text
-          lineClamp={lineClamp}
-          type="Body"
-          selectable={true}
-          center={true}
-          style={styles.text}
-          allowHighlightText={true}
-          ref={r => (this._textRef = r)}
-        >
-          {this._isRevealed() ? this.props.text : '••••••••••••'}
+        {isRevealed && (props.text || props.placeholderText)
+          ? props.text || props.placeholderText
+          : '••••••••••••'}
+      </Text>
+      {!isRevealed && (
+        <Text type="BodySmallPrimaryLink" style={styles.reveal} onClick={reveal}>
+          Reveal
         </Text>
-        {!this._isRevealed() && (
-          <Text type="BodySmallPrimaryLink" style={styles.reveal} onClick={this.reveal}>
-            Reveal
-          </Text>
-        )}
+      )}
+      {!props.disabled && (
         <Button
-          type={this.props.buttonType || 'Default'}
+          type={props.buttonType || 'Default'}
           style={styles.button}
-          onClick={this.copy}
+          onClick={copy}
           labelContainerStyle={styles.buttonLabelContainer}
         >
           <Icon
-            type="iconfont-clipboard"
-            color={Styles.globalColors.white}
-            fontSize={Styles.isMobile ? 20 : 16}
+            type={shareSheet ? 'iconfont-share' : 'iconfont-clipboard'}
+            color={Styles.globalColors.whiteOrWhite}
           />
         </Button>
-      </Box2>
-    )
-  }
+      )}
+    </Box2>
+  )
 }
 
-const mapDispatchToProps = dispatch => ({
-  copyToClipboard: text => dispatch(ConfigGen.createCopyToClipboard({text})),
-})
-
-// @ts-ignore HOCTimers typing is wrong
-const CopyText: React.ComponentClass<OwnProps> = compose(
-  namedConnect(() => ({}), mapDispatchToProps, (s, d, o: OwnProps) => ({...o, ...s, ...d}), 'CopyText'),
-  HOCTimers
-)(_CopyText)
-
 // border radii aren't literally so big, just sets it to maximum
-const styles = Styles.styleSheetCreate({
-  button: Styles.platformStyles({
-    common: {
-      alignSelf: 'stretch',
-      height: undefined,
-      marginLeft: 'auto',
-      minWidth: undefined,
-      paddingLeft: 17,
-      paddingRight: 17,
-    },
-    isElectron: {
-      display: 'flex',
-      paddingBottom: 6,
-      paddingTop: 6,
-    },
-    isMobile: {
-      paddingBottom: 10,
-      paddingTop: 10,
-    },
-  }),
-  buttonLabelContainer: {
-    height: undefined,
-  },
-  container: Styles.platformStyles({
-    common: {
-      alignItems: 'center',
-      backgroundColor: Styles.globalColors.blueGrey,
-      borderRadius: Styles.borderRadius,
-      flexGrow: 1,
-      position: 'relative',
-      width: '100%',
-    },
-    isElectron: {
-      maxWidth: 460,
-      overflow: 'hidden',
-    },
-    isMobile: {
-      minHeight: 40,
-    },
-  }),
-  reveal: {
-    marginLeft: Styles.globalMargins.tiny,
-  },
-  text: Styles.platformStyles({
-    common: {
-      ...Styles.globalStyles.fontTerminalSemibold,
-      color: Styles.globalColors.blueDark,
-      flexShrink: 1,
-      fontSize: Styles.isMobile ? 15 : 13,
-      marginBottom: Styles.globalMargins.xsmall / 2,
-      marginLeft: Styles.globalMargins.xsmall,
-      marginRight: Styles.globalMargins.xsmall,
-      marginTop: Styles.globalMargins.xsmall / 2,
-      minWidth: 0,
-      textAlign: 'left',
-    },
-    isAndroid: {
-      position: 'relative',
-      top: 3,
-    },
-    isElectron: {
-      userSelect: 'all',
-      wordBreak: 'break-all',
-    },
-    isMobile: {
-      minHeight: 15,
-    },
-  }),
-  toastText: Styles.platformStyles({
-    common: {
-      color: Styles.globalColors.white,
-      textAlign: 'center',
-    },
-    isMobile: {
-      paddingLeft: 10,
-      paddingRight: 10,
-      paddingTop: 5,
-    },
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      button: Styles.platformStyles({
+        common: {
+          alignSelf: 'stretch',
+          borderBottomLeftRadius: 0,
+          borderTopLeftRadius: 0,
+          height: undefined,
+          marginLeft: 'auto',
+          minWidth: undefined,
+          paddingLeft: Styles.globalMargins.xsmall,
+          paddingRight: Styles.globalMargins.xsmall,
+        },
+        isElectron: {
+          display: 'flex',
+          minHeight: 32,
+          paddingBottom: Styles.globalMargins.xtiny,
+          paddingTop: Styles.globalMargins.xtiny,
+        },
+        isMobile: {
+          minHeight: 40,
+          paddingBottom: Styles.globalMargins.tiny,
+          paddingTop: Styles.globalMargins.tiny,
+        },
+      }),
+      buttonLabelContainer: {
+        height: undefined,
+      },
+      container: Styles.platformStyles({
+        common: {
+          alignItems: 'center',
+          backgroundColor: Styles.globalColors.blueGrey,
+          borderRadius: Styles.borderRadius,
+          flexGrow: 1,
+          position: 'relative',
+          width: '100%',
+        },
+        isElectron: {
+          maxWidth: 460,
+          overflow: 'hidden',
+        },
+        isMobile: {
+          // minHeight: 40,
+        },
+      }),
+      containerDisabled: {
+        backgroundColor: Styles.globalColors.black_10,
+      },
+      reveal: {
+        marginLeft: Styles.globalMargins.tiny,
+      },
+      text: Styles.platformStyles({
+        common: {
+          ...Styles.globalStyles.fontTerminal,
+          color: Styles.globalColors.blueDark,
+          flexShrink: 1,
+          marginBottom: Styles.globalMargins.xtiny,
+          marginLeft: Styles.globalMargins.tiny,
+          marginRight: Styles.globalMargins.tiny,
+          marginTop: Styles.globalMargins.xtiny,
+          minWidth: 0,
+          textAlign: 'left',
+        },
+        isAndroid: {
+          // position: 'relative',
+          // top: 3,
+        },
+        isElectron: {
+          userSelect: 'all',
+          wordBreak: 'break-all',
+        },
+        isMobile: {
+          minHeight: 13,
+        },
+      }),
+      textDisabled: {
+        color: Styles.globalColors.black_50,
+      },
+      toastText: Styles.platformStyles({
+        common: {
+          color: Styles.globalColors.white,
+          textAlign: 'center',
+        },
+        isMobile: {
+          paddingLeft: 10,
+          paddingRight: 10,
+          paddingTop: 5,
+        },
+      }),
+    } as const)
+)
 
 export default CopyText

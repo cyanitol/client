@@ -1,5 +1,6 @@
 import * as React from 'react'
 import Box, {Box2} from './box'
+import ProgressIndicator from './progress-indicator'
 import ClickableBox from './clickable-box'
 import Text from './text'
 import Overlay from './overlay'
@@ -7,6 +8,7 @@ import ScrollView from './scroll-view'
 import OverlayParentHOC, {OverlayParentProps} from './overlay/parent-hoc'
 import {Position} from './relative-popup-hoc.types'
 import Icon from './icon'
+import {smallHeight, regularHeight} from './button'
 import * as Styles from '../styles'
 
 type DropdownButtonProps = {
@@ -15,13 +17,20 @@ type DropdownButtonProps = {
   selectedBoxStyle?: Styles.StylesCrossPlatform
   style?: Styles.StylesCrossPlatform
   setAttachmentRef?: (arg0: React.Component<any> | null) => void
-  toggleOpen: (e: React.MouseEvent) => void
+  toggleOpen: (e: React.BaseSyntheticEvent) => void
   inline?: boolean
+  loading?: boolean
 }
+const noTheme = {}
 export const DropdownButton = (props: DropdownButtonProps) => (
-  <ClickableBox onClick={!props.disabled ? props.toggleOpen : undefined} style={props.style}>
-    <ButtonBox inline={props.inline} disabled={props.disabled} ref={props.setAttachmentRef}>
-      <Box style={Styles.collapseStyles([styles.selectedBox, props.selectedBoxStyle])}>{props.selected}</Box>
+  <ClickableBox
+    onClick={!props.disabled ? props.toggleOpen : undefined}
+    style={Styles.collapseStyles([styles.dropdownBoxContainer, props.style])}
+  >
+    <ButtonBox inline={props.inline} disabled={props.disabled} ref={props.setAttachmentRef} theme={noTheme}>
+      <Box style={Styles.collapseStyles([styles.selectedBox, props.selectedBoxStyle])}>
+        {props.loading ? <ProgressIndicator type="Small" /> : props.selected}
+      </Box>
       <Icon
         type="iconfont-caret-down"
         inheritColor={true}
@@ -56,7 +65,7 @@ class Dropdown<N extends React.ReactNode> extends React.Component<Props<N> & Ove
     disabled: false,
   }
 
-  _toggleOpen = (evt?: React.SyntheticEvent) => {
+  _toggleOpen = (evt?: React.BaseSyntheticEvent) => {
     evt && evt.stopPropagation && evt.stopPropagation()
     evt && evt.preventDefault && evt.preventDefault()
     this.setState(prevState => ({
@@ -70,7 +79,7 @@ class Dropdown<N extends React.ReactNode> extends React.Component<Props<N> & Ove
 
   render() {
     return (
-      <Box style={Styles.collapseStyles([{width: Styles.isMobile ? '100%' : 270}, this.props.style])}>
+      <Box style={Styles.collapseStyles([styles.overlayContainer, this.props.style])}>
         <DropdownButton
           disabled={this.props.disabled}
           selected={this.props.selected}
@@ -89,7 +98,7 @@ class Dropdown<N extends React.ReactNode> extends React.Component<Props<N> & Ove
             {this.props.items.map((i: N, idx) => (
               <ClickableBox
                 key={idx}
-                onClick={(evt: React.SyntheticEvent) => {
+                onClick={evt => {
                   evt.stopPropagation && evt.stopPropagation()
                   evt.preventDefault && evt.preventDefault()
                   // Bug in flow that doesn't let us just call this function
@@ -111,38 +120,55 @@ class Dropdown<N extends React.ReactNode> extends React.Component<Props<N> & Ove
 }
 
 type InlineDropdownProps = {
-  label: string
+  containerStyle?: Styles.StylesCrossPlatform
   onPress: () => void
-  type: 'Body' | 'BodySmall'
-}
+  style?: Styles.StylesCrossPlatform
+  loading?: boolean
+  selectedStyle?: Styles.StylesCrossPlatform
+} & (
+  | {
+      textWrapperType: null
+      label: React.ReactElement
+    }
+  | {
+      textWrapperType: 'Body' | 'BodySemibold' | 'BodySmall' | 'BodySmallSemibold'
+      label: string
+    }
+)
 
 export const InlineDropdown = (props: InlineDropdownProps) => {
   const selected = (
-    <Box2 direction="horizontal" key={props.label} style={styles.inlineSelected}>
-      <Text type={props.type}>{props.label}</Text>
+    <Box2 direction="horizontal" style={Styles.collapseStyles([styles.inlineSelected, props.selectedStyle])}>
+      {props.textWrapperType ? <Text type={props.textWrapperType}>{props.label}</Text> : props.label}
     </Box2>
   )
   return (
     <DropdownButton
       inline={true}
-      style={styles.inlineDropdown}
+      loading={props.loading}
+      style={Styles.collapseStyles([styles.inlineDropdown, props.containerStyle])}
       toggleOpen={e => {
         e.stopPropagation && e.stopPropagation()
         props.onPress && props.onPress()
       }}
-      selectedBoxStyle={styles.inlineDropdownSelected}
+      selectedBoxStyle={Styles.collapseStyles([styles.inlineDropdownSelected, props.style])}
       selected={selected}
     />
   )
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
+  dropdownBoxContainer: Styles.platformStyles({
+    isTablet: {
+      maxWidth: 460,
+    },
+  }),
   inlineDropdown: {
     paddingRight: Styles.globalMargins.tiny,
   },
   inlineDropdownSelected: Styles.platformStyles({
-    isElectron: {minHeight: 22},
-    isMobile: {minHeight: 30, width: undefined},
+    common: {minHeight: smallHeight},
+    isMobile: {width: undefined},
   }),
   inlineSelected: Styles.platformStyles({
     common: {
@@ -174,6 +200,14 @@ const styles = Styles.styleSheetCreate({
       width: 270,
     },
   }),
+  overlayContainer: Styles.platformStyles({
+    isElectron: {
+      width: 270,
+    },
+    isMobile: {
+      width: '100%',
+    },
+  }),
   scrollView: Styles.platformStyles({
     common: {
       height: '100%',
@@ -184,17 +218,14 @@ const styles = Styles.styleSheetCreate({
       maxHeight: '50%',
     },
   }),
-  selectedBox: Styles.platformStyles({
-    common: {
-      ...Styles.globalStyles.flexBoxCenter,
-      width: '100%',
-    },
-    isElectron: {minHeight: 32},
-    isMobile: {minHeight: 48},
-  }),
-})
+  selectedBox: {
+    ...Styles.globalStyles.flexBoxCenter,
+    minHeight: regularHeight,
+    width: '100%',
+  },
+}))
 
-const ItemBox = Styles.styled(Box)({
+const ItemBox = Styles.styled(Box)(() => ({
   ...Styles.globalStyles.flexBoxRow,
   ...(Styles.isMobile
     ? {}
@@ -208,9 +239,8 @@ const ItemBox = Styles.styled(Box)({
   borderStyle: 'solid',
   minHeight: Styles.isMobile ? 40 : 32,
   width: '100%',
-})
+}))
 
-// @ts-ignore styled can have more than one argument
 const ButtonBox = Styles.styled(Box, {shouldForwardProp: prop => prop !== 'inline'})(props => ({
   ...Styles.globalStyles.flexBoxRow,
   ...(!props.disabled && !Styles.isMobile
@@ -232,6 +262,11 @@ const ButtonBox = Styles.styled(Box, {shouldForwardProp: prop => prop !== 'inlin
     ? Styles.globalMargins.large
     : Styles.globalMargins.small,
   width: props.inline ? undefined : '100%',
+  ...(Styles.isTablet
+    ? {
+        maxWidth: 460,
+      }
+    : {}),
 }))
 
 // This whole wrapper exists so as to get proper typing on the export, so

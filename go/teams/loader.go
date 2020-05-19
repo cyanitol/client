@@ -15,6 +15,7 @@ import (
 	"github.com/keybase/client/go/protocol/keybase1"
 	hidden "github.com/keybase/client/go/teams/hidden"
 	storage "github.com/keybase/client/go/teams/storage"
+	pkgErrors "github.com/pkg/errors"
 )
 
 // Show detailed team profiling
@@ -44,15 +45,18 @@ func Load(ctx context.Context, g *libkb.GlobalContext, lArg keybase1.LoadTeamArg
 	if err != nil {
 		return nil, err
 	}
-	ret := NewTeam(ctx, g, teamData, hidden)
+	team := NewTeam(ctx, g, teamData, hidden)
 
 	if lArg.RefreshUIDMapper {
 		// If we just loaded the group, then inform the UIDMapper of any UID->EldestSeqno
 		// mappings, so that we're guaranteed they aren't stale.
-		ret.refreshUIDMapper(ctx, g)
+		team.refreshUIDMapper(ctx, g)
 	}
 
-	return ret, nil
+	// OK if it errors; just move on and return the team.
+	_, _ = team.calculateAndCacheMemberCount(ctx)
+
+	return team, nil
 }
 
 // Loader of keybase1.TeamData objects. Handles caching.
@@ -62,11 +66,12 @@ func Load(ctx context.Context, g *libkb.GlobalContext, lArg keybase1.LoadTeamArg
 // Threadsafe.
 type TeamLoader struct {
 	libkb.Contextified
-	world   LoaderContext
-	storage *storage.Storage
+	world         LoaderContext
+	storage       *storage.Storage
+	merkleStorage *storage.Merkle
 	// Single-flight locks per team ID.
 	// (Private and public loads of the same ID will block each other, should be fine)
-	locktab libkb.LockTable
+	locktab *libkb.LockTable
 
 	// Cache lookups of team name -> ID for a few seconds, to absorb bursts of lookups
 	// from the frontend
@@ -82,12 +87,14 @@ type TeamLoader struct {
 
 var _ libkb.TeamLoader = (*TeamLoader)(nil)
 
-func NewTeamLoader(g *libkb.GlobalContext, world LoaderContext, storage *storage.Storage) *TeamLoader {
+func NewTeamLoader(g *libkb.GlobalContext, world LoaderContext, storage *storage.Storage, merkleStorage *storage.Merkle) *TeamLoader {
 	return &TeamLoader{
 		Contextified:         libkb.NewContextified(g),
 		world:                world,
 		storage:              storage,
+		merkleStorage:        merkleStorage,
 		nameLookupBurstCache: libkb.NewBurstCache(g, 100, 10*time.Second, "SubteamNameToID"),
+		locktab:              libkb.NewLockTable(),
 	}
 }
 
@@ -95,7 +102,8 @@ func NewTeamLoader(g *libkb.GlobalContext, world LoaderContext, storage *storage
 func NewTeamLoaderAndInstall(g *libkb.GlobalContext) *TeamLoader {
 	world := NewLoaderContextFromG(g)
 	st := storage.NewStorage(g)
-	l := NewTeamLoader(g, world, st)
+	mst := storage.NewMerkle()
+	l := NewTeamLoader(g, world, st, mst)
 	g.SetTeamLoader(l)
 	g.AddLogoutHook(l, "teamLoader")
 	g.AddDbNukeHook(l, "teamLoader")
@@ -123,7 +131,7 @@ func newFrozenChain(chain *keybase1.TeamSigChainState) keybase1.TeamSigChainStat
 }
 
 func (l *TeamLoader) Freeze(ctx context.Context, teamID keybase1.TeamID) (err error) {
-	defer l.G().CTraceTimed(ctx, fmt.Sprintf("TeamLoader#Freeze(%s)", teamID), func() error { return err })()
+	defer l.G().CTrace(ctx, fmt.Sprintf("TeamLoader#Freeze(%s)", teamID), &err)()
 	lock := l.locktab.AcquireOnName(ctx, l.G(), teamID.String())
 	defer lock.Release(ctx)
 	mctx := libkb.NewMetaContext(ctx, l.G())
@@ -141,7 +149,7 @@ func (l *TeamLoader) Freeze(ctx context.Context, teamID keybase1.TeamID) (err er
 }
 
 func (l *TeamLoader) Tombstone(ctx context.Context, teamID keybase1.TeamID) (err error) {
-	defer l.G().CTraceTimed(ctx, fmt.Sprintf("TeamLoader#Tombstone(%s)", teamID), func() error { return err })()
+	defer l.G().CTrace(ctx, fmt.Sprintf("TeamLoader#Tombstone(%s)", teamID), &err)()
 	lock := l.locktab.AcquireOnName(ctx, l.G(), teamID.String())
 	defer lock.Release(ctx)
 	mctx := libkb.NewMetaContext(ctx, l.G())
@@ -181,6 +189,21 @@ func (l *TeamLoader) HintLatestSeqno(ctx context.Context, teamID keybase1.TeamID
 	return nil
 }
 
+// Get whether a team is open. Returns an arbitrarily stale answer.
+func (l *TeamLoader) IsOpenCached(ctx context.Context, teamID keybase1.TeamID) (bool, error) {
+	// Single-flight lock by team ID.
+	lock := l.locktab.AcquireOnName(ctx, l.G(), teamID.String())
+	defer lock.Release(ctx)
+	mctx := libkb.NewMetaContext(ctx, l.G())
+
+	// Load from the cache
+	td, frozen, tombstoned := l.storage.Get(mctx, teamID, teamID.IsPublic())
+	if frozen || tombstoned || td == nil {
+		return false, fmt.Errorf("team not available data:%v frozen:%v tombstoned:%v", td != nil, frozen, tombstoned)
+	}
+	return td.Chain.Open, nil
+}
+
 type nameLookupBurstCacheKey struct {
 	teamName keybase1.TeamName
 	public   bool
@@ -194,7 +217,7 @@ func (n nameLookupBurstCacheKey) String() string {
 // Will always hit the server for subteams. The server can lie in this return value.
 func (l *TeamLoader) ResolveNameToIDUntrusted(ctx context.Context, teamName keybase1.TeamName, public bool, allowCache bool) (id keybase1.TeamID, err error) {
 
-	defer l.G().CVTrace(ctx, libkb.VLog0, fmt.Sprintf("resolveNameToUIDUntrusted(%s,%v,%v)", teamName.String(), public, allowCache), func() error { return err })()
+	defer l.G().CVTrace(ctx, libkb.VLog0, fmt.Sprintf("resolveNameToUIDUntrusted(%s,%v,%v)", teamName.String(), public, allowCache), &err)()
 
 	// For root team names, just hash.
 	if teamName.IsRootTeam() {
@@ -252,9 +275,9 @@ func (l *TeamLoader) makeNameLookupBurstCacheLoader(ctx context.Context, g *libk
 
 // Load1 unpacks the loadArg, calls load2, and does some final checks.
 // The key difference between load1 and load2 is that load2 is recursive (for subteams).
-func (l *TeamLoader) load1(ctx context.Context, me keybase1.UserVersion, lArg keybase1.LoadTeamArg) (*keybase1.TeamData, *keybase1.HiddenTeamChain, error) {
+func (l *TeamLoader) load1(ctx context.Context, me keybase1.UserVersion, lArg keybase1.LoadTeamArg) (data *keybase1.TeamData, hiddenChain *keybase1.HiddenTeamChain, err error) {
 	mctx := libkb.NewMetaContext(ctx, l.G())
-	err := l.checkArg(ctx, lArg)
+	err = l.checkArg(ctx, lArg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -284,6 +307,13 @@ func (l *TeamLoader) load1(ctx context.Context, me keybase1.UserVersion, lArg ke
 		}
 	}
 
+	defer func() {
+		if hidden.ShouldClearSupportFlagOnError(err) {
+			mctx.Debug("Clearing support hidden chain flag for team %s because of error %v in team loader (load1)", teamID, err)
+			mctx.G().GetHiddenTeamChainManager().ClearSupportFlagIfFalse(mctx, teamID)
+		}
+	}()
+
 	mungedForceRepoll := lArg.ForceRepoll
 	mungedWantMembers, err := l.mungeWantMembers(ctx, lArg.Refreshers.WantMembers)
 	if err != nil {
@@ -307,6 +337,8 @@ func (l *TeamLoader) load1(ctx context.Context, me keybase1.UserVersion, lArg ke
 		forceRepoll:                           mungedForceRepoll,
 		staleOK:                               lArg.StaleOK,
 		public:                                lArg.Public,
+		auditMode:                             lArg.AuditMode,
+		skipNeedHiddenRotateCheck:             lArg.SkipNeedHiddenRotateCheck,
 
 		needSeqnos:    nil,
 		readSubteamID: nil,
@@ -333,10 +365,10 @@ func (l *TeamLoader) load1(ctx context.Context, me keybase1.UserVersion, lArg ke
 	}
 
 	// Public teams are allowed to be behind on secrets since you can load a
-	// public team you're not in. Bot members don't have any secrets and are
-	// also exempt.
+	// public team you're not in. Restricted bot members don't have any secrets
+	// and are also exempt.
 	if !l.hasSyncedSecrets(mctx, ret.teamShim()) &&
-		!(ret.team.Chain.Public || ret.team.Chain.UserRole(me).IsBot()) {
+		!(ret.team.Chain.Public || ret.team.Chain.UserRole(me).IsRestrictedBot()) {
 		// this should not happen
 		return nil, nil, fmt.Errorf("missing secrets for team")
 	}
@@ -369,7 +401,7 @@ func (l *TeamLoader) checkArg(ctx context.Context, lArg keybase1.LoadTeamArg) er
 	if hasID {
 		id, err := keybase1.TeamIDFromString(lArg.ID.String())
 		if err != nil {
-			return fmt.Errorf("team load arg has invalid ID: %v", lArg.ID)
+			return fmt.Errorf("team load arg has invalid ID: %q", lArg.ID)
 		}
 		if id.IsPublic() != lArg.Public {
 			return libkb.NewTeamVisibilityError(lArg.Public, id.IsPublic())
@@ -395,12 +427,17 @@ type load2ArgT struct {
 	needKBFSKeyGeneration                 keybase1.TeamKBFSKeyRefresher
 	// wantMembers here is different from wantMembers on LoadTeamArg:
 	// The EldestSeqno's should not be 0.
-	wantMembers     []keybase1.UserVersion
-	wantMembersRole keybase1.TeamRole
-	forceFullReload bool
-	forceRepoll     bool
-	staleOK         bool
-	public          bool
+	wantMembers               []keybase1.UserVersion
+	wantMembersRole           keybase1.TeamRole
+	forceFullReload           bool
+	forceRepoll               bool
+	staleOK                   bool
+	public                    bool
+	skipNeedHiddenRotateCheck bool
+	skipSeedCheck             bool
+	foundRKMHole              bool // if the previous load found an RKM hole, this is set
+
+	auditMode keybase1.AuditMode
 
 	needSeqnos []keybase1.Seqno
 	// Non-nil if we are loading an ancestor for the greater purpose of
@@ -408,7 +445,7 @@ type load2ArgT struct {
 	// to give us a subteam-reader version of the team.
 	// If and only if this is set, load2 is allowed to return a secret-less TeamData.
 	// Load1 can return secret-less TeamData if the team is public or the
-	// current user is a bot member.
+	// current user is a restricted bot member.
 	readSubteamID *keybase1.TeamID
 
 	// If the user is logged out, this will be a nil UserVersion, meaning
@@ -433,13 +470,19 @@ func (l *TeamLoader) load2(ctx context.Context, arg load2ArgT) (ret *load2ResT, 
 	if arg.reason != "" {
 		ctx = libkb.WithLogTag(ctx, "LT2") // Load team recursive
 	}
+	mctx := libkb.NewMetaContext(ctx, l.G())
+
 	traceLabel := fmt.Sprintf("TeamLoader#load2(%v, public:%v)", arg.teamID, arg.public)
 	if len(arg.reason) > 0 {
 		traceLabel = traceLabel + " '" + arg.reason + "'"
 	}
 
-	defer l.G().CTraceTimed(ctx, traceLabel, func() error { return err })()
+	defer l.G().CTrace(ctx, traceLabel, &err)()
 	ret, err = l.load2Inner(ctx, arg)
+	if hidden.ShouldClearSupportFlagOnError(err) {
+		mctx.Debug("Clearing support hidden chain flag for team %s because of error %v in team loader (load2)", arg.teamID, err)
+		mctx.G().GetHiddenTeamChainManager().ClearSupportFlagIfFalse(mctx, arg.teamID)
+	}
 	return ret, err
 }
 
@@ -456,9 +499,18 @@ func (l *TeamLoader) load2InnerLocked(ctx context.Context, arg load2ArgT) (res *
 	const nRetries = 3
 	for i := 0; i < nRetries; i++ {
 		res, err = l.load2InnerLockedRetry(ctx, arg)
-		switch err.(type) {
+		switch pkgErrors.Cause(err).(type) {
 		case nil:
 			return res, nil
+		case MissingReaderKeyMaskError:
+			l.G().Log.CDebugf(ctx, "Got MissingReaderKeyMaskError (%s); retrying with forceFullReload=true", err.Error())
+			arg.foundRKMHole = true
+			origErr := err
+			res, err = l.load2InnerLockedRetry(ctx, arg)
+			if err == nil {
+				l.G().Log.CDebugf(ctx, "Found an holes in RKMS in which busting the cache saved the day (original error was: %s)", origErr.Error())
+			}
+			return res, err
 		case ProofError:
 			if arg.forceRepoll {
 				return res, err
@@ -489,6 +541,29 @@ func (l *TeamLoader) load2InnerLocked(ctx context.Context, arg load2ArgT) (res *
 	return res, err
 }
 
+func (l *TeamLoader) checkHiddenResponse(mctx libkb.MetaContext, hiddenPackage *hidden.LoaderPackage, hiddenResp *libkb.MerkleHiddenResponse) (hiddenIsFresh bool, err error) {
+	if hiddenResp.CommittedHiddenTail != nil {
+		mctx.Debug("hiddenResp: %+v UncommittedSeqno %+v CommittedSeqno %v", hiddenResp, hiddenResp.UncommittedSeqno, hiddenResp.CommittedHiddenTail.Seqno)
+	} else {
+		mctx.Debug("hiddenResp: %+v UncommittedSeqno %+v", hiddenResp, hiddenResp.UncommittedSeqno)
+	}
+
+	switch hiddenResp.RespType {
+	case libkb.MerkleHiddenResponseTypeNONE:
+		hiddenIsFresh = true
+		mctx.Debug("Skipping CheckHiddenMerklePathResponseAndAddRatchets as no hidden data was received. If the server had to show us the hidden chain and didn't, we will error out later (once we can establish our role in the team).")
+	case libkb.MerkleHiddenResponseTypeFLAGOFF:
+		hiddenIsFresh = true
+		mctx.Debug("Skipping CheckHiddenMerklePathResponseAndAddRatchets as the hidden flag is off.")
+	default:
+		hiddenIsFresh, err = hiddenPackage.CheckHiddenMerklePathResponseAndAddRatchets(mctx, hiddenResp)
+		if err != nil {
+			return false, err
+		}
+	}
+	return hiddenIsFresh, nil
+}
+
 func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (*load2ResT, error) {
 	ctx, tbs := l.G().CTimeBuckets(ctx)
 	mctx := libkb.NewMetaContext(ctx, l.G())
@@ -507,6 +582,9 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 	if tombstoned {
 		return nil, NewTeamTombstonedError()
 	}
+
+	// Fetch last polled time from merkle cache
+	merklePolledAt := l.merkleStorage.Get(mctx, arg.teamID, arg.public)
 
 	var ret *keybase1.TeamData
 	if !frozen && !arg.forceFullReload {
@@ -527,7 +605,7 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 		cachedName = &ret.Name
 	}
 
-	hiddenPackage, err := l.hiddenPackage(mctx, arg.teamID, ret)
+	hiddenPackage, err := l.hiddenPackage(mctx, arg.teamID, ret, arg.me)
 	if err != nil {
 		return nil, err
 	}
@@ -537,7 +615,7 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 	}
 
 	// Determine whether to repoll merkle.
-	discardCache, repoll := l.load2DecideRepoll(mctx, arg, teamShim())
+	discardCache, repoll := l.load2DecideRepoll(mctx, arg, teamShim(), merklePolledAt)
 	if discardCache {
 		ret = nil
 		repoll = true
@@ -559,21 +637,28 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 	var lastSeqno keybase1.Seqno
 	var lastLinkID keybase1.LinkID
 	var hiddenIsFresh bool
+	var lastMerkleRoot *libkb.MerkleRoot
+
+	// hiddenResp will be nill iff we do not make the merkleLookupWithHidden
+	// call. If the server does not return any hidden data, we will encode that
+	// as a non nil response whose RespType is MerkleHiddenResponseTypeNONE.
+	var hiddenResp *libkb.MerkleHiddenResponse
 
 	if (ret == nil) || repoll {
 		mctx.Debug("TeamLoader looking up merkle leaf (force:%v)", arg.forceRepoll)
-		// Request also, without an additional RTT, freshness information about the hidden chain;
-		// we're going to send up information we know about the visible and hidden chains to both prove
-		// membership and show what we know about.
-		harg, err := hiddenPackage.MerkleLoadArg(mctx)
-		if err != nil {
-			return nil, err
-		}
+
 		// Reference the merkle tree to fetch the sigchain tail leaf for the team.
-		lastSeqno, lastLinkID, hiddenIsFresh, err = l.world.merkleLookupWithHidden(ctx, arg.teamID, arg.public, harg)
+		lastSeqno, lastLinkID, hiddenResp, lastMerkleRoot, err = l.world.merkleLookupWithHidden(ctx, arg.teamID, arg.public)
 		if err != nil {
 			return nil, err
 		}
+		mctx.Debug("received lastSeqno %v, lastLinkID %v", lastSeqno, lastLinkID)
+
+		hiddenIsFresh, err = l.checkHiddenResponse(mctx, hiddenPackage, hiddenResp)
+		if err != nil {
+			return nil, err
+		}
+
 		didRepoll = true
 	} else {
 		lastSeqno = ret.Chain.LastSeqno
@@ -593,12 +678,14 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 
 	// Backfill stubbed links that need to be filled now.
 	tracer.Stage("backfill")
+	var filledInStubbedLinks bool
 	if ret != nil && len(arg.needSeqnos) > 0 {
 		ret, proofSet, parentChildOperations, err = l.fillInStubbedLinks(
-			ctx, arg.me, arg.teamID, ret, arg.needSeqnos, readSubteamID, proofSet, parentChildOperations, lkc)
+			mctx, arg.me, arg.teamID, ret, arg.needSeqnos, readSubteamID, proofSet, parentChildOperations, lkc)
 		if err != nil {
 			return nil, err
 		}
+		filledInStubbedLinks = true
 	}
 
 	tracer.Stage("pre-fetch")
@@ -653,7 +740,7 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 	tracer.Stage("fetch")
 	var teamUpdate *rawTeam
 	if fetchLinksAndOrSecrets {
-		lows := l.lows(mctx, ret, hiddenPackage)
+		lows := l.lows(mctx, ret, hiddenPackage, arg)
 		mctx.Debug("TeamLoader getting links from server (%+v)", lows)
 		teamUpdate, err = l.world.getNewLinksFromServer(ctx, arg.teamID, lows, arg.readSubteamID)
 		if err != nil {
@@ -664,7 +751,7 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 	}
 
 	tracer.Stage("unpack")
-	links, err := teamUpdate.unpackLinks(ctx)
+	links, err := teamUpdate.unpackLinks(mctx)
 	if err != nil {
 		return nil, err
 	}
@@ -709,12 +796,48 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 		}
 	}
 
+	if ret == nil {
+		return nil, fmt.Errorf("team loader fault: got nil from load2")
+	}
+
+	encKID, gen, role, err := l.hiddenPackageGetter(mctx, arg.teamID, ret, arg.me)()
+	if err != nil {
+		return nil, err
+	}
+
+	// If we did get an update from the server (hiddenResp != nil) are not a
+	// restricted bot AND this is not a recursive load (arg.readSubteamID == nil),
+	// then the server should have given us hidden chain data.
+	if hiddenResp != nil && hiddenResp.RespType == libkb.MerkleHiddenResponseTypeNONE && !role.IsRestrictedBot() && arg.readSubteamID == nil {
+		return nil, libkb.NewHiddenChainDataMissingError("Not a restricted bot or recursive load, but the server did not return merkle hidden chain data")
+	}
+
+	// Update the hidden package with team metadata once we process all of the
+	// links. This is necessary since we need the role to be up to date to know
+	// if we should skip seed checks on the hidden chain if we are loading as a
+	// RESTRICTEDBOT.
+	hiddenPackage.UpdateTeamMetadata(encKID, gen, role)
+
 	// Be sure to update the hidden chain after the main chain, since the latter can "ratchet" the former
-	if teamUpdate != nil {
-		err = hiddenPackage.Update(mctx, teamUpdate.GetHiddenChain())
-		if err != nil {
-			return nil, err
-		}
+	err = hiddenPackage.Update(mctx, teamUpdate.GetHiddenChain(), hiddenResp.GetUncommittedSeqno())
+
+	if err != nil {
+		return nil, err
+	}
+	err = hiddenPackage.CheckPTKsForDuplicates(mctx, func(g keybase1.PerTeamKeyGeneration) bool {
+		_, ok := ret.Chain.PerTeamKeys[g]
+		return ok
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// The hidden team has pointers from the hidden chain up to the visible chain; check that they
+	// match the loaded team. We should have a full load of the team, so all parent pointers
+	// better hit their mark.
+	err = hiddenPackage.CheckParentPointersOnFullLoad(mctx, ret)
+	if err != nil {
+		return nil, err
 	}
 
 	preloadCancel()
@@ -730,10 +853,6 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 			tbs.Log(ctx, "CachedUPAKLoader.DeepCopy")
 			mctx.Debug("TeamLoader lkc cache hits: %v", lkc.cacheHits)
 		}
-	}
-
-	if ret == nil {
-		return nil, fmt.Errorf("team loader fault: got nil from load2")
 	}
 
 	if !ret.Chain.LastLinkID.Eq(lastLinkID) {
@@ -781,11 +900,11 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 			}
 			// Add the secrets.
 			// If it's a public team, there might not be secrets. (If we're not in the team)
-			// Bots don't have any team secrets, so we alos short circuit.
-			if !role.IsBot() && (!ret.Chain.Public || (teamUpdate.Box != nil)) {
+			// Restricted bots don't have any team secrets, so we also short circuit.
+			if !role.IsRestrictedBot() && (!ret.Chain.Public || (teamUpdate.Box != nil)) {
 				err = l.addSecrets(mctx, teamShim(), arg.me, teamUpdate.Box, teamUpdate.Prevs, teamUpdate.ReaderKeyMasks)
 				if err != nil {
-					return nil, fmt.Errorf("loading team secrets: %v", err)
+					return nil, pkgErrors.Wrap(err, "loading team secrets")
 				}
 
 				err = l.computeSeedChecks(ctx, ret)
@@ -800,6 +919,14 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 					}
 				}
 			}
+			if role.IsRestrictedBot() {
+				// Clear out any secrets we may have had in memory if we were a
+				// previous role that had PTK access.
+				state := teamShim().MainChain()
+				state.PerTeamKeySeedsUnverified = make(map[keybase1.PerTeamKeyGeneration]keybase1.PerTeamKeySeedItem)
+				state.ReaderKeyMasks = make(map[keybase1.TeamApplication]map[keybase1.PerTeamKeyGeneration]keybase1.MaskB64)
+				state.TlfCryptKeys = make(map[keybase1.TeamApplication][]keybase1.CryptKey)
+			}
 		}
 	}
 
@@ -811,9 +938,11 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 		return nil, err
 	}
 
-	err = hiddenPackage.CheckUpdatesAgainstSeedsWithMap(mctx, ret.PerTeamKeySeedsUnverified)
-	if err != nil {
-		return nil, err
+	if !arg.skipSeedCheck && arg.readSubteamID == nil {
+		err = hiddenPackage.CheckUpdatesAgainstSeedsWithMap(mctx, ret.PerTeamKeySeedsUnverified)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Make sure public works out
@@ -845,9 +974,11 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 	}
 
 	var needHiddenRotate bool
-	needHiddenRotate, err = l.checkNeedRotate(mctx, ret, arg.me, hiddenPackage)
-	if err != nil {
-		return nil, err
+	if !arg.skipNeedHiddenRotateCheck {
+		needHiddenRotate, err = l.checkNeedRotate(mctx, ret, arg.me, hiddenPackage)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	err = hiddenPackage.Commit(mctx)
@@ -866,18 +997,33 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 	// while holding the single-flight lock reads or writes this field.
 	ret.LatestSeqnoHint = 0
 
-	tracer.Stage("audit")
-	err = l.audit(ctx, readSubteamID, &ret.Chain)
-	if err != nil {
-		return nil, err
+	if didRepoll {
+		tracer.Stage("audit")
+		auditMode := arg.auditMode
+		// in case of restricted bots or recursive loads, do not audit the
+		// hidden chain (as we might not have permission to see it).
+		if (role.IsRestrictedBot() || arg.readSubteamID != nil) && auditMode == keybase1.AuditMode_STANDARD {
+			auditMode = keybase1.AuditMode_STANDARD_NO_HIDDEN
+		}
+
+		err = l.audit(ctx, readSubteamID, &ret.Chain, hiddenPackage.ChainData(), lastMerkleRoot, auditMode)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		mctx.Debug("Skipping audit in the TeamLoader as we did not repoll merkle")
 	}
 
-	// Cache the validated result
-	tracer.Stage("put")
-	l.storage.Put(mctx, ret)
+	// Cache the validated result if it was actually updated via the team/get endpoint. In many cases, we're not
+	// actually mutating the teams. Also, if we wound up filling in stubbed links, let's also restore the cache.
+	if teamUpdate != nil || filledInStubbedLinks {
+		tracer.Stage("put")
+		l.storage.Put(mctx, ret)
+	}
 
-	if needHiddenRotate {
-		return nil, NeedHiddenChainRotationError{}
+	// If we wound up repolling the merkle tree for this team, say that we did.
+	if didRepoll {
+		l.merkleStorage.Put(mctx, arg.teamID, arg.public, keybase1.ToTime(mctx.G().Clock().Now()))
 	}
 
 	tracer.Stage("notify")
@@ -885,12 +1031,12 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 		chain := TeamSigChainState{inner: ret.Chain, hidden: hiddenPackage.ChainData()}
 		// Send a notification if we used to have the name cached and it has changed at all.
 		changeSet := keybase1.TeamChangeSet{Renamed: true}
-		go l.G().NotifyRouter.HandleTeamChangedByID(context.Background(),
-			chain.GetID(), chain.GetLatestSeqno(), chain.IsImplicit(), changeSet, chain.GetLatestHiddenSeqno())
-		go l.G().NotifyRouter.HandleTeamChangedByName(context.Background(),
-			cachedName.String(), chain.GetLatestSeqno(), chain.IsImplicit(), changeSet, chain.GetLatestHiddenSeqno())
-		go l.G().NotifyRouter.HandleTeamChangedByName(context.Background(),
-			newName.String(), chain.GetLatestSeqno(), chain.IsImplicit(), changeSet, chain.GetLatestHiddenSeqno())
+		go l.G().NotifyRouter.HandleTeamChangedByID(context.Background(), chain.GetID(), chain.GetLatestSeqno(),
+			chain.IsImplicit(), changeSet, chain.GetLatestHiddenSeqno(), keybase1.Seqno(0), keybase1.TeamChangedSource_LOCAL_RENAME)
+		go l.G().NotifyRouter.HandleTeamChangedByName(context.Background(), cachedName.String(), chain.GetLatestSeqno(),
+			chain.IsImplicit(), changeSet, chain.GetLatestHiddenSeqno(), keybase1.Seqno(0), keybase1.TeamChangedSource_LOCAL_RENAME)
+		go l.G().NotifyRouter.HandleTeamChangedByName(context.Background(), newName.String(), chain.GetLatestSeqno(),
+			chain.IsImplicit(), changeSet, chain.GetLatestHiddenSeqno(), keybase1.Seqno(0), keybase1.TeamChangedSource_LOCAL_RENAME)
 	}
 
 	// Check request constraints
@@ -906,30 +1052,46 @@ func (l *TeamLoader) load2InnerLockedRetry(ctx context.Context, arg load2ArgT) (
 	}
 
 	if hd := hiddenPackage.ChainData(); hd != nil {
+		hd.NeedRotate = needHiddenRotate
 		load2res.hidden = hd
+	}
+
+	if needHiddenRotate {
+		l.G().GetTeamBoxAuditor().MaybeScheduleDelayedBoxAuditTeam(mctx, arg.teamID)
 	}
 
 	return &load2res, nil
 }
 
-func (l *TeamLoader) hiddenPackage(mctx libkb.MetaContext, id keybase1.TeamID, team *keybase1.TeamData) (ret *hidden.LoaderPackage, err error) {
-	return hidden.NewLoaderPackage(mctx, id,
-		func() (encKID keybase1.KID, gen keybase1.PerTeamKeyGeneration, err error) {
-			if team == nil {
-				return encKID, gen, nil
-			}
-			ptk, err := TeamSigChainState{inner: team.Chain}.GetLatestPerTeamKey(mctx)
-			if err != nil {
-				return encKID, gen, err
-			}
-			return ptk.EncKID, ptk.Gen, nil
-		})
+func (l *TeamLoader) hiddenPackageGetter(mctx libkb.MetaContext, id keybase1.TeamID, team *keybase1.TeamData, me keybase1.UserVersion) func() (encKID keybase1.KID, gen keybase1.PerTeamKeyGeneration, role keybase1.TeamRole, err error) {
+	return func() (encKID keybase1.KID, gen keybase1.PerTeamKeyGeneration,
+		role keybase1.TeamRole, err error) {
+		if team == nil {
+			return encKID, gen, keybase1.TeamRole_NONE, nil
+		}
+		state := TeamSigChainState{inner: team.Chain}
+
+		ptk, err := state.GetLatestPerTeamKey(mctx)
+		if err != nil {
+			return encKID, gen, keybase1.TeamRole_NONE, err
+		}
+		role, err = state.GetUserRole(me)
+		if err != nil {
+			return encKID, gen, keybase1.TeamRole_NONE, err
+		}
+		return ptk.EncKID, ptk.Gen, role, nil
+	}
+}
+
+func (l *TeamLoader) hiddenPackage(mctx libkb.MetaContext, id keybase1.TeamID, team *keybase1.TeamData, me keybase1.UserVersion) (ret *hidden.LoaderPackage, err error) {
+	getter := l.hiddenPackageGetter(mctx, id, team, me)
+	return hidden.NewLoaderPackage(mctx, id, getter)
 }
 
 func (l *TeamLoader) isAllowedKeyerOf(mctx libkb.MetaContext, chain *keybase1.TeamData, me keybase1.UserVersion, them keybase1.UserVersion) (ret bool, err error) {
 	state := TeamSigChainState{inner: chain.Chain}
 	mctx = mctx.WithLogTag("IAKO")
-	defer mctx.Trace(fmt.Sprintf("TeamLoader#isAllowedKeyerOf(%s, %s)", state.GetID(), them), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("TeamLoader#isAllowedKeyerOf(%s, %s)", state.GetID(), them), &err)()
 
 	role, err := state.GetUserRole(them)
 	if err != nil {
@@ -939,6 +1101,11 @@ func (l *TeamLoader) isAllowedKeyerOf(mctx libkb.MetaContext, chain *keybase1.Te
 	case keybase1.TeamRole_WRITER, keybase1.TeamRole_ADMIN, keybase1.TeamRole_OWNER:
 		mctx.Debug("user fits explicit role (%s)", role)
 		return true, nil
+	}
+
+	if state.GetParentID() == nil {
+		mctx.Debug("user is not an allowed keyer of the team")
+		return false, nil
 	}
 
 	// now check implict adminship
@@ -969,15 +1136,28 @@ func (l *TeamLoader) checkNeedRotate(mctx libkb.MetaContext, chain *keybase1.Tea
 
 func (l *TeamLoader) checkNeedRotateWithSigner(mctx libkb.MetaContext, chain *keybase1.TeamData, me keybase1.UserVersion, signer keybase1.Signer) (ret bool, err error) {
 
+	defer mctx.Trace(fmt.Sprintf("TeamLoader::checkNeedRotateWithSigner(%+v)", signer), &err)()
+
 	uv := signer.UserVersion()
 
-	var isKeyer bool
+	var isKeyer, amIKeyer bool
+
+	amIKeyer, err = l.isAllowedKeyerOf(mctx, chain, me, me)
+	if err != nil {
+		return false, err
+	}
+	if !amIKeyer {
+		mctx.Debug("I am not a keyer for this team, so I can't rotate it even if required")
+		return false, nil
+	}
+
 	isKeyer, err = l.isAllowedKeyerOf(mctx, chain, me, uv)
 	if err != nil {
 		return false, err
 	}
 
 	if !isKeyer {
+		mctx.Debug("need rotate since %+v isn't an allowed keyer of the team", uv)
 		return true, nil
 	}
 
@@ -989,13 +1169,13 @@ func (l *TeamLoader) checkNeedRotateWithSigner(mctx libkb.MetaContext, chain *ke
 		return false, err
 	}
 
-	if !found {
+	if !found || revokedAt != nil {
 		var s string
 		if revokedAt != nil {
 			tm := revokedAt.Unix.Time()
 			s = fmt.Sprintf(" (revoked at %s [%s ago])", tm, mctx.G().Clock().Now().Sub(tm))
 		}
-		mctx.Debug("KID %s wasn't found for %+v%s", signer.K, s)
+		mctx.Debug("KID %s wasn't found for %+v%s", signer, s)
 		return true, nil
 	}
 
@@ -1038,6 +1218,10 @@ func (l *TeamLoader) doOneLink(mctx libkb.MetaContext, arg load2ArgT, ret *keyba
 	}
 
 	if err := consumeRatchets(mctx, hiddenPackage, link); err != nil {
+		return nil, nilPrev, err
+	}
+
+	if err := checkPTKGenerationNotOnHiddenChain(mctx, hiddenPackage, link); err != nil {
 		return nil, nilPrev, err
 	}
 
@@ -1126,7 +1310,7 @@ func (l *TeamLoader) userPreload(ctx context.Context, links []*ChainLinkUnpacked
 // - JustUpdated
 // - If this user is in global "force repoll" mode, where it would be too spammy to
 //   push out individual team changed notifications, so all team loads need a repoll.
-func (l *TeamLoader) load2DecideRepoll(mctx libkb.MetaContext, arg load2ArgT, fromCache Teamer) (discardCache bool, repoll bool) {
+func (l *TeamLoader) load2DecideRepoll(mctx libkb.MetaContext, arg load2ArgT, fromCache Teamer, cachedPolledAt *keybase1.Time) (discardCache bool, repoll bool) {
 	var reason string
 	defer func() {
 		if discardCache || repoll || reason != "" {
@@ -1215,7 +1399,12 @@ func (l *TeamLoader) load2DecideRepoll(mctx libkb.MetaContext, arg load2ArgT, fr
 		return false, true
 	}
 
-	cacheIsOld := !l.isFresh(mctx, fromCache.MainChain().CachedAt)
+	cachedAt := fromCache.MainChain().CachedAt
+	if cachedPolledAt != nil && *cachedPolledAt > cachedAt {
+		cachedAt = *cachedPolledAt
+	}
+
+	cacheIsOld := !l.isFresh(mctx, cachedAt)
 	if cacheIsOld && !arg.staleOK {
 		// We need a merkle leaf
 		reason = "cacheIsOld"
@@ -1454,7 +1643,7 @@ func (l *TeamLoader) satisfiesNeedApplicationsAtGenerationsWithKBFS(mctx libkb.M
 	if len(needApplicationsAtGenerations) == 0 {
 		return nil
 	}
-	if state == nil {
+	if state == nil || state.MainChain() == nil {
 		return fmt.Errorf("nil team does not contain applications: %v", needApplicationsAtGenerations)
 	}
 	for ptkGen, apps := range needApplicationsAtGenerations {
@@ -1568,22 +1757,17 @@ func (l *TeamLoader) logIfUnsyncedSecrets(ctx context.Context, state *keybase1.T
 	}
 }
 
-func (l *TeamLoader) lows(mctx libkb.MetaContext, state *keybase1.TeamData, hp *hidden.LoaderPackage) getLinksLows {
+func (l *TeamLoader) lows(mctx libkb.MetaContext, state *keybase1.TeamData, hp *hidden.LoaderPackage, arg load2ArgT) getLinksLows {
 	var lows getLinksLows
 	if state != nil {
 		chain := TeamSigChainState{inner: state.Chain}
 		lows.Seqno = chain.GetLatestSeqno()
-		lows.PerTeamKey = keybase1.PerTeamKeyGeneration(len(state.PerTeamKeySeedsUnverified))
-		// Use an arbitrary application to get the number of known RKMs.
-		// TODO: using an arbitrary RKM is wrong and could lead to stuck caches.
-		//       See CORE-8445
-		rkms, ok := state.ReaderKeyMasks[keybase1.TeamApplication_CHAT]
-		if ok {
-			lows.ReaderKeyMask = keybase1.PerTeamKeyGeneration(len(rkms))
+		if !arg.foundRKMHole {
+			lows.PerTeamKey = keybase1.PerTeamKeyGeneration(len(state.PerTeamKeySeedsUnverified))
 		}
 	}
 	if hp != nil {
-		lows.HiddenChainSeqno = hp.LastSeqno()
+		lows.HiddenChainSeqno = hp.LastFullSeqno()
 	}
 	return lows
 }
@@ -1630,7 +1814,7 @@ func (l *TeamLoader) VerifyTeamName(ctx context.Context, id keybase1.TeamID, nam
 // Always sends a flurry of RPCs to get the most up to date info.
 func (l *TeamLoader) ImplicitAdmins(ctx context.Context, teamID keybase1.TeamID) (impAdmins []keybase1.UserVersion, err error) {
 	impAdminsMap := make(map[string]keybase1.UserVersion) // map to remove dups
-	err = l.MapTeamAncestors(ctx, func(t keybase1.TeamSigChainState) error {
+	err = l.MapTeamAncestors(ctx, func(t keybase1.TeamSigChainState, _ keybase1.TeamName) error {
 		ancestorChain := TeamSigChainState{inner: t}
 		// Gather the admins.
 		adminRoles := []keybase1.TeamRole{keybase1.TeamRole_OWNER, keybase1.TeamRole_ADMIN}
@@ -1655,10 +1839,18 @@ func (l *TeamLoader) ImplicitAdmins(ctx context.Context, teamID keybase1.TeamID)
 }
 
 // MapTeamAncestors does NOT map over the team itself.
-func (l *TeamLoader) MapTeamAncestors(ctx context.Context, f func(t keybase1.TeamSigChainState) error, teamID keybase1.TeamID, reason string, forceFullReloadOnceToAssert func(t keybase1.TeamSigChainState) bool) (err error) {
+func (l *TeamLoader) MapTeamAncestors(
+	ctx context.Context,
+	f func(keybase1.TeamSigChainState, keybase1.TeamName) error,
+	teamID keybase1.TeamID,
+	reason string,
+	forceFullReloadOnceToAssert func(t keybase1.TeamSigChainState) bool,
+) (err error) {
+	initialTeamIdx := 0
+
 	me, err := l.world.getMe(ctx)
 	if err != nil {
-		return err
+		return NewMapAncestorsError(err, initialTeamIdx)
 	}
 
 	// Load the argument team
@@ -1668,22 +1860,39 @@ func (l *TeamLoader) MapTeamAncestors(ctx context.Context, f func(t keybase1.Tea
 		StaleOK: true, // We only use immutable fields.
 	})
 	if err != nil {
-		return err
+		return NewMapAncestorsError(err, initialTeamIdx)
 	}
 	teamChain := TeamSigChainState{inner: team.Chain}
 	if !teamChain.IsSubteam() {
-		return fmt.Errorf("cannot map over parents of a root team: %v", teamID)
+		return NewMapAncestorsError(
+			fmt.Errorf("cannot map over parents of a root team: %v", teamID),
+			initialTeamIdx,
+		)
 	}
 	return l.mapTeamAncestorsHelper(ctx, f, teamID, teamChain.GetParentID(), reason, forceFullReloadOnceToAssert)
 }
 
-func (l *TeamLoader) mapTeamAncestorsHelper(ctx context.Context, f func(t keybase1.TeamSigChainState) error, teamID keybase1.TeamID, ancestorID *keybase1.TeamID, reason string, forceFullReloadOnceToAssert func(t keybase1.TeamSigChainState) bool) (err error) {
+func (l *TeamLoader) mapTeamAncestorsHelper(
+	ctx context.Context,
+	f func(keybase1.TeamSigChainState, keybase1.TeamName) error,
+	teamID keybase1.TeamID,
+	ancestorID *keybase1.TeamID,
+	reason string,
+	forceFullReloadOnceToAssert func(t keybase1.TeamSigChainState) bool,
+) (err error) {
+	i := 0
+
+	defer func() {
+		if err != nil {
+			err = NewMapAncestorsError(err, i)
+		}
+	}()
+
 	me, err := l.world.getMe(ctx)
 	if err != nil {
 		return err
 	}
 
-	i := 0
 	for {
 		i++
 		if i >= 100 {
@@ -1708,7 +1917,8 @@ func (l *TeamLoader) mapTeamAncestorsHelper(ctx context.Context, f func(t keybas
 				return err
 			}
 
-			if forceFullReloadOnceToAssert(ancestor.team.Chain) {
+			if forceFullReloadOnceToAssert == nil ||
+				forceFullReloadOnceToAssert(ancestor.team.Chain) {
 				break
 			}
 			if load2Arg.forceFullReload {
@@ -1721,7 +1931,7 @@ func (l *TeamLoader) mapTeamAncestorsHelper(ctx context.Context, f func(t keybas
 		// Do not let it out of sight.
 		ancestorChain := TeamSigChainState{inner: ancestor.team.Chain}
 
-		err = f(ancestor.team.Chain)
+		err = f(ancestor.team.Chain, ancestor.team.Name)
 		if err != nil {
 			return err
 		}
@@ -1791,7 +2001,7 @@ func (l *TeamLoader) NotifyTeamRename(ctx context.Context, id keybase1.TeamID, n
 }
 
 func (l *TeamLoader) getHeadMerkleSeqno(mctx libkb.MetaContext, readSubteamID keybase1.TeamID, state *keybase1.TeamSigChainState) (ret keybase1.Seqno, err error) {
-	defer mctx.Trace("TeamLoader#getHeadMerkleSeqno", func() error { return err })()
+	defer mctx.Trace("TeamLoader#getHeadMerkleSeqno", &err)()
 
 	if state.HeadMerkle != nil {
 		return state.HeadMerkle.Seqno, nil
@@ -1809,7 +2019,7 @@ func (l *TeamLoader) getHeadMerkleSeqno(mctx libkb.MetaContext, readSubteamID ke
 	if err != nil {
 		return ret, err
 	}
-	newLinks, err := teamUpdate.unpackLinks(mctx.Ctx())
+	newLinks, err := teamUpdate.unpackLinks(mctx)
 	if err != nil {
 		return ret, err
 	}
@@ -1835,7 +2045,7 @@ func (l *TeamLoader) getHeadMerkleSeqno(mctx libkb.MetaContext, readSubteamID ke
 	return headMerkle.Seqno, nil
 }
 
-func (l *TeamLoader) audit(ctx context.Context, readSubteamID keybase1.TeamID, state *keybase1.TeamSigChainState) (err error) {
+func (l *TeamLoader) audit(ctx context.Context, readSubteamID keybase1.TeamID, state *keybase1.TeamSigChainState, hiddenChain *keybase1.HiddenTeamChain, lastMerkleRoot *libkb.MerkleRoot, auditMode keybase1.AuditMode) (err error) {
 	mctx := libkb.NewMetaContext(ctx, l.G())
 
 	if l.G().Env.Test.TeamSkipAudit {
@@ -1848,7 +2058,7 @@ func (l *TeamLoader) audit(ctx context.Context, readSubteamID keybase1.TeamID, s
 		return err
 	}
 
-	err = mctx.G().GetTeamAuditor().AuditTeam(mctx, state.Id, state.Public, headMerklSeqno, state.LinkIDs, state.LastSeqno)
+	err = mctx.G().GetTeamAuditor().AuditTeam(mctx, state.Id, state.Public, headMerklSeqno, state.LinkIDs, hiddenChain.GetOuter(), state.LastSeqno, hiddenChain.GetLastCommittedSeqno(), lastMerkleRoot, auditMode)
 	return err
 }
 

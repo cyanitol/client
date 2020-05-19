@@ -5,13 +5,15 @@ import ConfirmForm from '../../../wallets/confirm-form'
 
 type LoadingProps = {}
 
-const PaymentsConfirmLoading = Kb.HeaderOrPopup((props: LoadingProps) => (
-  <Kb.Box2 direction="vertical" fullWidth={true} style={styles.container}>
-    <Kb.Box2 direction="vertical" centerChildren={true} fullWidth={true} fullHeight={true}>
-      <Kb.ProgressIndicator />
+const PaymentsConfirmLoading = (_: LoadingProps) => (
+  <Kb.PopupWrapper>
+    <Kb.Box2 direction="vertical" fullWidth={true} style={styles.container}>
+      <Kb.Box2 direction="vertical" centerChildren={true} fullWidth={true} fullHeight={true}>
+        <Kb.ProgressIndicator type="Huge" />
+      </Kb.Box2>
     </Kb.Box2>
-  </Kb.Box2>
-))
+  </Kb.PopupWrapper>
+)
 
 type ErrorProps = {
   error: string
@@ -20,15 +22,17 @@ type ErrorProps = {
   onWallet: () => void
 }
 
-const _PaymentsConfirmError = (props: ErrorProps) => {
-  if (props.errorIsNoWallet) {
-    return _PaymentsConfirmErrorNoWallet(props)
-  } else {
-    return _PaymentsConfirmErrorMisc(props)
-  }
-}
+const PaymentsConfirmError = (props: ErrorProps) => (
+  <Kb.PopupWrapper onCancel={props.onCancel}>
+    {props.errorIsNoWallet ? (
+      <PaymentsConfirmErrorNoWallet {...props} />
+    ) : (
+      <PaymentsConfirmErrorMisc {...props} />
+    )}
+  </Kb.PopupWrapper>
+)
 
-const _PaymentsConfirmErrorMisc = (props: ErrorProps) => (
+const PaymentsConfirmErrorMisc = (props: ErrorProps) => (
   <Kb.Box2 direction="vertical" fullWidth={true} style={styles.container}>
     <Kb.Box2
       direction="vertical"
@@ -44,7 +48,7 @@ const _PaymentsConfirmErrorMisc = (props: ErrorProps) => (
   </Kb.Box2>
 )
 
-const _PaymentsConfirmErrorNoWallet = (props: ErrorProps) => (
+const PaymentsConfirmErrorNoWallet = (props: ErrorProps) => (
   <Kb.Box2 direction="vertical" fullWidth={true} style={styles.container}>
     <Kb.Box2
       direction="vertical"
@@ -66,8 +70,6 @@ const _PaymentsConfirmErrorNoWallet = (props: ErrorProps) => (
   </Kb.Box2>
 )
 
-const PaymentsConfirmError = Kb.HeaderOrPopup(_PaymentsConfirmError)
-
 type PaymentProps = {
   readonly displayAmount?: string | null
   readonly error?: string | null
@@ -77,7 +79,7 @@ type PaymentProps = {
 }
 
 const PaymentRow = (props: PaymentProps) => (
-  <React.Fragment>
+  <>
     <Kb.NameWithIcon horizontal={true} username={props.username} metaOne={props.fullName} />
     <Kb.Box2 direction="vertical" style={styles.paymentTotalsContainer}>
       {!!props.displayAmount && <Kb.Text type="BodyExtrabold">{props.displayAmount}</Kb.Text>}
@@ -91,7 +93,7 @@ const PaymentRow = (props: PaymentProps) => (
         </Kb.Text>
       )}
     </Kb.Box2>
-  </React.Fragment>
+  </>
 )
 
 type Props = {
@@ -145,107 +147,110 @@ const PaymentsConfirm = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
-  buttonBar: Styles.platformStyles({
-    common: {
-      paddingLeft: Styles.globalMargins.tiny,
-      paddingRight: Styles.globalMargins.tiny,
-    },
-  }),
-  buttonContainer: Styles.platformStyles({
-    common: {
-      justifyContent: 'space-between',
-    },
-  }),
-  cancelButton: Styles.platformStyles({
-    isElectron: {
-      height: Styles.globalMargins.large,
-    },
-  }),
-  container: Styles.platformStyles({
-    common: {
-      backgroundColor: Styles.globalColors.white,
-    },
-    isElectron: {
-      height: 560,
-      width: 400,
-    },
-  }),
-  errorClose: {
-    padding: Styles.globalMargins.tiny,
-  },
-  errorText: {
-    color: Styles.globalColors.redDark,
-  },
-  fullErrorContainer: Styles.platformStyles({
-    isElectron: {
-      padding: 20,
-    },
-  }),
-  headerText: Styles.platformStyles({
-    common: {
-      color: Styles.globalColors.white,
-    },
-  }),
-  icon: Styles.platformStyles({
-    isElectron: {
-      marginBottom: Styles.globalMargins.small,
-      marginTop: 35,
-    },
-  }),
-  paymentContainer: Styles.platformStyles({
-    common: {
-      borderColor: Styles.globalColors.greyLight,
-      borderStyle: 'solid',
-      borderWidth: 1,
-      justifyContent: 'space-between',
-      padding: Styles.globalMargins.tiny,
-    },
-    isElectron: {
-      marginBottom: -1,
-    },
-  }),
-  paymentTotalsContainer: Styles.platformStyles({
-    common: {
-      alignItems: 'flex-end',
-    },
-  }),
-  paymentsContainer: Styles.platformStyles({
-    isElectron: {
-      height: 150,
-    },
-  }),
-  pushDown: Styles.platformStyles({
-    isElectron: {flex: 1, justifyContent: 'flex-end'},
-  }),
-  submitButton: Styles.platformStyles({
-    common: {
-      flex: 1,
-    },
-    isElectron: {
-      height: Styles.globalMargins.large,
-    },
-  }),
-  submitIcon: Styles.platformStyles({
-    isElectron: {
-      paddingRight: Styles.globalMargins.tiny,
-    },
-  }),
-  totalContainer: Styles.platformStyles({
-    common: {
-      alignItems: 'center',
-      backgroundColor: Styles.globalColors.purpleDark,
-      paddingBottom: Styles.globalMargins.tiny,
-    },
-    isElectron: {
-      paddingBottom: 50,
-    },
-  }),
-  xlmTotal: Styles.platformStyles({
-    common: {
-      color: Styles.globalColors.white,
-    },
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      buttonBar: Styles.platformStyles({
+        common: {
+          paddingLeft: Styles.globalMargins.tiny,
+          paddingRight: Styles.globalMargins.tiny,
+        },
+      }),
+      buttonContainer: Styles.platformStyles({
+        common: {
+          justifyContent: 'space-between',
+        },
+      }),
+      cancelButton: Styles.platformStyles({
+        isElectron: {
+          height: Styles.globalMargins.large,
+        },
+      }),
+      container: Styles.platformStyles({
+        common: {
+          backgroundColor: Styles.globalColors.white,
+        },
+        isElectron: {
+          height: 560,
+          width: 400,
+        },
+      }),
+      errorClose: {
+        padding: Styles.globalMargins.tiny,
+      },
+      errorText: {
+        color: Styles.globalColors.redDark,
+      },
+      fullErrorContainer: Styles.platformStyles({
+        isElectron: {
+          padding: 20,
+        },
+      }),
+      headerText: Styles.platformStyles({
+        common: {
+          color: Styles.globalColors.white,
+        },
+      }),
+      icon: Styles.platformStyles({
+        isElectron: {
+          marginBottom: Styles.globalMargins.small,
+          marginTop: 35,
+        },
+      }),
+      paymentContainer: Styles.platformStyles({
+        common: {
+          borderColor: Styles.globalColors.greyLight,
+          borderStyle: 'solid',
+          borderWidth: 1,
+          justifyContent: 'space-between',
+          padding: Styles.globalMargins.tiny,
+        },
+        isElectron: {
+          marginBottom: -1,
+        },
+      }),
+      paymentTotalsContainer: Styles.platformStyles({
+        common: {
+          alignItems: 'flex-end',
+        },
+      }),
+      paymentsContainer: Styles.platformStyles({
+        isElectron: {
+          height: 150,
+        },
+      }),
+      pushDown: Styles.platformStyles({
+        isElectron: {flex: 1, justifyContent: 'flex-end'},
+      }),
+      submitButton: Styles.platformStyles({
+        common: {
+          flex: 1,
+        },
+        isElectron: {
+          height: Styles.globalMargins.large,
+        },
+      }),
+      submitIcon: Styles.platformStyles({
+        isElectron: {
+          paddingRight: Styles.globalMargins.tiny,
+        },
+      }),
+      totalContainer: Styles.platformStyles({
+        common: {
+          alignItems: 'center',
+          backgroundColor: Styles.globalColors.purpleDark,
+          paddingBottom: Styles.globalMargins.tiny,
+        },
+        isElectron: {
+          paddingBottom: 50,
+        },
+      }),
+      xlmTotal: Styles.platformStyles({
+        common: {
+          color: Styles.globalColors.white,
+        },
+      }),
+    } as const)
+)
 
 export default PaymentsConfirm

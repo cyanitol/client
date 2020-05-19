@@ -25,7 +25,7 @@ func NewTeamer(g *libkb.GlobalContext) Teamer {
 }
 
 func (t *TeamerImpl) LookupOrCreate(ctx context.Context, folder keybase1.FolderHandle) (res keybase1.TeamIDWithVisibility, err error) {
-	defer t.G().CTrace(ctx, fmt.Sprintf("git.Teamer#LookupOrCreate(%s, ftyp:%v)", folder.Name, folder.FolderType), func() error { return err })()
+	defer t.G().CTrace(ctx, fmt.Sprintf("git.Teamer#LookupOrCreate(%s, ftyp:%v)", folder.Name, folder.FolderType), &err)()
 
 	switch folder.FolderType {
 	case keybase1.FolderType_PRIVATE:
@@ -42,9 +42,6 @@ func (t *TeamerImpl) LookupOrCreate(ctx context.Context, folder keybase1.FolderH
 func (t *TeamerImpl) lookupTeam(ctx context.Context, folder keybase1.FolderHandle) (res keybase1.TeamIDWithVisibility, err error) {
 	if folder.FolderType == keybase1.FolderType_PUBLIC {
 		return res, fmt.Errorf("public team git repos not supported")
-	}
-	if err != nil {
-		return res, err
 	}
 	team, err := teams.Load(ctx, t.G(), keybase1.LoadTeamArg{
 		Name:        folder.Name,

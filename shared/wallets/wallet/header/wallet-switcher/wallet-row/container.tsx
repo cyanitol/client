@@ -12,7 +12,7 @@ type OwnProps = {
 const mapStateToProps = (state: Container.TypedState, ownProps: OwnProps) => {
   const account = getAccount(state, ownProps.accountID)
   const name = account.name
-  const me = state.config.username || ''
+  const me = state.config.username
   const keybaseUser = account.isDefault ? me : ''
   const selectedAccount = getSelectedAccount(state)
   return {
@@ -21,7 +21,7 @@ const mapStateToProps = (state: Container.TypedState, ownProps: OwnProps) => {
     keybaseUser,
     name,
     selectedAccount,
-    unreadPayments: state.wallets.unreadPaymentsMap.get(ownProps.accountID, 0),
+    unreadPayments: state.wallets.unreadPaymentsMap.get(ownProps.accountID) ?? 0,
   }
 }
 

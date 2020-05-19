@@ -2,61 +2,81 @@ import * as Chat2Gen from '../../../actions/chat2-gen'
 import * as Constants from '../../../constants/chat2'
 import * as Types from '../../../constants/types/chat2'
 import * as FsTypes from '../../../constants/types/fs'
-import GetTitles, {PathToInfo} from '.'
-import {connect, getRouteProps} from '../../../util/container'
+import GetTitles, {Info} from '.'
+import * as Container from '../../../util/container'
 import * as RouteTreeGen from '../../../actions/route-tree-gen'
-import {RouteProps} from '../../../route-tree/render-route'
 
-type OwnProps = RouteProps<
-  {
-    pathAndOutboxIDs: Array<Types.PathAndOutboxID>
-    conversationIDKey: Types.ConversationIDKey
-  }
->
+type OwnProps = Container.RouteProps<{
+  conversationIDKey: Types.ConversationIDKey
+  pathAndOutboxIDs: Array<Types.PathAndOutboxID>
+  selectConversationWithReason?: 'extension' | 'files'
+  // If tlfName is set, we'll use Chat2Gen.createAttachmentsUpload. Otherwise
+  // Chat2Gen.createAttachFromDragAndDrop is used.
+  tlfName?: string
+}>
 
-const mapStateToProps = (state, ownProps: OwnProps) => ({
-  _conversationIDKey: getRouteProps(ownProps, 'conversationIDKey'),
-  pathAndOutboxIDs: getRouteProps(ownProps, 'pathAndOutboxIDs'),
-})
+const noOutboxIds: Array<Types.PathAndOutboxID> = []
 
-const mapDispatchToProps = dispatch => ({
-  _onSubmit: (conversationIDKey: Types.ConversationIDKey, pathToInfo: PathToInfo) => {
-    const paths = Object.keys(pathToInfo)
-    const pathAndOutboxIDs = paths.map(p => ({
-      outboxID: pathToInfo[p].outboxID,
-      path: p,
-    }))
-    const titles = paths.map(p => pathToInfo[p].title)
-    dispatch(
-      Chat2Gen.createAttachmentsUpload({
-        conversationIDKey,
-        paths: pathAndOutboxIDs,
-        titles,
-      })
+export default Container.connect(
+  () => ({}),
+  (dispatch: Container.TypedDispatch, ownProps: OwnProps) => {
+    const conversationIDKey = Container.getRouteProps(
+      ownProps,
+      'conversationIDKey',
+      Constants.noConversationIDKey
     )
-    dispatch(RouteTreeGen.createNavigateUp())
-  },
-  onCancel: () => dispatch(RouteTreeGen.createNavigateUp()),
-})
+    const tlfName = Container.getRouteProps(ownProps, 'tlfName', undefined)
+    const pathAndOutboxIDs = Container.getRouteProps(ownProps, 'pathAndOutboxIDs', noOutboxIds)
+    const selectConversationWithReason = Container.getRouteProps(
+      ownProps,
+      'selectConversationWithReason',
+      undefined
+    )
+    return {
+      onCancel: () => dispatch(RouteTreeGen.createNavigateUp()),
+      onSubmit: (titles: Array<string>) => {
+        tlfName
+          ? dispatch(
+              Chat2Gen.createAttachmentsUpload({
+                conversationIDKey,
+                paths: pathAndOutboxIDs,
+                titles,
+                tlfName,
+              })
+            )
+          : dispatch(
+              Chat2Gen.createAttachFromDragAndDrop({
+                conversationIDKey,
+                paths: pathAndOutboxIDs,
+                titles,
+              })
+            )
+        dispatch(RouteTreeGen.createClearModals())
 
-const mergeProps = (stateProps, dispatchProps, ownProps) => ({
-  onCancel: dispatchProps.onCancel,
-  onSubmit: (pathToInfo: PathToInfo) => dispatchProps._onSubmit(stateProps._conversationIDKey, pathToInfo),
-  pathToInfo: stateProps.pathAndOutboxIDs.reduce((map, {path, outboxID}) => {
-    const filename = FsTypes.getLocalPathName(path)
-    map[path] = {
-      filename,
-      outboxID: outboxID,
-      title: '',
-      type: Constants.pathToAttachmentType(path),
+        if (selectConversationWithReason) {
+          dispatch(Chat2Gen.createNavigateToThread({conversationIDKey, reason: selectConversationWithReason}))
+        }
+      },
     }
-    return map
-  }, {}),
-  title: 'Attachments',
-})
-
-export default connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  mergeProps
+  },
+  (_, dispatchProps, ownProps: OwnProps) => {
+    const pathAndOutboxIDs = Container.getRouteProps(ownProps, 'pathAndOutboxIDs', noOutboxIds)
+    return {
+      onCancel: dispatchProps.onCancel,
+      onSubmit: dispatchProps.onSubmit,
+      pathAndInfos: pathAndOutboxIDs.map(({path, outboxID}) => {
+        const filename = FsTypes.getLocalPathName(path)
+        const info: Info = {
+          filename,
+          outboxID: outboxID,
+          title: '',
+          type: Constants.pathToAttachmentType(path),
+        }
+        return {
+          info,
+          path,
+        }
+      }),
+    }
+  }
 )(GetTitles)

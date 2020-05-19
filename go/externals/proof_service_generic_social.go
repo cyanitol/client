@@ -134,11 +134,12 @@ func (c *GenericSocialProofConfig) checkURLWithValues(remoteUsername string) (st
 
 func (c *GenericSocialProofConfig) validateRemoteUsername(remoteUsername string) error {
 	uc := c.UsernameConfig
-	if len(remoteUsername) < uc.Min {
+	switch {
+	case len(remoteUsername) < uc.Min:
 		return fmt.Errorf("username must be at least %d characters, was %d", c.UsernameConfig.Min, len(remoteUsername))
-	} else if len(remoteUsername) > uc.Max {
+	case len(remoteUsername) > uc.Max:
 		return fmt.Errorf("username can be at most %d characters, was %d", c.UsernameConfig.Max, len(remoteUsername))
-	} else if !c.usernameRe.MatchString(strings.ToLower(remoteUsername)) {
+	case !c.usernameRe.MatchString(strings.ToLower(remoteUsername)):
 		return libkb.NewBadUsernameError(remoteUsername)
 	}
 	return nil
@@ -164,16 +165,27 @@ func NewGenericSocialProofChecker(proof libkb.RemoteProofChainLink, config *Gene
 
 func (rc *GenericSocialProofChecker) GetTorError() libkb.ProofError { return nil }
 
+func (rc *GenericSocialProofChecker) castInternalError(ierr libkb.ProofError) error {
+	err, ok := ierr.(error)
+	if ok {
+		return err
+	}
+	return nil
+}
+
 func (rc *GenericSocialProofChecker) CheckStatus(mctx libkb.MetaContext, _ libkb.SigHint, _ libkb.ProofCheckerMode,
 	pvlU keybase1.MerkleStoreEntry) (_ *libkb.SigHint, retErr libkb.ProofError) {
 	mctx = mctx.WithLogTag("PCS")
-	defer mctx.TraceTimed("GenericSocialProofChecker.CheckStatus", func() error { return retErr })()
+	var err error
+	defer mctx.Trace("GenericSocialProofChecker.CheckStatus", &err)()
+	defer func() { err = rc.castInternalError(retErr) }()
 
-	_, sigID, err := libkb.OpenSig(rc.proof.GetArmoredSig())
+	_, sigIDBase, err := libkb.OpenSig(rc.proof.GetArmoredSig())
 	if err != nil {
 		return nil, libkb.NewProofError(keybase1.ProofStatus_BAD_SIGNATURE,
 			"Bad signature: %v", err)
 	}
+	sigID := sigIDBase.ToSigIDLegacy()
 
 	remoteUsername := rc.proof.GetRemoteUsername()
 	if err := rc.config.validateRemoteUsername(remoteUsername); err != nil {
@@ -217,7 +229,7 @@ func (rc *GenericSocialProofChecker) CheckStatus(mctx libkb.MetaContext, _ libkb
 
 	var foundProof, foundUsername bool
 	for _, proof := range proofs {
-		if proof.KbUsername == rc.proof.GetUsername() && sigID.Equal(proof.SigHash) {
+		if proof.KbUsername == rc.proof.GetUsername() && sigID.Eq(proof.SigHash) {
 			foundProof = true
 			break
 		}
@@ -275,7 +287,7 @@ func (t *GenericSocialProofServiceType) GetPrompt() string {
 func (t *GenericSocialProofServiceType) ToServiceJSON(username string) *jsonw.Wrapper {
 	ret := t.BaseToServiceJSON(t, username)
 	if strings.HasPrefix(strings.ToLower(t.DisplayGroup()), "mastodon") {
-		ret.SetKey("form", jsonw.NewString("mastodon"))
+		_ = ret.SetKey("form", jsonw.NewString("mastodon"))
 	}
 	return ret
 }
@@ -327,8 +339,9 @@ func (t *GenericSocialProofServiceType) ProveParameters(mctx libkb.MetaContext) 
 		subtext = t.DisplayName()
 	}
 	return keybase1.ProveParameters{
-		LogoFull:    MakeIcons(mctx, t.GetLogoKey(), "logo_full", 64),
-		LogoBlack:   MakeIcons(mctx, t.GetLogoKey(), "logo_black", 16),
+		LogoFull:    libkb.MakeProofIcons(mctx, t.GetLogoKey(), "logo_full", 64),
+		LogoBlack:   libkb.MakeProofIcons(mctx, t.GetLogoKey(), "logo_black", 16),
+		LogoWhite:   libkb.MakeProofIcons(mctx, t.GetLogoKey(), "logo_white", 16),
 		Title:       t.config.Domain,
 		Subtext:     subtext,
 		Suffix:      fmt.Sprintf("@%v", t.config.Domain),

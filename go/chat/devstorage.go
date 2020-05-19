@@ -19,16 +19,18 @@ type DevConversationBackedStorage struct {
 	ri func() chat1.RemoteInterface
 }
 
+var _ types.UserConversationBackedStorage = &DevConversationBackedStorage{}
+
 func NewDevConversationBackedStorage(g *globals.Context, ri func() chat1.RemoteInterface) *DevConversationBackedStorage {
 	return &DevConversationBackedStorage{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "DevConversationBackedStorage", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "DevConversationBackedStorage", false),
 		ri:           ri,
 	}
 }
 
 func (s *DevConversationBackedStorage) Put(ctx context.Context, uid gregor1.UID, name string, src interface{}) (err error) {
-	defer s.Trace(ctx, func() error { return err }, "Put(%s)", name)()
+	defer s.Trace(ctx, &err, "Put(%s)", name)()
 	un, err := s.G().GetUPAKLoader().LookupUsername(ctx, keybase1.UID(uid.String()))
 	if err != nil {
 		return err
@@ -38,8 +40,8 @@ func (s *DevConversationBackedStorage) Put(ctx context.Context, uid gregor1.UID,
 	if err != nil {
 		return err
 	}
-	conv, err := NewConversation(ctx, s.G(), uid, username, &name, chat1.TopicType_DEV,
-		chat1.ConversationMembersType_IMPTEAMNATIVE, keybase1.TLFVisibility_PRIVATE, s.ri,
+	conv, _, err := NewConversation(ctx, s.G(), uid, username, &name, chat1.TopicType_DEV,
+		chat1.ConversationMembersType_IMPTEAMNATIVE, keybase1.TLFVisibility_PRIVATE, nil, s.ri,
 		NewConvFindExistingNormal)
 	if err != nil {
 		return err
@@ -62,7 +64,7 @@ func (s *DevConversationBackedStorage) Put(ctx context.Context, uid gregor1.UID,
 
 func (s *DevConversationBackedStorage) Get(ctx context.Context, uid gregor1.UID, name string,
 	dest interface{}) (found bool, err error) {
-	defer s.Trace(ctx, func() error { return err }, "Get(%s)", name)()
+	defer s.Trace(ctx, &err, "Get(%s)", name)()
 	un, err := s.G().GetUPAKLoader().LookupUsername(ctx, keybase1.UID(uid.String()))
 	if err != nil {
 		return false, err
@@ -78,7 +80,7 @@ func (s *DevConversationBackedStorage) Get(ctx context.Context, uid gregor1.UID,
 		return false, nil
 	}
 	conv := convs[0]
-	tv, err := s.G().ConvSource.Pull(ctx, conv.GetConvID(), uid, chat1.GetThreadReason_GENERAL,
+	tv, err := s.G().ConvSource.Pull(ctx, conv.GetConvID(), uid, chat1.GetThreadReason_GENERAL, nil,
 		&chat1.GetThreadQuery{
 			MessageTypes: []chat1.MessageType{chat1.MessageType_TEXT},
 		}, &chat1.Pagination{Num: 1})

@@ -149,6 +149,10 @@ func (api *BaseAPIEngine) getCli(cookied bool) (ret *Client, err error) {
 	return client, err
 }
 
+func HeaderVersion() string {
+	return GoClientID + " v" + VersionString() + " " + GetPlatformString()
+}
+
 func (api *BaseAPIEngine) PrepareGet(url1 url.URL, arg APIArg) (*http.Request, error) {
 	url1.RawQuery = arg.getHTTPArgs().Encode()
 	ruri := url1.String()
@@ -249,7 +253,7 @@ func getNIST(m MetaContext, sessType APISessionType) *NIST {
 // so therefore it's fine to call it without checking for nil-ness.
 func doRequestShared(m MetaContext, api Requester, arg APIArg, req *http.Request, wantJSONRes bool) (_ *http.Response, finisher func(), jw *jsonw.Wrapper, err error) {
 	m = m.EnsureCtx().WithLogTag("API")
-	defer m.TraceTimed("api.doRequestShared", func() error { return err })()
+	defer m.Trace("api.doRequestShared", &err)()
 	m, tbs := m.WithTimeBuckets()
 	defer tbs.Record("API.request")() // note this doesn't include time reading body from GetResp
 
@@ -298,7 +302,7 @@ func doRequestShared(m MetaContext, api Requester, arg APIArg, req *http.Request
 
 	finisher = func() {
 		if internalResp != nil {
-			DiscardAndCloseBody(internalResp)
+			_ = DiscardAndCloseBody(internalResp)
 			internalResp = nil
 		}
 		if canc != nil {
@@ -372,7 +376,7 @@ func doRequestShared(m MetaContext, api Requester, arg APIArg, req *http.Request
 // on this request; and an error. The canceler function is to clean up the timeout.
 func doRetry(m MetaContext, arg APIArg, cli *Client, req *http.Request) (res *http.Response, cancel func(), err error) {
 	if m.G().Env.GetExtraNetLogging() {
-		defer m.TraceTimed("api.doRetry", func() error { return err })()
+		defer m.Trace("api.doRetry", &err)()
 	}
 
 	// This serves as a proxy for checking the status of the Gregor connection. If we are not
@@ -439,7 +443,7 @@ func doRetry(m MetaContext, arg APIArg, cli *Client, req *http.Request) (res *ht
 // with this request.
 func doTimeout(m MetaContext, cli *Client, req *http.Request, timeout time.Duration) (res *http.Response, cancel func(), err error) {
 	if m.G().Env.GetExtraNetLogging() {
-		defer m.TraceTimed("api.doTimeout", func() error { return err })()
+		defer m.Trace("api.doTimeout", &err)()
 	}
 	// check to see if the current context is canceled
 	select {
@@ -491,7 +495,7 @@ func (arg APIArg) flattenHTTPArgs(args url.Values) map[string]string {
 //============================================================================
 // InternalApiEngine
 
-func (a *InternalAPIEngine) getURL(arg APIArg) url.URL {
+func (a *InternalAPIEngine) getURL(arg APIArg, useText bool) url.URL {
 	u := *a.config.URL
 	var path string
 	if len(a.config.Prefix) > 0 {
@@ -499,7 +503,10 @@ func (a *InternalAPIEngine) getURL(arg APIArg) url.URL {
 	} else {
 		path = APIURIPathPrefix
 	}
-	u.Path = path + "/" + arg.Endpoint + ".json"
+	u.Path = path + "/" + arg.Endpoint
+	if !useText {
+		u.Path += ".json"
+	}
 	return u
 }
 
@@ -649,17 +656,23 @@ func (a *InternalAPIEngine) fixHeaders(m MetaContext, arg APIArg, req *http.Requ
 
 	if m.G().Env.GetTorMode().UseHeaders() {
 		req.Header.Set("User-Agent", UserAgent)
-		identifyAs := GoClientID + " v" + VersionString() + " " + GetPlatformString()
+		identifyAs := HeaderVersion()
 		req.Header.Set("X-Keybase-Client", identifyAs)
-		if m.G().Env.GetDeviceID().Exists() {
-			req.Header.Set("X-Keybase-Device-ID", a.G().Env.GetDeviceID().String())
-		}
-		if i := m.G().Env.GetInstallID(); i.Exists() {
-			req.Header.Set("X-Keybase-Install-ID", i.String())
-		}
 		if tags := LogTagsToString(m.Ctx()); tags != "" {
 			req.Header.Set("X-Keybase-Log-Tags", tags)
 		}
+		if arg.SessionType != APISessionTypeNONE {
+			if m.G().Env.GetDeviceID().Exists() {
+				req.Header.Set("X-Keybase-Device-ID", a.G().Env.GetDeviceID().String())
+			}
+			if i := m.G().Env.GetInstallID(); i.Exists() {
+				req.Header.Set("X-Keybase-Install-ID", i.String())
+			}
+		}
+	}
+
+	for k, v := range m.G().Env.Test.APIHeaders {
+		req.Header.Set(k, v)
 	}
 
 	return nil
@@ -701,13 +714,15 @@ func appStatusToTypedError(ast *AppStatus) error {
 			}
 		}
 		return NewFeatureFlagError(ast.Desc, feature)
+	case SCTeamContactSettingsBlock:
+		return NewTeamContactSettingsBlockError(ast)
 	default:
 		return NewAppStatusError(ast)
 	}
 }
 
 func (a *InternalAPIEngine) Get(m MetaContext, arg APIArg) (*APIRes, error) {
-	url1 := a.getURL(arg)
+	url1 := a.getURL(arg, false)
 	req, err := a.PrepareGet(url1, arg)
 	if err != nil {
 		return nil, err
@@ -720,7 +735,7 @@ func (a *InternalAPIEngine) Get(m MetaContext, arg APIArg) (*APIRes, error) {
 func (a *InternalAPIEngine) GetResp(m MetaContext, arg APIArg) (*http.Response, func(), error) {
 	m = m.EnsureCtx().WithLogTag("API")
 
-	url1 := a.getURL(arg)
+	url1 := a.getURL(arg, arg.UseText)
 	req, err := a.PrepareGet(url1, arg)
 	if err != nil {
 		return nil, noopFinisher, err
@@ -754,10 +769,9 @@ func (a *InternalAPIEngine) getDecode(m MetaContext, arg APIArg, v APIResponseWr
 	}
 	defer finisher()
 
-	var reader io.Reader
-	reader = resp.Body
+	reader := resp.Body.(io.Reader)
 	if a.G().Env.GetAPIDump() {
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := ioutil.ReadAll(reader)
 		if err != nil {
 			return err
 		}
@@ -766,7 +780,8 @@ func (a *InternalAPIEngine) getDecode(m MetaContext, arg APIArg, v APIResponseWr
 	}
 
 	dec := json.NewDecoder(reader)
-	if err = dec.Decode(&v); err != nil {
+	err = dec.Decode(&v)
+	if err != nil {
 		m.Debug("| API GetDecode, Decode error: %s", err)
 		return err
 	}
@@ -779,7 +794,7 @@ func (a *InternalAPIEngine) getDecode(m MetaContext, arg APIArg, v APIResponseWr
 }
 
 func (a *InternalAPIEngine) Post(m MetaContext, arg APIArg) (*APIRes, error) {
-	url1 := a.getURL(arg)
+	url1 := a.getURL(arg, false)
 	req, err := a.PrepareMethodWithBody("POST", url1, arg)
 	if err != nil {
 		return nil, err
@@ -797,7 +812,7 @@ func (a *InternalAPIEngine) PostJSON(m MetaContext, arg APIArg) (*APIRes, error)
 // The finisher() should be called after the response is no longer needed.
 func (a *InternalAPIEngine) postResp(m MetaContext, arg APIArg) (*http.Response, func(), error) {
 	m = m.EnsureCtx().WithLogTag("API")
-	url1 := a.getURL(arg)
+	url1 := a.getURL(arg, false)
 	req, err := a.PrepareMethodWithBody("POST", url1, arg)
 	if err != nil {
 		return nil, nil, err
@@ -828,15 +843,18 @@ func (a *InternalAPIEngine) postDecode(m MetaContext, arg APIArg, v APIResponseW
 		return err
 	}
 	defer finisher()
-	dec := json.NewDecoder(resp.Body)
-	if err = dec.Decode(&v); err != nil {
+
+	reader := resp.Body
+	dec := json.NewDecoder(reader)
+	err = dec.Decode(&v)
+	if err != nil {
 		return err
 	}
 	return a.checkAppStatus(arg, v.GetAppStatus())
 }
 
 func (a *InternalAPIEngine) PostRaw(m MetaContext, arg APIArg, ctype string, r io.Reader) (*APIRes, error) {
-	url1 := a.getURL(arg)
+	url1 := a.getURL(arg, false)
 	req, err := http.NewRequest("POST", url1.String(), r)
 	if len(ctype) > 0 {
 		req.Header.Set("Content-Type", ctype)
@@ -848,7 +866,7 @@ func (a *InternalAPIEngine) PostRaw(m MetaContext, arg APIArg, ctype string, r i
 }
 
 func (a *InternalAPIEngine) Delete(m MetaContext, arg APIArg) (*APIRes, error) {
-	url1 := a.getURL(arg)
+	url1 := a.getURL(arg, false)
 	req, err := a.PrepareMethodWithBody("DELETE", url1, arg)
 	if err != nil {
 		return nil, err
@@ -868,6 +886,8 @@ func (a *InternalAPIEngine) doRequest(m MetaContext, arg APIArg, req *http.Reque
 	if err != nil {
 		return nil, err
 	}
+	// We have already consumed the response body here, no need to pass the
+	// size to finisher.
 	defer finisher()
 
 	status, err := jw.AtKey("status").ToDictionary()
@@ -948,7 +968,8 @@ func (api *ExternalAPIEngine) DoRequest(m MetaContext,
 	var jw *jsonw.Wrapper
 	var finisher func()
 
-	resp, finisher, jw, err = doRequestShared(m, api, arg, req, (restype == XAPIResJSON))
+	wantJSONRes := (restype == XAPIResJSON)
+	resp, finisher, jw, err = doRequestShared(m, api, arg, req, wantJSONRes)
 	if err != nil {
 		return
 	}
@@ -959,7 +980,8 @@ func (api *ExternalAPIEngine) DoRequest(m MetaContext,
 		ar = &ExternalAPIRes{resp.StatusCode, jw}
 	case XAPIResHTML:
 		var goq *goquery.Document
-		goq, err = goquery.NewDocumentFromResponse(resp)
+		reader := newCountingReader(resp.Body)
+		goq, err = goquery.NewDocumentFromReader(reader)
 		if err == nil {
 			hr = &ExternalHTMLRes{resp.StatusCode, goq}
 		}
@@ -967,7 +989,7 @@ func (api *ExternalAPIEngine) DoRequest(m MetaContext,
 		var buf bytes.Buffer
 		_, err = buf.ReadFrom(resp.Body)
 		if err == nil {
-			tr = &ExternalTextRes{resp.StatusCode, string(buf.Bytes())}
+			tr = &ExternalTextRes{resp.StatusCode, buf.String()}
 		}
 	default:
 		err = fmt.Errorf("unknown restype to DoRequest")

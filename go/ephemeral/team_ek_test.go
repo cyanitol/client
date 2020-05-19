@@ -40,7 +40,7 @@ func TestNewTeamEK(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, nilStatement)
 
-	publishedMetadata, err := publishNewTeamEK(mctx, teamID, merkleRoot)
+	publishedMetadata, err := publishNewTeamEK(mctx, teamID, merkleRoot, nil)
 	require.NoError(t, err)
 
 	statementPtr, _, _, err := fetchTeamEKStatement(mctx, teamID)
@@ -56,6 +56,7 @@ func TestNewTeamEK(t *testing.T) {
 	maxGeneration, err := teamEKBoxStorage.MaxGeneration(mctx, teamID, false)
 	require.NoError(t, err)
 	ek, err := teamEKBoxStorage.Get(mctx, teamID, maxGeneration, nil)
+	require.NoError(t, err)
 	typ, err := ek.KeyType()
 	require.NoError(t, err)
 	require.True(t, typ.IsTeam())
@@ -70,7 +71,7 @@ func TestNewTeamEK(t *testing.T) {
 
 	// If we publish in a bad local state, we can successfully get the
 	// maxGeneration from the server and continue
-	publishedMetadata2, err := publishNewTeamEK(mctx, teamID, merkleRoot)
+	publishedMetadata2, err := publishNewTeamEK(mctx, teamID, merkleRoot, nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, publishedMetadata2.Generation)
 }

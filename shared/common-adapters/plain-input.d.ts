@@ -1,5 +1,5 @@
 import * as React from 'react'
-import {StylesCrossPlatform} from '../styles'
+import {StylesCrossPlatform, globalMargins, CustomStyles} from '../styles'
 import {TextType} from './text'
 
 export type KeyboardType =
@@ -55,6 +55,8 @@ export type Selection = {
   end: number | null
 }
 
+export type InputStyle = CustomStyles<'padding', {}>
+
 export type Props = {
   autoFocus?: boolean
   // Enable if you want this to always have focus (desktop only)
@@ -65,30 +67,38 @@ export type Props = {
   flexable?: boolean
   maxLength?: number
   // doesn't fire onChangeText if value would exceed maxBytes (utf-8)
-  // i.e. can only have an effect if this is a controlled input
+  // i.e. can only have an effect if this is an uncontrolled input
   // doesn't enforce on longer `props.value`s coming in
   maxBytes?: number
   multiline?: boolean
+  // Allows multiline to grow to fill the parent and have scrollbars
+  growAndScroll?: boolean
   onBlur?: () => void
   onChangeText?: (text: string) => void
   onFocus?: () => void
+  padding?: keyof typeof globalMargins | 0 // globalMargins does not have an option for 0
   placeholder?: string
   placeholderColor?: string
+  placeholderTextType?: TextType
   rowsMin?: number
   rowsMax?: number
-  style?: StylesCrossPlatform
+  secureTextEntry?: boolean
+  style?: InputStyle
   textType?: TextType
-  type?: 'password' | 'text'
+  type?: 'password' | 'text' | 'passwordVisible'
   value?: string // Makes this a controlled input when passed. Also disables mutating value via `transformText`, see note at component API,
+  dummyInput?: boolean // Only affects mobile
   /* Platform discrepancies */
   // Maps to onSubmitEditing on native
-  onEnterKeyDown?: (event?: React.SyntheticEvent) => void
+  onEnterKeyDown?: (event?: React.BaseSyntheticEvent) => void
   // Desktop only
+  allowKeyboardEvents?: boolean // By default keybaord events won't fire in textarea or input elements. Adds 'mousetrap' class to enable keyboard events.
   onClick?: (event: Event) => void
-  onKeyDown?: (event: React.KeyboardEvent, isComposingIME: boolean) => void
-  onKeyUp?: (event: React.KeyboardEvent, isComposingIME: boolean) => void
+  onKeyDown?: (event: React.KeyboardEvent) => void
+  onKeyUp?: (event: React.KeyboardEvent) => void
   // Mobile only
   children?: React.ReactNode
+  allowFontScaling?: boolean
   onKeyPress?: (event: {
     nativeEvent: {
       key: 'Enter' | 'Backspace' | string
@@ -97,6 +107,7 @@ export type Props = {
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'
   autoCorrect?: boolean
   keyboardType?: KeyboardType
+  resize?: boolean
   returnKeyType?: 'done' | 'go' | 'next' | 'search' | 'send'
   selectTextOnFocus?: boolean
   onEndEditing?: () => void
@@ -136,7 +147,7 @@ export type TextInfo = {
 export type InternalProps = {} & DefaultProps & Props
 
 declare class PlainInput extends React.Component<Props> {
-  defaultProps: DefaultProps
+  static defaultProps: DefaultProps
   blur: () => void
   focus: () => void
   isFocused: () => boolean

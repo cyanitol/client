@@ -4,9 +4,12 @@ import {printRPC, printRPCWaitingSession} from '../local-debug'
 import {requestIdleCallback} from '../util/idle-callback'
 import * as LocalConsole from '../util/local-console'
 import * as Stats from './stats'
+import {isRemoteDebuggerAttached, isMobile} from '../constants/platform'
 
 const RobustTransport = rpc.transport.RobustTransport
 const RpcClient = rpc.client.Client
+
+rpc.pack.set_opt('encode_lib', '@msgpack/msgpack')
 
 // We basically always log/ensure once all the calls back and forth
 function _wrap<A1, A2, A3, A4, A5, F extends (a1: A1, a2: A2, a3: A3, a4: A4, a5: A5) => void>(options: {
@@ -64,7 +67,9 @@ function rpcLog(info: {method: string; reason: string; extra?: Object; type: str
   requestIdleCallback(
     () => {
       const params = [info.reason, info.method, info.extra].filter(Boolean)
-      LocalConsole.green(prefix, info.method, info.reason, ...params)
+      if (!isMobile || isRemoteDebuggerAttached) {
+        LocalConsole.green(prefix, info.method, info.reason, ...params)
+      }
     },
     {timeout: 1e3}
   )
@@ -72,6 +77,7 @@ function rpcLog(info: {method: string; reason: string; extra?: Object; type: str
 
 type InvokeArgs = {
   program: string
+  ctype: number
   method: string
   args: [Object]
   notify: boolean
@@ -116,6 +122,10 @@ class TransportShared extends RobustTransport {
         })
       )
     }
+  }
+
+  _packetize_error(err: any) {
+    console.error('Got packetize error!', err)
   }
 
   // add logging / multiple call checking
@@ -165,6 +175,9 @@ class TransportShared extends RobustTransport {
 
   // Override RobustTransport.invoke.
   invoke(arg: InvokeArgs, cb: any) {
+    if (arg.ctype == undefined) {
+      arg.ctype = rpc.dispatch.COMPRESSION_TYPE_GZIP // default to gzip compression
+    }
     const wrappedInvoke = _wrap({
       enforceOnlyOnce: true,
       extra: arg.args[0],
@@ -189,6 +202,7 @@ class TransportShared extends RobustTransport {
       type: 'engineToServer',
     })
 
+    // @ts-ignore
     wrappedInvoke(arg)
   }
 }

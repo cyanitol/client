@@ -1,14 +1,12 @@
 import * as React from 'react'
 import * as Sb from '../../stories/storybook'
 import * as Types from '../../constants/types/wallets'
-import moment from 'moment'
 import {Box2} from '../../common-adapters'
 import TransactionDetails from '.'
+import * as dateFns from 'date-fns'
 
 const now = new Date()
-const yesterday = moment(now)
-  .subtract(1, 'days')
-  .toDate()
+const yesterday = dateFns.sub(now, {days: 1})
 
 const memo =
   'Stellar deal!! You guys rock. This is to show a very long private note. Blah blah blah blah. Plus, emojis. 🍺'
@@ -49,7 +47,6 @@ const props = {
   status: 'completed' as 'completed',
   statusDetail: '',
   timestamp: yesterday,
-  title: 'Transaction details',
   transactionID: '998e29a665642a8b7289312469664b73b38c1fe9e61d4012d8114a8dae5d7591',
   you: 'cjb',
   yourAccountName: '',
@@ -57,12 +54,22 @@ const props = {
 }
 
 const partialAsset = {
+  authEndpoint: '',
   code: '',
+  depositButtonText: '',
+  depositReqAuth: false,
   desc: '',
   infoUrl: '',
   infoUrlText: '',
   issuerName: '',
+  showDepositButton: false,
+  showWithdrawButton: false,
+  transferServer: '',
   type: '',
+  useSep24: false,
+  withdrawButtonText: '',
+  withdrawReqAuth: false,
+  withdrawType: '',
 }
 
 const load = () => {
@@ -176,11 +183,11 @@ const load = () => {
       />
     ))
     .add('Loading', () => (
+      // @ts-ignore
       <TransactionDetails
-        loading={true}
+        loading={true as any}
         onBack={Sb.action('onBack')}
         onLoadPaymentDetail={Sb.action('onLoadPaymentDetail')}
-        title="Transaction Details"
       />
     ))
     .add('Received from Stellar account with warning', () => (
@@ -209,7 +216,22 @@ const load = () => {
         sourceConvRate="22.4474953"
       />
     ))
-    .add('Sent path payment (Asset -> Asset)', () => (
+    .add('Sent path payment (Asset -> Same Asset)', () => (
+      <TransactionDetails
+        {...props}
+        counterpartyMeta="Addie Stokes"
+        counterpartyType="keybaseUser"
+        amountXLM="1 FROG"
+        assetCode="FROG"
+        sourceAmount="1"
+        sourceAsset="FROG"
+        sourceIssuer="froggycoin.io"
+        issuerDescription="froggycoin.io"
+        sourceConvRate="1.000000"
+        pathIntermediate={[]}
+      />
+    ))
+    .add('Sent path payment (Asset -> Different Asset)', () => (
       <TransactionDetails
         {...props}
         counterpartyMeta="Addie Stokes"

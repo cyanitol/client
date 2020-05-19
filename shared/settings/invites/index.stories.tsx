@@ -26,7 +26,6 @@ const props = {
       username: 'chromakode',
     },
   ],
-  error: null,
   inviteEmail: 'tcook@apple.com',
   inviteMessage: 'Hey Tim! I heard you like end-to-end encryption...',
   onClearError: Sb.action('onClearError'),
@@ -48,14 +47,14 @@ const load = () => {
     .add('Empty', () => (
       <Invites
         {...props}
-        inviteEmail={''}
-        inviteMessage={''}
+        inviteEmail=""
+        inviteMessage=""
         showMessageField={false}
         pendingInvites={[]}
         acceptedInvites={[]}
       />
     ))
-    .add('Empty message', () => <Invites {...props} inviteMessage={''} />)
+    .add('Empty message', () => <Invites {...props} inviteMessage="" />)
     .add('Normal', () => <Invites {...props} />)
     .add('Error', () => (
       <Invites {...props} error={new Error('Oops, you entered an invalid email address')} />

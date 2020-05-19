@@ -1,10 +1,11 @@
 import * as React from 'react'
-import {globalStyles, globalColors, platformStyles} from '../../styles'
-import {Button, Text, Box} from '../../common-adapters'
+import * as Styles from '../../styles'
+import * as Kb from '../../common-adapters'
 import {UploadProps} from './upload'
 import {NativeAnimated, NativeEasing} from '../../common-adapters/native-wrappers.native'
 
-const patternRequire = require('../../images/upload-pattern-2-80.png')
+const lightPatternImage = require('../../images/upload-pattern-80.png')
+const darkPatternImage = require('../../images/dark-upload-pattern-80.png')
 
 type UploadState = {
   backgroundTop: NativeAnimated.AnimatedValue
@@ -23,7 +24,11 @@ class Upload extends React.PureComponent<UploadProps, UploadState> {
 
   _mounted = false
 
-  _animations = {
+  _animations: {
+    in: NativeAnimated.CompositeAnimation | null
+    loop: NativeAnimated.CompositeAnimation | null
+    out: NativeAnimated.CompositeAnimation | null
+  } = {
     in: null,
     loop: null,
     out: null,
@@ -35,6 +40,7 @@ class Upload extends React.PureComponent<UploadProps, UploadState> {
         duration: 2000,
         easing: NativeEasing.linear,
         toValue: -80, // pattern loops on multiples of 80
+        useNativeDriver: false,
       })
     )
     loop.start()
@@ -44,6 +50,7 @@ class Upload extends React.PureComponent<UploadProps, UploadState> {
       duration: 300,
       easing,
       toValue: 0,
+      useNativeDriver: false,
     })
     this._animations.in = ain
     ain.start()
@@ -53,6 +60,7 @@ class Upload extends React.PureComponent<UploadProps, UploadState> {
       duration: 300,
       easing,
       toValue: 48,
+      useNativeDriver: false,
     })
     this._animations.out = out
     out.start(({finished}) => finished && cbIfFinish())
@@ -117,64 +125,61 @@ class Upload extends React.PureComponent<UploadProps, UploadState> {
   render() {
     const {files, totalSyncingBytes, timeLeft, debugToggleShow} = this.props
     return (
-      <React.Fragment>
-        {!!debugToggleShow && <Button onClick={debugToggleShow} label="Toggle" />}
+      <>
+        {!!debugToggleShow && <Kb.Button onClick={debugToggleShow} label="Toggle" />}
         {this.state.showing && (
           <NativeAnimated.View style={{position: 'relative', top: this.state.uploadTop}}>
-            <Box style={stylesBackgroundBox}>
+            <Kb.Box style={styles.backgroundBox}>
               <NativeAnimated.Image
                 resizeMode="repeat"
-                source={patternRequire}
-                style={{...stylesBackgroundImage, marginTop: this.state.backgroundTop}}
+                source={Styles.isDarkMode() ? darkPatternImage : lightPatternImage}
+                style={{...styles.backgroundImage, marginTop: this.state.backgroundTop}}
               />
-            </Box>
-            <Box style={stylesBox}>
-              <Text key="files" type="BodySmallSemibold" style={stylesText}>
+            </Kb.Box>
+            <Kb.Box style={styles.box}>
+              <Kb.Text key="files" type="BodySmallSemibold" style={styles.text}>
                 {files
                   ? `Encrypting and uploading ${files} files...`
                   : totalSyncingBytes
                   ? 'Encrypting and uploading...'
                   : 'Done!'}
-              </Text>
+              </Kb.Text>
               {!!(timeLeft && timeLeft.length) && (
-                <Text key="left" type="BodyTiny" style={stylesText}>{`${timeLeft} left`}</Text>
+                <Kb.Text key="left" type="BodyTiny" style={styles.text}>{`${timeLeft} left`}</Kb.Text>
               )}
-            </Box>
+            </Kb.Box>
           </NativeAnimated.View>
         )}
-      </React.Fragment>
+      </>
     )
   }
 }
 
-const stylesBackgroundBox = platformStyles({
-  common: {
-    height: 48,
-    width: '100%',
-  },
-  isAndroid: {
-    zIndex: -100, // Android doesn't support `overflow: 'hidden'`.
-  },
-  isIOS: {
-    overflow: 'hidden',
-  },
-})
-
-const stylesBackgroundImage = {
-  height: 160,
-  width: 600, // Android doesn't support resizeMode="repeat", so use a super wide image here. TODO it does now!
-}
-
-const stylesText = {
-  color: globalColors.white,
-}
-
-const stylesBox = {
-  ...globalStyles.flexBoxColumn,
-  alignItems: 'center',
-  height: 48,
-  justifyContent: 'center',
-  marginTop: -48,
-}
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      backgroundBox: Styles.platformStyles({
+        common: {
+          height: 48,
+          overflow: 'hidden',
+          width: '100%',
+        },
+      }),
+      backgroundImage: {
+        height: 160,
+        width: '100%',
+      },
+      box: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'center',
+        height: 48,
+        justifyContent: 'center',
+        marginTop: -48,
+      },
+      text: {
+        color: Styles.globalColors.whiteOrWhite,
+      },
+    } as const)
+)
 
 export default Upload

@@ -118,9 +118,12 @@ func (e *RevokeEngine) explicitOrImplicitDeviceID(me *libkb.User) keybase1.Devic
 	return ""
 }
 
-func (e *RevokeEngine) Run(m libkb.MetaContext) error {
-	m.Debug("RevokeEngine#Run (mode:%v)", e.mode)
+func (e *RevokeEngine) Run(mctx libkb.MetaContext) (err error) {
+	defer mctx.Trace(fmt.Sprintf("RevokeEngine (mode:%v)", e.mode), &err)()
+	return retryOnEphemeralRace(mctx, e.run)
+}
 
+func (e *RevokeEngine) run(m libkb.MetaContext) error {
 	e.G().LocalSigchainGuard().Set(m.Ctx(), "RevokeEngine")
 	defer e.G().LocalSigchainGuard().Clear(m.Ctx(), "RevokeEngine")
 
@@ -136,6 +139,14 @@ func (e *RevokeEngine) Run(m libkb.MetaContext) error {
 		hasPGP := len(me.GetComputedKeyFamily().GetActivePGPKeys(false)) > 0
 
 		if len(me.GetComputedKeyFamily().GetAllActiveDevices()) == 1 {
+			passphraseState, err := libkb.LoadPassphraseState(m)
+			if err != nil {
+				return fmt.Errorf("could not load passphrase state: %s", err)
+			}
+			if passphraseState == keybase1.PassphraseState_RANDOM {
+				return libkb.RevokeLastDeviceError{NoPassphrase: true}
+			}
+
 			if hasPGP {
 				// even w/ forceLast, you cannot revoke your last device
 				// if you have a pgp key

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"golang.org/x/net/context"
 
 	"github.com/keybase/client/go/libkb"
@@ -58,7 +60,7 @@ func TestPGPDecrypt(t *testing.T) {
 	if err := RunEngine2(ctx, dec); err != nil {
 		t.Fatal(err)
 	}
-	decmsg := string(decoded.Bytes())
+	decmsg := decoded.String()
 	if decmsg != msg {
 		t.Errorf("decoded: %q, expected: %q", decmsg, msg)
 	}
@@ -100,7 +102,7 @@ func TestPGPDecryptArmored(t *testing.T) {
 	if err := RunEngine2(ctx, dec); err != nil {
 		t.Fatal(err)
 	}
-	decmsg := string(decoded.Bytes())
+	decmsg := decoded.String()
 	if decmsg != msg {
 		t.Errorf("decoded: %q, expected: %q", decmsg, msg)
 	}
@@ -161,7 +163,7 @@ func TestPGPDecryptSignedSelf(t *testing.T) {
 	if err := RunEngine2(ctx, dec); err != nil {
 		t.Fatal(err)
 	}
-	decmsg := string(decoded.Bytes())
+	decmsg := decoded.String()
 	if decmsg != msg {
 		t.Errorf("decoded: %q, expected: %q", decmsg, msg)
 	}
@@ -224,7 +226,7 @@ func TestPGPDecryptSignedOther(t *testing.T) {
 	if err := RunEngine2(m, dec); err != nil {
 		t.Fatal(err)
 	}
-	decmsg := string(decoded.Bytes())
+	decmsg := decoded.String()
 	if decmsg != msg {
 		t.Errorf("decoded: %q, expected: %q", decmsg, msg)
 	}
@@ -452,9 +454,9 @@ func TestPGPDecryptNonKeybase(t *testing.T) {
 	}
 	dec := NewPGPDecrypt(tcRecipient.G, decarg)
 	m := NewMetaContextForTest(tcRecipient).WithUIs(uis)
-	if err := RunEngine2(m, dec); err != nil {
-		t.Fatal(err)
-	}
+	err = RunEngine2(m, dec)
+	assert.IsType(t, libkb.BadSigError{}, err, "expected a bad sig error")
+	assert.Contains(t, err.Error(), "Message signed by an unknown key", "bad sig error text")
 
 	if idUI.User != nil {
 		if idUI.User.Username == recipient.Username {
@@ -467,15 +469,21 @@ func TestPGPDecryptNonKeybase(t *testing.T) {
 		t.Errorf("PgpUI OutputSignatureSuccess called %d times, expected 0", pgpUI.OutputCount)
 	}
 	if pgpUI.OutputNonKeybaseCount != 1 {
-		t.Errorf("PgpUI OutputSignatureSuccessNonKeybase called %d times, expected 0", pgpUI.OutputNonKeybaseCount)
+		t.Errorf("PgpUI OutputSignatureNonKeybase called %d times, expected 0", pgpUI.OutputNonKeybaseCount)
 	}
 }
 
 type TestPgpUI struct {
+	OutputWarnings        int
 	OutputCount           int
 	OutputNonKeybaseCount int
 	ShouldPush            bool
 	Generated             keybase1.KeyGeneratedArg
+}
+
+func (t *TestPgpUI) OutputPGPWarning(context.Context, keybase1.OutputPGPWarningArg) error {
+	t.OutputWarnings++
+	return nil
 }
 
 func (t *TestPgpUI) OutputSignatureSuccess(context.Context, keybase1.OutputSignatureSuccessArg) error {
@@ -483,7 +491,7 @@ func (t *TestPgpUI) OutputSignatureSuccess(context.Context, keybase1.OutputSigna
 	return nil
 }
 
-func (t *TestPgpUI) OutputSignatureSuccessNonKeybase(context.Context, keybase1.OutputSignatureSuccessNonKeybaseArg) error {
+func (t *TestPgpUI) OutputSignatureNonKeybase(context.Context, keybase1.OutputSignatureNonKeybaseArg) error {
 	t.OutputNonKeybaseCount++
 	return nil
 }
@@ -535,7 +543,7 @@ func TestPGPDecryptWithSyncedKey(t *testing.T) {
 		SecretUI:    u.NewSecretUI(),
 		GPGUI:       &gpgtestui{},
 	}
-	eng := NewLogin(tc.G, libkb.DeviceTypeDesktop, "", keybase1.ClientType_CLI)
+	eng := NewLogin(tc.G, keybase1.DeviceTypeV2_DESKTOP, "", keybase1.ClientType_CLI)
 	m := NewMetaContextForTest(tc).WithUIs(uis)
 	err = RunEngine2(m, eng)
 	require.NoError(t, err, "no error when checking login")

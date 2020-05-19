@@ -1,6 +1,8 @@
 package client
 
 import (
+	"sort"
+
 	"github.com/keybase/cli"
 	"github.com/keybase/client/go/libcmdline"
 	"github.com/keybase/client/go/libkb"
@@ -14,6 +16,7 @@ func newCmdWallet(cl *libcmdline.CommandLine, g *libkb.GlobalContext) cli.Comman
 		newCmdWalletAssetSearch(cl, g),
 		newCmdWalletBalances(cl, g),
 		newCmdWalletCancel(cl, g),
+		newCmdWalletCancelAll(cl, g),
 		newCmdWalletCancelRequest(cl, g),
 		newCmdWalletChangeTrustlineLimit(cl, g),
 		newCmdWalletDeleteTrustline(cl, g),
@@ -21,10 +24,10 @@ func newCmdWallet(cl *libcmdline.CommandLine, g *libkb.GlobalContext) cli.Comman
 		newCmdWalletExport(cl, g),
 		newCmdWalletGetInflation(cl, g),
 		newCmdWalletGetStarted(cl, g),
-		newCmdWalletHandleURI(cl, g),
 		newCmdWalletHistory(cl, g),
 		newCmdWalletImport(cl, g),
 		newCmdWalletLookup(cl, g),
+		newCmdWalletMerge(cl, g),
 		newCmdWalletPopularAssets(cl, g),
 		newCmdWalletRename(cl, g),
 		newCmdWalletRequest(cl, g),
@@ -37,6 +40,7 @@ func newCmdWallet(cl *libcmdline.CommandLine, g *libkb.GlobalContext) cli.Comman
 		newCmdWalletSign(cl, g),
 	}
 	subcommands = append(subcommands, getBuildSpecificWalletCommands(cl, g)...)
+	sort.Sort(cli.ByName(subcommands))
 	return cli.Command{
 		Name:         "wallet",
 		Usage:        "Send and receive Stellar XLM",

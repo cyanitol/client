@@ -27,7 +27,8 @@ func (d defaultGiphySearcher) Search(mctx libkb.MetaContext, apiKeySource types.
 type Giphy struct {
 	sync.Mutex
 	*baseCommand
-	shownResults      map[string]*string
+	shownResults      map[chat1.ConvIDStr]*string
+	shownWindow       map[chat1.ConvIDStr]bool
 	currentOpCancelFn context.CancelFunc
 	currentOpDoneCb   chan struct{}
 	searcher          giphySearcher
@@ -37,7 +38,8 @@ func NewGiphy(g *globals.Context) *Giphy {
 	usage := "Search for and post GIFs"
 	return &Giphy{
 		baseCommand:  newBaseCommand(g, "giphy", "[search terms]", usage, true),
-		shownResults: make(map[string]*string),
+		shownResults: make(map[chat1.ConvIDStr]*string),
+		shownWindow:  make(map[chat1.ConvIDStr]bool),
 		searcher:     defaultGiphySearcher{},
 	}
 }
@@ -82,19 +84,18 @@ func (s *Giphy) Execute(ctx context.Context, uid gregor1.UID, convID chat1.Conve
 	return err
 }
 
-func (n nullChatUI) ChatGiphySearchResults(ctx context.Context, convID chat1.ConversationID,
-	results chat1.GiphySearchResults) error {
-	return nil
-}
-
-func (n nullChatUI) ChatGiphyToggleResultWindow(ctx context.Context, convID chat1.ConversationID,
-	show, clearInput bool) error {
-	return nil
+func (s *Giphy) queryEqual(query *string, shown *string) bool {
+	if query == nil && shown == nil {
+		return true
+	} else if query == nil && shown != nil || query != nil && shown == nil {
+		return false
+	}
+	return *query == *shown
 }
 
 func (s *Giphy) Preview(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	tlfName, text string) {
-	defer s.Trace(ctx, func() error { return nil }, "Preview")()
+	defer s.Trace(ctx, nil, "Preview")()
 	s.Lock()
 	if s.currentOpCancelFn != nil {
 		s.currentOpCancelFn()
@@ -111,20 +112,28 @@ func (s *Giphy) Preview(ctx context.Context, uid gregor1.UID, convID chat1.Conve
 	defer close(s.currentOpDoneCb)
 
 	if !s.Match(ctx, text) {
-		if _, ok := s.shownResults[convID.String()]; ok {
+		if _, ok := s.shownWindow[convID.ConvIDStr()]; ok {
 			// tell UI to clear
-			s.getChatUI().ChatGiphyToggleResultWindow(ctx, convID, false, false)
-			delete(s.shownResults, convID.String())
+			err := s.getChatUI().ChatGiphyToggleResultWindow(ctx, convID, false, false)
+			if err != nil {
+				s.Debug(ctx, "Preview: error on toggle result: %+v", err)
+			}
+			delete(s.shownResults, convID.ConvIDStr())
+			delete(s.shownWindow, convID.ConvIDStr())
 		}
 		return
 	}
 	query := s.getQuery(text)
-	if shown, ok := s.shownResults[convID.String()]; ok && shown == query {
+	if shown, ok := s.shownResults[convID.ConvIDStr()]; ok && s.queryEqual(query, shown) {
 		s.Debug(ctx, "Preview: same query given, skipping")
 		return
 	}
-	s.getChatUI().ChatGiphyToggleResultWindow(ctx, convID, true, false)
-	s.shownResults[convID.String()] = query
+	err := s.getChatUI().ChatGiphyToggleResultWindow(ctx, convID, true, false)
+	if err != nil {
+		s.Debug(ctx, "Preview: error on toggle result: %+v", err)
+	}
+
+	s.shownWindow[convID.ConvIDStr()] = true
 
 	results, err := s.searcher.Search(libkb.NewMetaContext(ctx, s.G().ExternalG()),
 		s.G().ExternalAPIKeySource, query, s.getLimit(), s.G().AttachmentURLSrv)
@@ -132,8 +141,14 @@ func (s *Giphy) Preview(ctx context.Context, uid gregor1.UID, convID chat1.Conve
 		s.Debug(ctx, "Preview: failed to get Giphy results: %s", err)
 		return
 	}
-	s.getChatUI().ChatGiphySearchResults(ctx, convID, chat1.GiphySearchResults{
+	err = s.getChatUI().ChatGiphySearchResults(ctx, convID, chat1.GiphySearchResults{
 		Results:    results,
 		GalleryUrl: s.G().AttachmentURLSrv.GetGiphyGalleryURL(ctx, convID, tlfName, results),
 	})
+	if err != nil {
+		s.Debug(ctx, "Preview: error on search results: %+v", err)
+		return
+	}
+
+	s.shownResults[convID.ConvIDStr()] = query
 }

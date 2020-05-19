@@ -1,14 +1,14 @@
 import * as Constants from '../../../constants/chat2'
-import * as ProfileGen from '../../../actions/profile-gen'
 import * as React from 'react'
-import * as Tracker2Gen from '../../../actions/tracker2-gen'
+import * as Chat2Gen from '../../../actions/chat2-gen'
 import * as Types from '../../../constants/types/chat2'
-import {BrokenTrackerBanner, InviteBanner} from '.'
-import {connect, isMobile} from '../../../util/container'
+import * as Container from '../../../util/container'
+import * as Kb from '../../../common-adapters'
+import {InviteBanner} from '.'
 import openSMS from '../../../util/sms'
-import {showShareActionSheetFromURL} from '../../../actions/platform-specific'
+import {showShareActionSheet} from '../../../actions/platform-specific'
 
-const installMessage = `I sent you encrypted messages on Keybase. You can install it here: https://keybase.io/app`
+const installMessage = `I sent you encrypted messages on Keybase. You can install it here: https://keybase.io/phone-app`
 
 type OwnProps = {
   conversationIDKey: Types.ConversationIDKey
@@ -16,88 +16,94 @@ type OwnProps = {
 
 type Props = {
   type: 'invite' | 'none' | 'broken'
-  onClick: (username: string) => void
   users: Array<string>
+  hasMessages: boolean
+  dismissed: boolean
   openShareSheet: () => void
   openSMS: (email: string) => void
+  onDismiss: () => void
+  usernameToContactName: Map<string, string>
 }
 
-class BannerContainer extends React.PureComponent<Props> {
-  render() {
-    switch (this.props.type) {
-      case 'invite':
-        return (
-          <InviteBanner
-            openShareSheet={this.props.openShareSheet}
-            openSMS={this.props.openSMS}
-            users={this.props.users}
-          />
-        )
-      case 'broken':
-        return <BrokenTrackerBanner onClick={this.props.onClick} users={this.props.users} />
-      case 'none':
-        return null
-    }
-    return null
+const BannerContainer = (props: Props) => {
+  switch (props.type) {
+    case 'invite':
+      return !props.dismissed && props.hasMessages ? (
+        <InviteBanner
+          openShareSheet={props.openShareSheet}
+          openSMS={props.openSMS}
+          onDismiss={props.onDismiss}
+          users={props.users}
+          usernameToContactName={props.usernameToContactName}
+        />
+      ) : null
+    case 'broken':
+      return <Kb.ProofBrokenBanner users={props.users} />
+    case 'none':
+      return null
   }
 }
 
-const mapStateToProps = (state, {conversationIDKey}) => {
+const mapStateToProps = (state: Container.TypedState, {conversationIDKey}: OwnProps) => {
   const _following = state.config.following
-  const _meta = Constants.getMeta(state, conversationIDKey)
+  const _participantInfo = Constants.getParticipantInfo(state, conversationIDKey)
   const _users = state.users
+  const _dismissed = state.chat2.dismissedInviteBannersMap.get(conversationIDKey) || false
+  const meta = Constants.getMeta(state, conversationIDKey)
   return {
+    _dismissed,
     _following,
-    _meta,
+    _participantInfo,
+    _teamType: meta.teamType,
     _users,
+    hasMessages: !meta.isEmpty,
   }
 }
 
-const mapDispatchToProps = dispatch => ({
-  onClick: isMobile
-    ? (username: string) => dispatch(ProfileGen.createShowUserProfile({username}))
-    : (username: string) => dispatch(Tracker2Gen.createShowUser({asTracker: true, username})),
+const mapDispatchToProps = (dispatch: Container.TypedDispatch, ownProps: OwnProps) => ({
+  onDismiss: () =>
+    dispatch(Chat2Gen.createDismissBottomBanner({conversationIDKey: ownProps.conversationIDKey})),
 })
 
-const mergeProps = (stateProps, dispatchProps) => {
-  let type
-  let users
-
-  if (stateProps._meta.teamType !== 'adhoc') {
-    type = 'none'
-  } else {
-    const broken = stateProps._meta.participants.filter(
-      p => stateProps._users.infoMap.getIn([p, 'broken'], false) && stateProps._following.has(p)
-    )
-    if (!broken.isEmpty()) {
-      type = 'broken'
-      users = broken.toArray()
-    } else {
-      const toInvite = stateProps._meta.participants.filter(p => p.includes('@'))
-      if (!toInvite.isEmpty()) {
-        type = 'invite'
-        users = toInvite.toArray()
-      } else {
-        type = 'none'
-      }
-    }
-  }
-
-  return {
-    onClick: dispatchProps.onClick,
-    openSMS: (phoneNumber: string) => openSMS(['+' + phoneNumber], installMessage),
-    openShareSheet: () =>
-      showShareActionSheetFromURL({
-        message: installMessage,
-        mimeType: 'text/plain',
-      }),
-    type,
-    users: users || [],
-  }
-}
-
-export default connect(
+export default Container.connect(
   mapStateToProps,
   mapDispatchToProps,
-  mergeProps
+  (stateProps, dispatchProps, _: OwnProps) => {
+    let type: Props['type']
+    let users: Array<string> = []
+    if (stateProps._teamType !== 'adhoc') {
+      type = 'none'
+    } else {
+      const broken = stateProps._participantInfo.all.filter(
+        p => (stateProps._users.infoMap.get(p) || {broken: false}).broken && stateProps._following.has(p)
+      )
+      if (broken.length > 0) {
+        type = 'broken'
+        users = broken
+      } else {
+        const toInvite = stateProps._participantInfo.all.filter(p => p.includes('@'))
+        if (toInvite.length > 0) {
+          type = 'invite'
+          users = toInvite
+        } else {
+          type = 'none'
+        }
+      }
+    }
+
+    return {
+      dismissed: stateProps._dismissed,
+      hasMessages: stateProps.hasMessages,
+      onDismiss: dispatchProps.onDismiss,
+      openSMS: (phoneNumber: string) => openSMS(['+' + phoneNumber], installMessage),
+      openShareSheet: () =>
+        showShareActionSheet({
+          message: installMessage,
+          mimeType: 'text/plain',
+        }),
+      type,
+      usernameToContactName: stateProps._participantInfo.contactName,
+      users,
+    }
+  }
 )(BannerContainer)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/keybase/client/go/chat/utils"
 	"github.com/keybase/client/go/libkb"
 	"github.com/keybase/client/go/protocol/keybase1"
 	"github.com/keybase/client/go/protocol/stellar1"
@@ -71,14 +72,15 @@ func TransformRequestDetails(mctx libkb.MetaContext, details stellar1.RequestDet
 		loc.ToUserType = stellar1.ParticipantType_SBS
 	}
 
-	if details.Currency != nil {
+	switch {
+	case details.Currency != nil:
 		amountDesc, err := FormatCurrency(mctx, details.Amount, *details.Currency, stellarnet.Round)
 		if err != nil {
 			amountDesc = details.Amount
 			mctx.Debug("error formatting external currency: %s", err)
 		}
 		loc.AmountDescription = fmt.Sprintf("%s %s", amountDesc, *details.Currency)
-	} else if details.Asset != nil {
+	case details.Asset != nil:
 		var code string
 		if details.Asset.IsNativeXLM() {
 			code = "XLM"
@@ -97,7 +99,7 @@ func TransformRequestDetails(mctx libkb.MetaContext, details stellar1.RequestDet
 			mctx.Debug("error formatting amount for asset: %s", err)
 		}
 		loc.AmountDescription = amountDesc
-	} else {
+	default:
 		return nil, errors.New("malformed request - currency/asset not defined")
 	}
 
@@ -256,6 +258,8 @@ func transformPaymentDirect(mctx libkb.MetaContext, acctID stellar1.AccountID, p
 	}
 	loc.Unread = p.Unread
 
+	loc.FromAirdrop = p.FromAirdrop
+
 	return loc, nil
 }
 
@@ -372,6 +376,8 @@ func transformPaymentRelay(mctx libkb.MetaContext, acctID stellar1.AccountID, p 
 		loc.NoteErr = fmt.Sprintf("error decrypting note: %s", err)
 	}
 
+	loc.FromAirdrop = p.FromAirdrop
+
 	return loc, nil
 }
 
@@ -436,7 +442,7 @@ func decryptNote(mctx libkb.MetaContext, txid stellar1.TransactionID, note strin
 		return "", "discarded note for wrong transaction ID"
 	}
 
-	return decrypted.Note, ""
+	return utils.EscapeForDecorate(mctx.Ctx(), decrypted.Note), ""
 }
 
 func newPaymentCommonLocal(mctx libkb.MetaContext, txID stellar1.TransactionID, ctime stellar1.TimeMs, amount string, asset stellar1.Asset) (*stellar1.PaymentLocal, error) {
@@ -513,7 +519,7 @@ func AccountDetailsToWalletAccountLocal(mctx libkb.MetaContext, accountID stella
 	if err != nil {
 		return empty, err
 	}
-	isMobile := activeDeviceType == libkb.DeviceTypeMobile
+	isMobile := activeDeviceType == keybase1.DeviceTypeV2_MOBILE
 
 	// AccountModeEditable - can user change "account mode" to mobile only or
 	// back? This setting can only be changed from a mobile device that's over

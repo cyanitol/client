@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/keybase/client/go/chat/types"
 	"github.com/keybase/client/go/ephemeral"
@@ -159,7 +160,7 @@ func (e TransientUnboxingError) ToStatus() (status keybase1.Status) {
 
 //=============================================================================
 
-type EphemeralAlreadyExpiredError struct{ inner error }
+type EphemeralAlreadyExpiredError struct{}
 
 func NewEphemeralAlreadyExpiredError() EphemeralAlreadyExpiredError {
 	return EphemeralAlreadyExpiredError{}
@@ -175,7 +176,9 @@ func (e EphemeralAlreadyExpiredError) InternalError() string {
 
 //=============================================================================
 
-type EphemeralUnboxingError struct{ inner ephemeral.EphemeralKeyError }
+type EphemeralUnboxingError struct {
+	inner ephemeral.EphemeralKeyError
+}
 
 func NewEphemeralUnboxingError(inner ephemeral.EphemeralKeyError) EphemeralUnboxingError {
 	return EphemeralUnboxingError{inner}
@@ -205,9 +208,9 @@ func (e PublicTeamEphemeralKeyError) Error() string {
 
 type NotAuthenticatedForThisDeviceError struct{ inner ephemeral.EphemeralKeyError }
 
-func NewNotAuthenticatedForThisDeviceError(mctx libkb.MetaContext, tlfID chat1.TLFID,
+func NewNotAuthenticatedForThisDeviceError(mctx libkb.MetaContext, memberCtime *keybase1.Time,
 	contentCtime gregor1.Time) NotAuthenticatedForThisDeviceError {
-	inner := ephemeral.NewNotAuthenticatedForThisDeviceError(mctx, tlfID, contentCtime)
+	inner := ephemeral.NewNotAuthenticatedForThisDeviceError(mctx, memberCtime, contentCtime)
 	return NotAuthenticatedForThisDeviceError{inner: inner}
 }
 
@@ -290,6 +293,22 @@ func (e BoxingError) IsImmediateFail() (chat1.OutboxErrorType, bool) {
 		return chat1.OutboxErrorType_MISC, true
 	}
 	return 0, false
+}
+
+//=============================================================================
+
+type RestrictedBotChannelError struct{}
+
+func NewRestrictedBotChannelError() RestrictedBotChannelError {
+	return RestrictedBotChannelError{}
+}
+
+func (e RestrictedBotChannelError) Error() string {
+	return "bot restricted from sending to this channel"
+}
+
+func (e RestrictedBotChannelError) IsImmediateFail() (chat1.OutboxErrorType, bool) {
+	return chat1.OutboxErrorType_RESTRICTEDBOT, true
 }
 
 //=============================================================================
@@ -416,26 +435,29 @@ func (e OfflineError) Error() string {
 type OfflineClient struct {
 }
 
-func (e OfflineClient) Call(ctx context.Context, method string, arg interface{}, res interface{}) error {
+func (e OfflineClient) Call(ctx context.Context, method string, arg interface{},
+	res interface{}, timeout time.Duration) error {
 	return OfflineError{}
 }
 
-func (e OfflineClient) CallCompressed(ctx context.Context, method string, arg interface{}, res interface{}, ctype rpc.CompressionType) error {
+func (e OfflineClient) CallCompressed(ctx context.Context, method string, arg interface{},
+	res interface{}, ctype rpc.CompressionType, timeout time.Duration) error {
 	return OfflineError{}
 }
 
-func (e OfflineClient) Notify(ctx context.Context, method string, arg interface{}) error {
+func (e OfflineClient) Notify(ctx context.Context, method string, arg interface{}, timeout time.Duration) error {
 	return OfflineError{}
 }
 
 //=============================================================================
 
 type DuplicateTopicNameError struct {
-	TopicName string
+	Conv chat1.ConversationLocal
 }
 
 func (e DuplicateTopicNameError) Error() string {
-	return fmt.Sprintf("channel name %s is already in use", e.TopicName)
+	return fmt.Sprintf("channel name %s is already in use in %v",
+		e.Conv.GetTopicName(), e.Conv.Info.TlfName)
 }
 
 //=============================================================================
@@ -590,4 +612,32 @@ func NewFTLError(s string) error {
 
 func (f FTLError) Error() string {
 	return fmt.Sprintf("FTL Error: %s", f.msg)
+}
+
+//=============================================================================
+
+type DevStoragePermissionDeniedError struct {
+	role keybase1.TeamRole
+}
+
+func NewDevStoragePermissionDeniedError(role keybase1.TeamRole) error {
+	return &DevStoragePermissionDeniedError{role: role}
+}
+
+func (e *DevStoragePermissionDeniedError) Error() string {
+	return fmt.Sprintf("role %q is not high enough", e.role)
+}
+
+//=============================================================================
+
+type DevStorageAdminOnlyError struct {
+	msg string
+}
+
+func NewDevStorageAdminOnlyError(msg string) error {
+	return &DevStorageAdminOnlyError{msg: msg}
+}
+
+func (e *DevStorageAdminOnlyError) Error() string {
+	return fmt.Sprintf("found a conversation and a message, but role checking failed: %s", e.msg)
 }

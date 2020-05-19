@@ -1,15 +1,16 @@
 // NOTE: This file is GENERATED from json files in actions/json. Run 'yarn build-actions' to regenerate
-import * as I from 'immutable'
 import * as RPCTypes from '../constants/types/rpc-gen'
-import {ConnectionType} from '../constants/types/config'
+import * as Types from '../constants/types/config'
 import * as Tabs from '../constants/tabs'
 import * as ChatTypes from '../constants/types/chat2'
 import * as FsTypes from '../constants/types/fs'
+import HiddenString from '../util/hidden-string'
 import {RPCError} from '../util/errors'
 
 // Constants
 export const resetStore = 'common:resetStore' // not a part of config but is handled by every reducer. NEVER dispatch this
 export const typePrefix = 'config:'
+export const androidShare = 'config:androidShare'
 export const bootstrapStatusLoaded = 'config:bootstrapStatusLoaded'
 export const changedActive = 'config:changedActive'
 export const changedFocus = 'config:changedFocus'
@@ -24,13 +25,13 @@ export const filePickerError = 'config:filePickerError'
 export const followerInfoUpdated = 'config:followerInfoUpdated'
 export const globalError = 'config:globalError'
 export const installerRan = 'config:installerRan'
-export const link = 'config:link'
-export const loadAvatars = 'config:loadAvatars'
-export const loadTeamAvatars = 'config:loadTeamAvatars'
-export const loadedAvatars = 'config:loadedAvatars'
+export const loadOnLoginStartup = 'config:loadOnLoginStartup'
+export const loadOnStart = 'config:loadOnStart'
+export const loadedOnLoginStartup = 'config:loadedOnLoginStartup'
 export const loggedIn = 'config:loggedIn'
 export const loggedOut = 'config:loggedOut'
 export const logout = 'config:logout'
+export const logoutAndTryToLogInAs = 'config:logoutAndTryToLogInAs'
 export const logoutHandshake = 'config:logoutHandshake'
 export const logoutHandshakeWait = 'config:logoutHandshakeWait'
 export const mobileAppState = 'config:mobileAppState'
@@ -39,21 +40,35 @@ export const openAppStore = 'config:openAppStore'
 export const osNetworkStatusChanged = 'config:osNetworkStatusChanged'
 export const persistRoute = 'config:persistRoute'
 export const pushLoaded = 'config:pushLoaded'
+export const remoteWindowWantsProps = 'config:remoteWindowWantsProps'
 export const restartHandshake = 'config:restartHandshake'
 export const setAccounts = 'config:setAccounts'
+export const setDarkModePreference = 'config:setDarkModePreference'
+export const setDefaultUsername = 'config:setDefaultUsername'
 export const setDeletedSelf = 'config:setDeletedSelf'
+export const setIncomingShareUseOriginal = 'config:setIncomingShareUseOriginal'
 export const setNavigator = 'config:setNavigator'
 export const setNotifySound = 'config:setNotifySound'
 export const setOpenAtLogin = 'config:setOpenAtLogin'
 export const setStartupDetails = 'config:setStartupDetails'
+export const setStartupFile = 'config:setStartupFile'
+export const setSystemDarkMode = 'config:setSystemDarkMode'
+export const setUseNativeFrame = 'config:setUseNativeFrame'
+export const setUserSwitching = 'config:setUserSwitching'
+export const setWhatsNewLastSeenVersion = 'config:setWhatsNewLastSeenVersion'
 export const showMain = 'config:showMain'
+export const showShareActionSheet = 'config:showShareActionSheet'
 export const startHandshake = 'config:startHandshake'
+export const toggleRuntimeStats = 'config:toggleRuntimeStats'
 export const updateCriticalCheckStatus = 'config:updateCriticalCheckStatus'
+export const updateHTTPSrvInfo = 'config:updateHTTPSrvInfo'
 export const updateInfo = 'config:updateInfo'
 export const updateMenubarWindowID = 'config:updateMenubarWindowID'
 export const updateNow = 'config:updateNow'
+export const updateWindowState = 'config:updateWindowState'
 
 // Payload Types
+type _AndroidSharePayload = {readonly url?: string; readonly text?: string}
 type _BootstrapStatusLoadedPayload = {
   readonly deviceID: string
   readonly deviceName: string
@@ -68,14 +83,14 @@ type _ChangedActivePayload = {readonly userActive: boolean}
 type _ChangedFocusPayload = {readonly appFocused: boolean}
 type _CheckForUpdatePayload = void
 type _CopyToClipboardPayload = {readonly text: string}
-type _DaemonErrorPayload = {readonly daemonError: Error | null}
+type _DaemonErrorPayload = {readonly daemonError?: Error}
 type _DaemonHandshakeDonePayload = void
 type _DaemonHandshakePayload = {readonly firstTimeConnecting: boolean; readonly version: number}
 type _DaemonHandshakeWaitPayload = {
   readonly name: string
   readonly version: number
   readonly increment: boolean
-  readonly failedReason?: string | null
+  readonly failedReason?: string
   readonly failedFatal?: true
 }
 type _DumpLogsPayload = {readonly reason: 'quitting through menu'}
@@ -85,14 +100,20 @@ type _FollowerInfoUpdatedPayload = {
   readonly followers: Array<string>
   readonly followees: Array<string>
 }
-type _GlobalErrorPayload = {readonly globalError: null | Error | RPCError}
+type _GlobalErrorPayload = {readonly globalError?: Error | RPCError}
 type _InstallerRanPayload = void
-type _LinkPayload = {readonly link: string}
-type _LoadAvatarsPayload = {readonly usernames: Array<string>}
-type _LoadTeamAvatarsPayload = {readonly teamnames: Array<string>}
-type _LoadedAvatarsPayload = {readonly avatars: I.Map<string, I.Map<number, string>>}
+type _LoadOnLoginStartupPayload = void
+type _LoadOnStartPayload = {
+  readonly phase:
+    | 'initialStartupAsEarlyAsPossible'
+    | 'connectedToDaemonForFirstTime'
+    | 'reloggedIn'
+    | 'startupOrReloginButNotInARush'
+}
+type _LoadedOnLoginStartupPayload = {readonly status: boolean | null}
 type _LoggedInPayload = {readonly causedBySignup: boolean; readonly causedByStartup: boolean}
 type _LoggedOutPayload = void
+type _LogoutAndTryToLogInAsPayload = {readonly username: string}
 type _LogoutHandshakePayload = {readonly version: number}
 type _LogoutHandshakeWaitPayload = {
   readonly name: string
@@ -105,31 +126,51 @@ type _OpenAppSettingsPayload = void
 type _OpenAppStorePayload = void
 type _OsNetworkStatusChangedPayload = {
   readonly online: boolean
-  readonly type: ConnectionType
+  readonly type: Types.ConnectionType
   readonly isInit?: boolean
 }
-type _PersistRoutePayload = {readonly path: Array<any>}
+type _PersistRoutePayload = {readonly path?: Array<any>}
 type _PushLoadedPayload = {readonly pushLoaded: boolean}
+type _RemoteWindowWantsPropsPayload = {readonly component: string; readonly param: string}
 type _RestartHandshakePayload = void
-type _SetAccountsPayload = {readonly defaultUsername: string; readonly usernames: Array<string>}
+type _SetAccountsPayload = {readonly configuredAccounts: Array<RPCTypes.ConfiguredAccount>}
+type _SetDarkModePreferencePayload = {
+  readonly preference: 'system' | 'alwaysDark' | 'alwaysLight' | undefined
+}
+type _SetDefaultUsernamePayload = {readonly username: string}
 type _SetDeletedSelfPayload = {readonly deletedUsername: string}
+type _SetIncomingShareUseOriginalPayload = {readonly useOriginal: boolean}
 type _SetNavigatorPayload = {readonly navigator: any}
-type _SetNotifySoundPayload = {readonly sound: boolean; readonly writeFile: boolean}
-type _SetOpenAtLoginPayload = {readonly open: boolean; readonly writeFile: boolean}
+type _SetNotifySoundPayload = {readonly notifySound: boolean}
+type _SetOpenAtLoginPayload = {readonly openAtLogin: boolean}
 type _SetStartupDetailsPayload = {
   readonly startupWasFromPush: boolean
-  readonly startupConversation: ChatTypes.ConversationIDKey | null
+  readonly startupConversation?: ChatTypes.ConversationIDKey
   readonly startupLink: string
-  readonly startupTab: Tabs.Tab | null
+  readonly startupTab?: Tabs.Tab
   readonly startupFollowUser: string
-  readonly startupSharePath: FsTypes.LocalPath | null
+  readonly startupSharePath?: FsTypes.LocalPath
+  readonly startupShareText?: string
+  readonly startupPushPayload?: string
 }
+type _SetStartupFilePayload = {readonly startupFile: HiddenString}
+type _SetSystemDarkModePayload = {readonly dark: boolean}
+type _SetUseNativeFramePayload = {readonly useNativeFrame: boolean}
+type _SetUserSwitchingPayload = {readonly userSwitching: boolean}
+type _SetWhatsNewLastSeenVersionPayload = {readonly lastSeenVersion: string}
 type _ShowMainPayload = void
+type _ShowShareActionSheetPayload = {
+  readonly filePath?: string
+  readonly message?: string
+  readonly mimeType: string
+}
 type _StartHandshakePayload = void
+type _ToggleRuntimeStatsPayload = void
 type _UpdateCriticalCheckStatusPayload = {
   readonly status: 'critical' | 'suggested' | 'ok'
   readonly message: string
 }
+type _UpdateHTTPSrvInfoPayload = {readonly address: string; readonly token: string}
 type _UpdateInfoPayload = {
   readonly isOutOfDate: boolean
   readonly critical: boolean
@@ -137,8 +178,22 @@ type _UpdateInfoPayload = {
 }
 type _UpdateMenubarWindowIDPayload = {readonly id: number}
 type _UpdateNowPayload = void
+type _UpdateWindowStatePayload = {readonly windowState: Types.WindowState}
 
 // Action Creators
+/**
+ * Intent fired with a share url
+ */
+export const createAndroidShare = (
+  payload: _AndroidSharePayload = Object.freeze({})
+): AndroidSharePayload => ({payload, type: androidShare})
+/**
+ * Log out the current user, keeping secrets stored.
+ * Then prefill the username for provisioned another user to log in.
+ */
+export const createLogoutAndTryToLogInAs = (
+  payload: _LogoutAndTryToLogInAsPayload
+): LogoutAndTryToLogInAsPayload => ({payload, type: logoutAndTryToLogInAs})
 /**
  * Open a link to the app store
  */
@@ -160,7 +215,30 @@ export const createFilePickerError = (payload: _FilePickerErrorPayload): FilePic
   type: filePickerError,
 })
 /**
- * Used internally to know we were logged in. if you want to react to being logged in likely you want bootstrapStatusLoaded
+ * Set the latest version number that a user has seen from Gregor.
+ * This is used to set the badged state of the 'What's New' radio icon
+ */
+export const createSetWhatsNewLastSeenVersion = (
+  payload: _SetWhatsNewLastSeenVersionPayload
+): SetWhatsNewLastSeenVersionPayload => ({payload, type: setWhatsNewLastSeenVersion})
+/**
+ * Stores the startup file path when launching Keybase from a cold start beofre log in
+ */
+export const createSetStartupFile = (payload: _SetStartupFilePayload): SetStartupFilePayload => ({
+  payload,
+  type: setStartupFile,
+})
+/**
+ * This action is dispatched multiple times with various flags.
+ * If you want to do something as a result of startup or login listen to this.
+ */
+export const createLoadOnStart = (payload: _LoadOnStartPayload): LoadOnStartPayload => ({
+  payload,
+  type: loadOnStart,
+})
+/**
+ * Used internally to know we were logged in.
+ * If you want to react to being logged in likely you want bootstrapStatusLoaded
  */
 export const createLoggedIn = (payload: _LoggedInPayload): LoggedInPayload => ({payload, type: loggedIn})
 /**
@@ -185,6 +263,13 @@ export const createStartHandshake = (payload: _StartHandshakePayload): StartHand
   type: startHandshake,
 })
 /**
+ * main electron window wants to store its state
+ */
+export const createUpdateWindowState = (payload: _UpdateWindowStatePayload): UpdateWindowStatePayload => ({
+  payload,
+  type: updateWindowState,
+})
+/**
  * mobile only: open the settings page
  */
 export const createOpenAppSettings = (payload: _OpenAppSettingsPayload): OpenAppSettingsPayload => ({
@@ -197,6 +282,12 @@ export const createOpenAppSettings = (payload: _OpenAppSettingsPayload): OpenApp
 export const createDaemonHandshakeDone = (
   payload: _DaemonHandshakeDonePayload
 ): DaemonHandshakeDonePayload => ({payload, type: daemonHandshakeDone})
+/**
+ * remote electron window wants props sent
+ */
+export const createRemoteWindowWantsProps = (
+  payload: _RemoteWindowWantsPropsPayload
+): RemoteWindowWantsPropsPayload => ({payload, type: remoteWindowWantsProps})
 /**
  * someone wants to log out
  */
@@ -246,7 +337,7 @@ export const createCopyToClipboard = (payload: _CopyToClipboardPayload): CopyToC
   payload,
   type: copyToClipboard,
 })
-export const createDaemonError = (payload: _DaemonErrorPayload): DaemonErrorPayload => ({
+export const createDaemonError = (payload: _DaemonErrorPayload = Object.freeze({})): DaemonErrorPayload => ({
   payload,
   type: daemonError,
 })
@@ -254,23 +345,17 @@ export const createDumpLogs = (payload: _DumpLogsPayload): DumpLogsPayload => ({
 export const createFollowerInfoUpdated = (
   payload: _FollowerInfoUpdatedPayload
 ): FollowerInfoUpdatedPayload => ({payload, type: followerInfoUpdated})
-export const createGlobalError = (payload: _GlobalErrorPayload): GlobalErrorPayload => ({
+export const createGlobalError = (payload: _GlobalErrorPayload = Object.freeze({})): GlobalErrorPayload => ({
   payload,
   type: globalError,
 })
-export const createLink = (payload: _LinkPayload): LinkPayload => ({payload, type: link})
-export const createLoadAvatars = (payload: _LoadAvatarsPayload): LoadAvatarsPayload => ({
+export const createLoadOnLoginStartup = (payload: _LoadOnLoginStartupPayload): LoadOnLoginStartupPayload => ({
   payload,
-  type: loadAvatars,
+  type: loadOnLoginStartup,
 })
-export const createLoadTeamAvatars = (payload: _LoadTeamAvatarsPayload): LoadTeamAvatarsPayload => ({
-  payload,
-  type: loadTeamAvatars,
-})
-export const createLoadedAvatars = (payload: _LoadedAvatarsPayload): LoadedAvatarsPayload => ({
-  payload,
-  type: loadedAvatars,
-})
+export const createLoadedOnLoginStartup = (
+  payload: _LoadedOnLoginStartupPayload
+): LoadedOnLoginStartupPayload => ({payload, type: loadedOnLoginStartup})
 export const createLoggedOut = (payload: _LoggedOutPayload): LoggedOutPayload => ({payload, type: loggedOut})
 export const createMobileAppState = (payload: _MobileAppStatePayload): MobileAppStatePayload => ({
   payload,
@@ -279,10 +364,9 @@ export const createMobileAppState = (payload: _MobileAppStatePayload): MobileApp
 export const createOsNetworkStatusChanged = (
   payload: _OsNetworkStatusChangedPayload
 ): OsNetworkStatusChangedPayload => ({payload, type: osNetworkStatusChanged})
-export const createPersistRoute = (payload: _PersistRoutePayload): PersistRoutePayload => ({
-  payload,
-  type: persistRoute,
-})
+export const createPersistRoute = (
+  payload: _PersistRoutePayload = Object.freeze({})
+): PersistRoutePayload => ({payload, type: persistRoute})
 export const createPushLoaded = (payload: _PushLoadedPayload): PushLoadedPayload => ({
   payload,
   type: pushLoaded,
@@ -291,10 +375,20 @@ export const createSetAccounts = (payload: _SetAccountsPayload): SetAccountsPayl
   payload,
   type: setAccounts,
 })
+export const createSetDarkModePreference = (
+  payload: _SetDarkModePreferencePayload
+): SetDarkModePreferencePayload => ({payload, type: setDarkModePreference})
+export const createSetDefaultUsername = (payload: _SetDefaultUsernamePayload): SetDefaultUsernamePayload => ({
+  payload,
+  type: setDefaultUsername,
+})
 export const createSetDeletedSelf = (payload: _SetDeletedSelfPayload): SetDeletedSelfPayload => ({
   payload,
   type: setDeletedSelf,
 })
+export const createSetIncomingShareUseOriginal = (
+  payload: _SetIncomingShareUseOriginalPayload
+): SetIncomingShareUseOriginalPayload => ({payload, type: setIncomingShareUseOriginal})
 export const createSetNavigator = (payload: _SetNavigatorPayload): SetNavigatorPayload => ({
   payload,
   type: setNavigator,
@@ -311,7 +405,30 @@ export const createSetStartupDetails = (payload: _SetStartupDetailsPayload): Set
   payload,
   type: setStartupDetails,
 })
+export const createSetSystemDarkMode = (payload: _SetSystemDarkModePayload): SetSystemDarkModePayload => ({
+  payload,
+  type: setSystemDarkMode,
+})
+export const createSetUseNativeFrame = (payload: _SetUseNativeFramePayload): SetUseNativeFramePayload => ({
+  payload,
+  type: setUseNativeFrame,
+})
+export const createSetUserSwitching = (payload: _SetUserSwitchingPayload): SetUserSwitchingPayload => ({
+  payload,
+  type: setUserSwitching,
+})
 export const createShowMain = (payload: _ShowMainPayload): ShowMainPayload => ({payload, type: showMain})
+export const createShowShareActionSheet = (
+  payload: _ShowShareActionSheetPayload
+): ShowShareActionSheetPayload => ({payload, type: showShareActionSheet})
+export const createToggleRuntimeStats = (payload: _ToggleRuntimeStatsPayload): ToggleRuntimeStatsPayload => ({
+  payload,
+  type: toggleRuntimeStats,
+})
+export const createUpdateHTTPSrvInfo = (payload: _UpdateHTTPSrvInfoPayload): UpdateHTTPSrvInfoPayload => ({
+  payload,
+  type: updateHTTPSrvInfo,
+})
 export const createUpdateInfo = (payload: _UpdateInfoPayload): UpdateInfoPayload => ({
   payload,
   type: updateInfo,
@@ -322,6 +439,7 @@ export const createUpdateMenubarWindowID = (
 export const createUpdateNow = (payload: _UpdateNowPayload): UpdateNowPayload => ({payload, type: updateNow})
 
 // Action Payloads
+export type AndroidSharePayload = {readonly payload: _AndroidSharePayload; readonly type: typeof androidShare}
 export type BootstrapStatusLoadedPayload = {
   readonly payload: _BootstrapStatusLoadedPayload
   readonly type: typeof bootstrapStatusLoaded
@@ -363,18 +481,21 @@ export type FollowerInfoUpdatedPayload = {
 }
 export type GlobalErrorPayload = {readonly payload: _GlobalErrorPayload; readonly type: typeof globalError}
 export type InstallerRanPayload = {readonly payload: _InstallerRanPayload; readonly type: typeof installerRan}
-export type LinkPayload = {readonly payload: _LinkPayload; readonly type: typeof link}
-export type LoadAvatarsPayload = {readonly payload: _LoadAvatarsPayload; readonly type: typeof loadAvatars}
-export type LoadTeamAvatarsPayload = {
-  readonly payload: _LoadTeamAvatarsPayload
-  readonly type: typeof loadTeamAvatars
+export type LoadOnLoginStartupPayload = {
+  readonly payload: _LoadOnLoginStartupPayload
+  readonly type: typeof loadOnLoginStartup
 }
-export type LoadedAvatarsPayload = {
-  readonly payload: _LoadedAvatarsPayload
-  readonly type: typeof loadedAvatars
+export type LoadOnStartPayload = {readonly payload: _LoadOnStartPayload; readonly type: typeof loadOnStart}
+export type LoadedOnLoginStartupPayload = {
+  readonly payload: _LoadedOnLoginStartupPayload
+  readonly type: typeof loadedOnLoginStartup
 }
 export type LoggedInPayload = {readonly payload: _LoggedInPayload; readonly type: typeof loggedIn}
 export type LoggedOutPayload = {readonly payload: _LoggedOutPayload; readonly type: typeof loggedOut}
+export type LogoutAndTryToLogInAsPayload = {
+  readonly payload: _LogoutAndTryToLogInAsPayload
+  readonly type: typeof logoutAndTryToLogInAs
+}
 export type LogoutHandshakePayload = {
   readonly payload: _LogoutHandshakePayload
   readonly type: typeof logoutHandshake
@@ -399,14 +520,30 @@ export type OsNetworkStatusChangedPayload = {
 }
 export type PersistRoutePayload = {readonly payload: _PersistRoutePayload; readonly type: typeof persistRoute}
 export type PushLoadedPayload = {readonly payload: _PushLoadedPayload; readonly type: typeof pushLoaded}
+export type RemoteWindowWantsPropsPayload = {
+  readonly payload: _RemoteWindowWantsPropsPayload
+  readonly type: typeof remoteWindowWantsProps
+}
 export type RestartHandshakePayload = {
   readonly payload: _RestartHandshakePayload
   readonly type: typeof restartHandshake
 }
 export type SetAccountsPayload = {readonly payload: _SetAccountsPayload; readonly type: typeof setAccounts}
+export type SetDarkModePreferencePayload = {
+  readonly payload: _SetDarkModePreferencePayload
+  readonly type: typeof setDarkModePreference
+}
+export type SetDefaultUsernamePayload = {
+  readonly payload: _SetDefaultUsernamePayload
+  readonly type: typeof setDefaultUsername
+}
 export type SetDeletedSelfPayload = {
   readonly payload: _SetDeletedSelfPayload
   readonly type: typeof setDeletedSelf
+}
+export type SetIncomingShareUseOriginalPayload = {
+  readonly payload: _SetIncomingShareUseOriginalPayload
+  readonly type: typeof setIncomingShareUseOriginal
 }
 export type SetNavigatorPayload = {readonly payload: _SetNavigatorPayload; readonly type: typeof setNavigator}
 export type SetNotifySoundPayload = {
@@ -421,14 +558,46 @@ export type SetStartupDetailsPayload = {
   readonly payload: _SetStartupDetailsPayload
   readonly type: typeof setStartupDetails
 }
+export type SetStartupFilePayload = {
+  readonly payload: _SetStartupFilePayload
+  readonly type: typeof setStartupFile
+}
+export type SetSystemDarkModePayload = {
+  readonly payload: _SetSystemDarkModePayload
+  readonly type: typeof setSystemDarkMode
+}
+export type SetUseNativeFramePayload = {
+  readonly payload: _SetUseNativeFramePayload
+  readonly type: typeof setUseNativeFrame
+}
+export type SetUserSwitchingPayload = {
+  readonly payload: _SetUserSwitchingPayload
+  readonly type: typeof setUserSwitching
+}
+export type SetWhatsNewLastSeenVersionPayload = {
+  readonly payload: _SetWhatsNewLastSeenVersionPayload
+  readonly type: typeof setWhatsNewLastSeenVersion
+}
 export type ShowMainPayload = {readonly payload: _ShowMainPayload; readonly type: typeof showMain}
+export type ShowShareActionSheetPayload = {
+  readonly payload: _ShowShareActionSheetPayload
+  readonly type: typeof showShareActionSheet
+}
 export type StartHandshakePayload = {
   readonly payload: _StartHandshakePayload
   readonly type: typeof startHandshake
 }
+export type ToggleRuntimeStatsPayload = {
+  readonly payload: _ToggleRuntimeStatsPayload
+  readonly type: typeof toggleRuntimeStats
+}
 export type UpdateCriticalCheckStatusPayload = {
   readonly payload: _UpdateCriticalCheckStatusPayload
   readonly type: typeof updateCriticalCheckStatus
+}
+export type UpdateHTTPSrvInfoPayload = {
+  readonly payload: _UpdateHTTPSrvInfoPayload
+  readonly type: typeof updateHTTPSrvInfo
 }
 export type UpdateInfoPayload = {readonly payload: _UpdateInfoPayload; readonly type: typeof updateInfo}
 export type UpdateMenubarWindowIDPayload = {
@@ -436,10 +605,15 @@ export type UpdateMenubarWindowIDPayload = {
   readonly type: typeof updateMenubarWindowID
 }
 export type UpdateNowPayload = {readonly payload: _UpdateNowPayload; readonly type: typeof updateNow}
+export type UpdateWindowStatePayload = {
+  readonly payload: _UpdateWindowStatePayload
+  readonly type: typeof updateWindowState
+}
 
 // All Actions
 // prettier-ignore
 export type Actions =
+  | AndroidSharePayload
   | BootstrapStatusLoadedPayload
   | ChangedActivePayload
   | ChangedFocusPayload
@@ -454,12 +628,12 @@ export type Actions =
   | FollowerInfoUpdatedPayload
   | GlobalErrorPayload
   | InstallerRanPayload
-  | LinkPayload
-  | LoadAvatarsPayload
-  | LoadTeamAvatarsPayload
-  | LoadedAvatarsPayload
+  | LoadOnLoginStartupPayload
+  | LoadOnStartPayload
+  | LoadedOnLoginStartupPayload
   | LoggedInPayload
   | LoggedOutPayload
+  | LogoutAndTryToLogInAsPayload
   | LogoutHandshakePayload
   | LogoutHandshakeWaitPayload
   | LogoutPayload
@@ -469,17 +643,30 @@ export type Actions =
   | OsNetworkStatusChangedPayload
   | PersistRoutePayload
   | PushLoadedPayload
+  | RemoteWindowWantsPropsPayload
   | RestartHandshakePayload
   | SetAccountsPayload
+  | SetDarkModePreferencePayload
+  | SetDefaultUsernamePayload
   | SetDeletedSelfPayload
+  | SetIncomingShareUseOriginalPayload
   | SetNavigatorPayload
   | SetNotifySoundPayload
   | SetOpenAtLoginPayload
   | SetStartupDetailsPayload
+  | SetStartupFilePayload
+  | SetSystemDarkModePayload
+  | SetUseNativeFramePayload
+  | SetUserSwitchingPayload
+  | SetWhatsNewLastSeenVersionPayload
   | ShowMainPayload
+  | ShowShareActionSheetPayload
   | StartHandshakePayload
+  | ToggleRuntimeStatsPayload
   | UpdateCriticalCheckStatusPayload
+  | UpdateHTTPSrvInfoPayload
   | UpdateInfoPayload
   | UpdateMenubarWindowIDPayload
   | UpdateNowPayload
+  | UpdateWindowStatePayload
   | {type: 'common:resetStore', payload: {}}

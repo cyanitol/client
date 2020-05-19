@@ -99,6 +99,57 @@
       "response": null,
       "oneway": true,
       "lint": "ignore"
+    },
+    "FSSubscriptionNotifyPath": {
+      "request": [
+        {
+          "name": "clientID",
+          "type": "string"
+        },
+        {
+          "name": "subscriptionIDs",
+          "type": {
+            "type": "array",
+            "items": "string"
+          }
+        },
+        {
+          "name": "path",
+          "type": "string"
+        },
+        {
+          "name": "topics",
+          "type": {
+            "type": "array",
+            "items": "PathSubscriptionTopic"
+          }
+        }
+      ],
+      "response": null,
+      "oneway": true,
+      "lint": "ignore"
+    },
+    "FSSubscriptionNotify": {
+      "request": [
+        {
+          "name": "clientID",
+          "type": "string"
+        },
+        {
+          "name": "subscriptionIDs",
+          "type": {
+            "type": "array",
+            "items": "string"
+          }
+        },
+        {
+          "name": "topic",
+          "type": "SubscriptionTopic"
+        }
+      ],
+      "response": null,
+      "oneway": true,
+      "lint": "ignore"
     }
   },
   "namespace": "keybase.1"

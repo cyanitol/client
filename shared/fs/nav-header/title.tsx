@@ -5,11 +5,11 @@ import * as Kb from '../../common-adapters'
 import * as Kbfs from '../common'
 import * as Styles from '../../styles'
 import {memoize} from '../../util/memoize'
-import flags from '../../util/feature-flags'
+import * as Container from '../../util/container'
 
 type Props = {
   path: Types.Path
-  onOpenPath: (path: Types.Path) => void
+  inDestinationPicker?: boolean
 }
 
 // /keybase/b/c => [/keybase, /keybase/b, /keybase/b/c]
@@ -23,12 +23,23 @@ const getAncestors = memoize(path =>
         ])
 )
 
-const withAncestors = f => ({path, ...rest}) => f({ancestors: getAncestors(path), ...rest})
+const _Breadcrumb = (props: Props & Kb.OverlayParentProps) => {
+  const ancestors = getAncestors(props.path || Constants.defaultPath)
 
-const Breadcrumb = Kb.OverlayParentHOC(
-  withAncestors(props => (
+  const dispatch = Container.useDispatch()
+  const nav = Container.useSafeNavigation()
+  const onOpenPath = (path: Types.Path) =>
+    props.inDestinationPicker
+      ? Constants.makeActionsForDestinationPickerOpen(
+          0,
+          path,
+          nav.safeNavigateAppendPayload
+        ).forEach(action => dispatch(action))
+      : dispatch(nav.safeNavigateAppendPayload({path: [{props: {path}, selected: 'fsRoot'}]}))
+
+  return (
     <Kb.Box2 direction="horizontal" fullWidth={true}>
-      {props.ancestors.length > 2 && (
+      {ancestors.length > 2 && (
         <React.Fragment key="dropdown">
           <Kb.Text
             key="dots"
@@ -43,15 +54,15 @@ const Breadcrumb = Kb.OverlayParentHOC(
             attachTo={props.getAttachmentRef}
             visible={props.showingMenu}
             onHidden={props.toggleShowingMenu}
-            items={props.ancestors
+            items={ancestors
               .slice(0, -2)
               .reverse()
               .map(path => ({
-                onClick: () => props.onOpenPath(path),
+                onClick: () => onOpenPath(path),
                 title: Types.getPathName(path),
                 view: (
                   <Kb.Box2 direction="horizontal" gap="tiny" fullWidth={true}>
-                    <Kbfs.PathItemIcon path={path} size={16} />
+                    <Kbfs.ItemIcon path={path} size={16} />
                     <Kb.Text type="Body" lineClamp={1}>
                       {Types.getPathName(path)}
                     </Kb.Text>
@@ -63,7 +74,7 @@ const Breadcrumb = Kb.OverlayParentHOC(
           />
         </React.Fragment>
       )}
-      {props.ancestors.slice(-2).map(path => (
+      {ancestors.slice(-2).map(path => (
         <React.Fragment key={`text-${path}`}>
           <Kb.Text key={`slash-${Types.pathToString(path)}`} type="BodyTiny" style={styles.slash}>
             /
@@ -71,7 +82,7 @@ const Breadcrumb = Kb.OverlayParentHOC(
           <Kb.Text
             key={`name-${Types.pathToString(path)}`}
             type="BodyTinyLink"
-            onClick={() => props.onOpenPath(path)}
+            onClick={() => onOpenPath(path)}
           >
             {Types.getPathName(path)}
           </Kb.Text>
@@ -81,8 +92,9 @@ const Breadcrumb = Kb.OverlayParentHOC(
         /
       </Kb.Text>
     </Kb.Box2>
-  ))
-)
+  )
+}
+const Breadcrumb = Kb.OverlayParentHOC(_Breadcrumb)
 
 const MaybePublicTag = ({path}: {path: Types.Path}) =>
   Constants.hasPublicTag(path) ? (
@@ -93,7 +105,7 @@ const MaybePublicTag = ({path}: {path: Types.Path}) =>
 
 const MainTitle = (props: Props) => (
   <Kb.Box2 direction="horizontal" fullWidth={true} alignItems="center" gap="tiny">
-    {flags.kbfsOfflineMode && Types.getPathLevel(props.path) > 2 && <Kbfs.SyncStatus path={props.path} />}
+    <Kbfs.PathStatusIcon path={props.path} />
     <Kbfs.Filename path={props.path} selectable={true} style={styles.mainTitleText} type="Header" />
     <MaybePublicTag path={props.path} />
   </Kb.Box2>
@@ -112,31 +124,35 @@ const FsNavHeaderTitle = (props: Props) =>
   )
 export default FsNavHeaderTitle
 
-const styles = Styles.styleSheetCreate({
-  container: Styles.platformStyles({
-    common: {
-      marginTop: -Styles.globalMargins.tiny,
-      paddingLeft: Styles.globalMargins.xsmall,
-    },
-    isElectron: Styles.desktopStyles.windowDraggingClickable,
-  }),
-  dropdown: {
-    marginLeft: -Styles.globalMargins.tiny, // the icon has padding, so offset it to align with the name below
-  },
-  floating: Styles.platformStyles({
-    isElectron: {
-      width: 196,
-    },
-  }),
-  icon: {
-    padding: Styles.globalMargins.tiny,
-  },
-  mainTitleText: Styles.platformStyles({isElectron: Styles.desktopStyles.windowDraggingClickable}),
-  rootTitle: {
-    marginLeft: Styles.globalMargins.xsmall,
-  },
-  slash: {
-    paddingLeft: Styles.globalMargins.xxtiny,
-    paddingRight: Styles.globalMargins.xxtiny,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: Styles.platformStyles({
+        common: {
+          marginTop: -Styles.globalMargins.tiny,
+          paddingLeft: Styles.globalMargins.xsmall,
+        },
+        isElectron: Styles.desktopStyles.windowDraggingClickable,
+      }),
+      dropdown: {
+        marginLeft: -Styles.globalMargins.tiny, // the icon has padding, so offset it to align with the name below
+      },
+      floating: Styles.platformStyles({
+        isElectron: {
+          width: 196,
+        },
+      }),
+      icon: {
+        padding: Styles.globalMargins.tiny,
+      },
+      mainTitleText: Styles.platformStyles({isElectron: Styles.desktopStyles.windowDraggingClickable}),
+      rootTitle: {
+        alignSelf: 'center',
+        marginLeft: Styles.globalMargins.xsmall,
+      },
+      slash: {
+        paddingLeft: Styles.globalMargins.xxtiny,
+        paddingRight: Styles.globalMargins.xxtiny,
+      },
+    } as const)
+)

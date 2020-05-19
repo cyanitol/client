@@ -1,71 +1,90 @@
 import * as Constants from '../../../constants/tracker2'
-import * as ChatConstants from '../../../constants/chat2'
+import * as BotsGen from '../../../actions/bots-gen'
+import * as Container from '../../../util/container'
 import * as Kb from '../../../common-adapters'
 import * as React from 'react'
 import * as Styles from '../../../styles'
 import * as Types from '../../../constants/types/tracker2'
 import FollowButton from './follow-button'
+import ChatButton from '../../../chat/chat-button'
 
 type Props = {
   followThem: boolean
   followsYou: boolean
   blocked: boolean
+  hidFromFollowers: boolean
+  isBot: boolean
   onAccept: () => void
   onAddToTeam: () => void
   onBrowsePublicFolder: () => void
-  onChat: () => void
-  onEditProfile: (() => void) | null
+  onEditProfile?: () => void
   onFollow: () => void
   onIgnoreFor24Hours: () => void
+  onInstallBot: () => void
   onOpenPrivateFolder: () => void
   onReload: () => void
   onRequestLumens: () => void
   onSendLumens: () => void
   onUnfollow: () => void
-  onBlock: () => void
-  onUnblock: () => void
+  onManageBlocking: () => void
   state: Types.DetailsState
+  username: string
 }
 
 type DropdownProps = Pick<
   Props,
+  | 'isBot'
   | 'onAddToTeam'
   | 'onOpenPrivateFolder'
   | 'onBrowsePublicFolder'
+  | 'onInstallBot'
   | 'onSendLumens'
   | 'onRequestLumens'
-  | 'onBlock'
-  | 'onUnblock'
-  | 'blocked'
-> & {onUnfollow?: () => void}
+  | 'onManageBlocking'
+> & {
+  blockedOrHidFromFollowers: boolean
+  onUnfollow?: () => void
+}
 
 const Actions = (p: Props) => {
+  const dispatch = Container.useDispatch()
+  // load featured bots on first render
+  React.useEffect(() => {
+    dispatch(BotsGen.createGetFeaturedBots({}))
+  }, [dispatch])
+  if (p.blocked) {
+    return (
+      <Kb.Box2 gap="tiny" centerChildren={true} direction="horizontal" fullWidth={true}>
+        <Kb.Button
+          key="Manage blocking"
+          mode="Secondary"
+          type="Danger"
+          label="Manage blocking"
+          onClick={p.onManageBlocking}
+        />
+      </Kb.Box2>
+    )
+  }
+
   let buttons: Array<React.ReactNode> = []
 
   const dropdown = (
     <DropdownButton
+      blockedOrHidFromFollowers={p.blocked || p.hidFromFollowers}
       key="dropdown"
+      isBot={p.isBot}
       onAddToTeam={p.onAddToTeam}
       onOpenPrivateFolder={p.onOpenPrivateFolder}
       onBrowsePublicFolder={p.onBrowsePublicFolder}
+      onInstallBot={p.onInstallBot}
       onSendLumens={p.onSendLumens}
       onRequestLumens={p.onRequestLumens}
-      onBlock={p.onBlock}
-      onUnblock={p.onUnblock}
-      blocked={p.blocked}
+      onUnfollow={p.followThem && p.state !== 'valid' ? p.onUnfollow : undefined}
+      onManageBlocking={p.onManageBlocking}
     />
   )
 
-  const chatButton = (
-    <Kb.WaitingButton
-      key="Chat"
-      label="Chat"
-      waitingKey={ChatConstants.waitingKeyCreating}
-      onClick={p.onChat}
-    >
-      <Kb.Icon type="iconfont-chat" color={Styles.globalColors.white} style={styles.chatIcon} />
-    </Kb.WaitingButton>
-  )
+  const chatButton = <ChatButton key="Chat" username={p.username} />
 
   if (p.state === 'notAUserYet') {
     buttons = [
@@ -81,12 +100,24 @@ const Actions = (p: Props) => {
     if (p.state === 'valid') {
       buttons = [
         <FollowButton
-          key="unfollow"
+          key="Unfollow"
           following={true}
           onUnfollow={p.onUnfollow}
           waitingKey={Constants.waitingKey}
         />,
         chatButton,
+        dropdown,
+      ]
+    } else if (p.state === 'needsUpgrade') {
+      buttons = [
+        chatButton,
+        <Kb.WaitingButton
+          key="Accept"
+          type="Success"
+          label="Accept"
+          waitingKey={Constants.waitingKey}
+          onClick={p.onAccept}
+        />,
         dropdown,
       ]
     } else {
@@ -98,8 +129,8 @@ const Actions = (p: Props) => {
           onClick={p.onReload}
         />,
         <Kb.WaitingButton
-          type="Success"
           key="Accept"
+          type="Success"
           label="Accept"
           waitingKey={Constants.waitingKey}
           onClick={p.onAccept}
@@ -122,7 +153,7 @@ const Actions = (p: Props) => {
     } else {
       buttons = [
         <FollowButton
-          key="follow"
+          key="Follow"
           following={false}
           followsYou={p.followsYou}
           onFollow={p.onFollow}
@@ -142,18 +173,23 @@ const Actions = (p: Props) => {
 }
 
 const DropdownButton = Kb.OverlayParentHOC((p: Kb.PropsWithOverlay<DropdownProps>) => {
-  const items = [
-    {onClick: p.onAddToTeam, title: 'Add to team...'},
-    {newTag: true, onClick: p.onSendLumens, title: 'Send Lumens (XLM)'},
-    {newTag: true, onClick: p.onRequestLumens, title: 'Request Lumens (XLM)'},
-    {onClick: p.onOpenPrivateFolder, title: 'Open private folder'},
-    {onClick: p.onBrowsePublicFolder, title: 'Browse public folder'},
-    p.onUnfollow && {onClick: p.onUnfollow && p.onUnfollow, style: {borderTopWidth: 0}, title: 'Unfollow'},
-    p.blocked
-      ? {danger: true, onClick: p.onUnblock, title: 'Unblock'}
-      : {danger: true, onClick: p.onBlock, title: 'Block'},
+  const items: Kb.MenuItems = [
+    p.isBot
+      ? {icon: 'iconfont-nav-2-robot', onClick: p.onInstallBot, title: 'Install bot in team or chat'}
+      : {icon: 'iconfont-people', onClick: p.onAddToTeam, title: 'Add to team...'},
+    {icon: 'iconfont-stellar-send', onClick: p.onSendLumens, title: 'Send Lumens (XLM)'},
+    {icon: 'iconfont-stellar-request', onClick: p.onRequestLumens, title: 'Request Lumens (XLM)'},
+    {icon: 'iconfont-folder-open', onClick: p.onOpenPrivateFolder, title: 'Open private folder'},
+    {icon: 'iconfont-folder-public', onClick: p.onBrowsePublicFolder, title: 'Browse public folder'},
+    p.onUnfollow && {icon: 'iconfont-wave', onClick: p.onUnfollow && p.onUnfollow, title: 'Unfollow'},
+    {
+      danger: true,
+      icon: 'iconfont-remove',
+      onClick: p.onManageBlocking,
+      title: p.blockedOrHidFromFollowers ? 'Manage blocking' : 'Block',
+    },
   ].reduce<Kb.MenuItems>((arr, i) => {
-    i && arr.push(i)
+    i && arr.push(i as Kb.MenuItem)
     return arr
   }, [])
 
@@ -176,9 +212,9 @@ const DropdownButton = Kb.OverlayParentHOC((p: Kb.PropsWithOverlay<DropdownProps
   )
 })
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   chatIcon: {marginRight: Styles.globalMargins.tiny},
   dropdownButton: {minWidth: undefined},
-})
+}))
 
 export default Actions

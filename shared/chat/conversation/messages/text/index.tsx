@@ -3,13 +3,15 @@ import * as Types from '../../../../constants/types/chat2'
 import * as Constants from '../../../../constants/chat2'
 import * as Kb from '../../../../common-adapters'
 import * as Styles from '../../../../styles'
+import {useMemo} from '../../../../util/memoize'
 
-type ReplyProps = {
+export type ReplyProps = {
   deleted: boolean
   edited: boolean
   imageHeight?: number
   imageURL?: string
   imageWidth?: number
+  isParentHighlighted?: boolean
   onClick: () => void
   text: string
   username: string
@@ -34,8 +36,14 @@ const Reply = (props: ReplyProps) => {
         <Kb.Box2 direction="vertical" gap="xtiny" style={styles.replyContentContainer}>
           <Kb.Box2 direction="horizontal" fullWidth={true}>
             <Kb.Box2 direction="horizontal" gap="xtiny" fullWidth={true}>
-              <Kb.Avatar username={props.username} size={32} />
-              <Kb.Text type="BodySemibold" style={styles.replyUsername}>
+              <Kb.Avatar username={props.username} size={16} />
+              <Kb.Text
+                type="BodySmallBold"
+                style={Styles.collapseStyles([
+                  styles.replyUsername,
+                  props.isParentHighlighted && styles.replyUsernameHighlighted,
+                ])}
+              >
                 {props.username}
               </Kb.Text>
             </Kb.Box2>
@@ -55,10 +63,16 @@ const Reply = (props: ReplyProps) => {
             )}
             <Kb.Box2 direction="horizontal" style={styles.replyTextContainer}>
               {!props.deleted ? (
-                <Kb.Text type="BodySmall">{props.text}</Kb.Text>
+                <Kb.Text
+                  type="BodySmall"
+                  style={Styles.collapseStyles([props.isParentHighlighted && styles.textHighlighted])}
+                  lineClamp={3}
+                >
+                  {props.text}
+                </Kb.Text>
               ) : (
                 <Kb.Text type="BodyTiny" style={styles.replyEdited}>
-                  Original message deleted
+                  The original message was deleted.
                 </Kb.Text>
               )}
             </Kb.Box2>
@@ -74,8 +88,29 @@ const Reply = (props: ReplyProps) => {
   )
 }
 
+export type ClaimProps = {
+  amount: string
+  label: string
+  onClaim: () => void
+}
+
+const Claim = (props: ClaimProps) => {
+  return (
+    <Kb.Button type="Wallet" onClick={props.onClaim} small={true} style={styles.claimButton}>
+      <Kb.Text style={styles.claimLabel} type="BodySemibold">
+        {props.label}{' '}
+        <Kb.Text style={styles.claimLabel} type="BodyExtrabold">
+          {props.amount}
+        </Kb.Text>
+      </Kb.Text>
+    </Kb.Button>
+  )
+}
+
 export type Props = {
+  claim?: ClaimProps
   isEditing: boolean
+  isHighlighted?: boolean
   // eslint-disable-next-line
   message: Types.MessageText
   reply?: ReplyProps
@@ -83,12 +118,13 @@ export type Props = {
   type: 'error' | 'pending' | 'sent'
 }
 
-const MessageText = ({isEditing, message, reply, text, type}: Props) => {
+const MessageText = ({claim, isEditing, isHighlighted, message, reply, text, type}: Props) => {
+  const wrappedMeta = useMemo(() => ({message}), [message])
   const markdown = (
     <Kb.Markdown
-      style={getStyle(type, isEditing)}
-      meta={{message}}
-      styleOverride={Styles.isMobile ? {paragraph: getStyle(type, isEditing)} : undefined}
+      style={getStyle(type, isEditing, isHighlighted)}
+      meta={wrappedMeta}
+      styleOverride={Styles.isMobile ? {paragraph: getStyle(type, isEditing, isHighlighted)} : undefined}
       allowFontScaling={true}
     >
       {text}
@@ -96,8 +132,9 @@ const MessageText = ({isEditing, message, reply, text, type}: Props) => {
   )
   const content = (
     <Kb.Box2 direction="vertical" gap="tiny" fullWidth={true}>
-      {!!reply && <Reply {...reply} />}
+      {!!reply && <Reply {...reply} isParentHighlighted={isHighlighted} />}
       {markdown}
+      {!!claim && <Claim {...claim} />}
     </Kb.Box2>
   )
 
@@ -111,8 +148,10 @@ const MessageText = ({isEditing, message, reply, text, type}: Props) => {
 }
 
 // Encoding all 4 states as static objects so we don't re-render
-const getStyle = (type, isEditing) => {
-  if (type === 'sent') {
+const getStyle = (type: Props['type'], isEditing: boolean, isHighlighted?: boolean) => {
+  if (isHighlighted) {
+    return Styles.collapseStyles([styles.sent, styles.highlighted])
+  } else if (type === 'sent') {
     return isEditing ? styles.sentEditing : styles.sent
   } else {
     return isEditing ? styles.pendingFailEditing : styles.pendingFail
@@ -122,6 +161,7 @@ const getStyle = (type, isEditing) => {
 const editing = {
   backgroundColor: Styles.globalColors.yellowLight,
   borderRadius: 2,
+  color: Styles.globalColors.blackOrBlack,
   paddingLeft: Styles.globalMargins.tiny,
   paddingRight: Styles.globalMargins.tiny,
 }
@@ -133,7 +173,7 @@ const sent = Styles.platformStyles({
     whiteSpace: 'pre-wrap',
     width: '100%',
     wordBreak: 'break-word',
-  },
+  } as const,
   isMobile: {
     ...Styles.globalStyles.flexBoxColumn,
   },
@@ -149,50 +189,69 @@ const pendingFailEditing = {
   ...pendingFail,
   ...editing,
 }
-const styles = Styles.styleSheetCreate({
-  editing,
-  pendingFail,
-  pendingFailEditing,
-  quoteContainer: {
-    alignSelf: 'stretch',
-    backgroundColor: Styles.globalColors.greyLight,
-    paddingLeft: Styles.globalMargins.xtiny,
-  },
-  replyContainer: {
-    paddingTop: Styles.globalMargins.xtiny,
-  },
-  replyContentContainer: {
-    flex: 1,
-  },
-  replyEdited: {
-    color: Styles.globalColors.black_20,
-  },
-  replyImageContainer: {
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  replyProgress: {
-    bottom: '50%',
-    left: '50%',
-    marginBottom: -12,
-    marginLeft: -12,
-    marginRight: -12,
-    marginTop: -12,
-    position: 'absolute',
-    right: '50%',
-    top: '50%',
-    width: 24,
-  },
-  replyTextContainer: {
-    alignSelf: 'flex-start',
-    flex: 1,
-  },
-  replyUsername: {
-    alignSelf: 'center',
-  },
-  sent,
-  sentEditing,
-  wrapper: {alignSelf: 'flex-start', flex: 1},
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      claimButton: {
+        alignSelf: 'flex-start',
+        marginTop: Styles.globalMargins.xtiny,
+      },
+      claimLabel: {
+        color: Styles.globalColors.white,
+      },
+      editing,
+      highlighted: {
+        color: Styles.globalColors.blackOrBlack,
+      },
+      pendingFail,
+      pendingFailEditing,
+      quoteContainer: {
+        alignSelf: 'stretch',
+        backgroundColor: Styles.globalColors.grey,
+        paddingLeft: Styles.globalMargins.xtiny,
+      },
+      replyContainer: {
+        paddingTop: Styles.globalMargins.xtiny,
+      },
+      replyContentContainer: {
+        flex: 1,
+      },
+      replyEdited: {
+        color: Styles.globalColors.black_35,
+      },
+      replyImageContainer: {
+        overflow: 'hidden',
+        position: 'relative',
+      },
+      replyProgress: {
+        bottom: '50%',
+        left: '50%',
+        marginBottom: -12,
+        marginLeft: -12,
+        marginRight: -12,
+        marginTop: -12,
+        position: 'absolute',
+        right: '50%',
+        top: '50%',
+        width: 24,
+      },
+      replyTextContainer: {
+        alignSelf: 'flex-start',
+        flex: 1,
+      },
+      replyUsername: {
+        alignSelf: 'center',
+      },
+      replyUsernameHighlighted: {
+        color: Styles.globalColors.blackOrBlack,
+      },
+      sent,
+      sentEditing,
+      textHighlighted: {
+        color: Styles.globalColors.black_50OrBlack_50,
+      },
+      wrapper: {alignSelf: 'flex-start', flex: 1},
+    } as const)
+)
 
 export default MessageText

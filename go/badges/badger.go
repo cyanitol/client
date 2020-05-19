@@ -37,19 +37,18 @@ type Badger struct {
 	iboxVersSource InboxVersionSource
 	notifyCh       chan keybase1.BadgeState
 	shutdownCh     chan struct{}
-	running        bool
 }
 
 func NewBadger(g *libkb.GlobalContext) *Badger {
 	b := &Badger{
 		Contextified:   libkb.NewContextified(g),
-		badgeState:     NewBadgeState(g),
+		badgeState:     NewBadgeState(g.Log, g.Env),
 		iboxVersSource: nullInboxVersionSource{},
 		notifyCh:       make(chan keybase1.BadgeState, 1000),
 		shutdownCh:     make(chan struct{}),
 	}
 	go b.notifyLoop()
-	g.PushShutdownHook(func() error {
+	g.PushShutdownHook(func(mctx libkb.MetaContext) error {
 		close(b.shutdownCh)
 		return nil
 	})
@@ -87,7 +86,7 @@ func (b *Badger) PushState(ctx context.Context, state gregor.State) {
 
 func (b *Badger) PushChatUpdate(ctx context.Context, update chat1.UnreadUpdate, inboxVers chat1.InboxVers) {
 	b.G().Log.CDebugf(ctx, "Badger update with chat update")
-	b.badgeState.UpdateWithChat(ctx, update, inboxVers)
+	b.badgeState.UpdateWithChat(ctx, update, inboxVers, b.G().IsMobileAppType())
 	if err := b.Send(ctx); err != nil {
 		b.G().Log.CDebugf(ctx, "Badger send (PushChatUpdate) failed: %v", err)
 	}
@@ -95,20 +94,10 @@ func (b *Badger) PushChatUpdate(ctx context.Context, update chat1.UnreadUpdate, 
 
 func (b *Badger) PushChatFullUpdate(ctx context.Context, update chat1.UnreadUpdateFull) {
 	b.G().Log.CDebugf(ctx, "Badger update with chat full update")
-	b.badgeState.UpdateWithChatFull(ctx, update)
+	b.badgeState.UpdateWithChatFull(ctx, update, b.G().IsMobileAppType())
 	if err := b.Send(ctx); err != nil {
 		b.G().Log.CDebugf(ctx, "Badger send (PushChatFullUpdate) failed: %v", err)
 	}
-}
-
-func (b *Badger) inboxVersion(ctx context.Context) chat1.InboxVers {
-	uid := b.G().Env.GetUID()
-	vers, err := b.iboxVersSource.GetInboxVersion(ctx, uid.ToBytes())
-	if err != nil {
-		b.G().Log.CDebugf(ctx, "Badger: inboxVersion error: %s", err.Error())
-		return chat1.InboxVers(0)
-	}
-	return vers
 }
 
 func (b *Badger) GetInboxVersionForTest(ctx context.Context) (chat1.InboxVers, error) {
@@ -151,11 +140,10 @@ func (b *Badger) State() *BadgeState {
 
 // Log a copy of the badgestate with some zeros stripped off for brevity.
 func (b *Badger) log(ctx context.Context, state1 keybase1.BadgeState) {
-	var state2 keybase1.BadgeState
-	state2 = state1
+	state2 := state1
 	state2.Conversations = nil
-	for _, c1 := range state1.Conversations {
-		if c1.UnreadMessages == 0 {
+	for index, c1 := range state1.Conversations {
+		if c1.IsEmpty() {
 			continue
 		}
 		c2id := c1.ConvID
@@ -168,9 +156,13 @@ func (b *Badger) log(ctx context.Context, state1 keybase1.BadgeState) {
 		c2 := keybase1.BadgeConversationInfo{
 			ConvID:         c2id,
 			UnreadMessages: c1.UnreadMessages,
-			BadgeCounts:    c1.BadgeCounts,
+			BadgeCount:     c1.BadgeCount,
 		}
 		state2.Conversations = append(state2.Conversations, c2)
+		if index >= 50 {
+			b.G().Log.CDebugf(ctx, "Badger send: cutting off debug, too many convs")
+			break
+		}
 	}
 	b.G().Log.CDebugf(ctx, "Badger send: %+v", state2)
 }

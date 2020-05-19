@@ -1,172 +1,111 @@
 import * as React from 'react'
 import * as Types from '../../../constants/types/teams'
-import * as RPCTypes from '../../../constants/types/rpc-gen'
-import {
-  iconCastPlatformStyles,
-  Badge,
-  Box,
-  Icon,
-  ProgressIndicator,
-  Tabs,
-  Text,
-} from '../../../common-adapters'
-import {
-  globalColors,
-  globalMargins,
-  globalStyles,
-  isMobile,
-  platformStyles,
-  styleSheetCreate,
-} from '../../../styles'
+import * as Kb from '../../../common-adapters'
+import flags from '../../../util/feature-flags'
+import * as Styles from '../../../styles'
+import {Tab as TabType} from '../../../common-adapters/tabs'
 
 type TeamTabsProps = {
   admin: boolean
-  memberCount: number
-  teamname: Types.Teamname
-  newTeamRequests: Array<Types.Teamname>
+  error?: string
+  isBig: boolean
+  loading: boolean
+  newRequests: number
   numInvites: number
   numRequests: number
   numSubteams: number
   resetUserCount: number
-  loading: boolean
-  selectedTab?: string
+  selectedTab?: Types.TabKey
   setSelectedTab: (arg0: Types.TabKey) => void
-  yourOperations: RPCTypes.TeamOperation
+  showSubteams: boolean
 }
-
-const TabText = ({selected, text}: {selected: boolean; text: string}) => (
-  <Text type="BodySmallSemibold" style={selected ? styles.tabTextSelected : styles.tabText}>
-    {text}
-  </Text>
-)
 
 const TeamTabs = (props: TeamTabsProps) => {
-  const tabs = [
-    <Box key="members" style={styles.tabTextContainer}>
-      <TabText selected={props.selectedTab === 'members'} text={`Members (${props.memberCount})`} />
-      {!!props.resetUserCount && <Badge badgeNumber={props.resetUserCount} badgeStyle={styles.badge} />}
-    </Box>,
+  const tabs: Array<TabType<Types.TabKey>> = [
+    {badgeNumber: props.resetUserCount, title: 'members' as const},
+    ...(!props.isBig ? [{title: 'emoji' as const}] : []),
+    ...(flags.teamsRedesign && (props.isBig || props.admin) ? [{title: 'channels' as const}] : []),
+    ...(props.isBig ? [{title: 'emoji' as const}] : []),
+    {icon: Styles.isPhone ? 'iconfont-gear' : undefined, title: 'settings' as const},
+    ...(props.admin && !flags.teamsRedesign
+      ? [
+          {
+            badgeNumber: Math.min(props.newRequests, props.numRequests),
+            text: `Invites (${props.numInvites + props.numRequests})`,
+            title: 'invites' as const,
+          },
+        ]
+      : []),
+    // TODO: should we not show bots if there are no bots and you have no permissions?
+    {title: 'bots' as const},
+    ...(props.numSubteams > 0 || props.showSubteams ? [{title: 'subteams' as const}] : []),
   ]
 
-  let requestsBadge = 0
-  if (props.newTeamRequests.length) {
-    // Use min here so we never show a badge number > the (X) number of requests we have
-    requestsBadge = Math.min(
-      props.newTeamRequests.reduce((count, team) => (team === props.teamname ? count + 1 : count), 0),
-      props.numRequests
-    )
-  }
-
-  if (props.admin) {
-    tabs.push(
-      <Box key="invites" style={styles.tabTextContainer}>
-        <TabText
-          selected={props.selectedTab === 'invites'}
-          text={`Invites (${props.numInvites + props.numRequests})`}
-        />
-        {!!requestsBadge && <Badge badgeNumber={requestsBadge} badgeStyle={styles.badge} />}
-      </Box>
-    )
-  }
-
-  if (props.numSubteams > 0 || props.yourOperations.manageSubteams) {
-    tabs.push(
-      <TabText
-        key="subteams"
-        selected={props.selectedTab === 'subteams'}
-        text={`Subteams (${props.numSubteams})`}
-      />
-    )
-  }
-
-  tabs.push(
-    isMobile ? (
-      <Icon
-        key="settings"
-        type="iconfont-nav-settings"
-        style={iconCastPlatformStyles(props.selectedTab === 'settings' ? styles.iconSelected : styles.icon)}
-      />
-    ) : (
-      <TabText key="settings" selected={props.selectedTab === 'settings'} text={'Settings'} />
-    )
+  const tabContent = (
+    <Kb.Tabs
+      clickableBoxStyle={styles.clickableBox}
+      tabs={tabs}
+      selectedTab={props.selectedTab}
+      onSelect={props.setSelectedTab}
+      style={styles.tabContainer}
+      showProgressIndicator={!Styles.isMobile && props.loading && !flags.teamsRedesign}
+      tabStyle={styles.tab}
+    />
   )
-
-  if (!isMobile && props.loading) {
-    tabs.push(<ProgressIndicator style={styles.progressIndicator} />)
-  }
-
-  const onSelect = (tab: any) => {
-    const key = tab && tab.key
-    if (key) {
-      if (key !== 'loadingIndicator') {
-        props.setSelectedTab(key)
-      } else {
-        props.setSelectedTab('members')
-      }
-    }
-  }
-
-  const selected = tabs.find(tab => tab.key === props.selectedTab) || null
   return (
-    <Box style={styles.container}>
-      <Tabs
-        clickableBoxStyle={styles.clickableBox}
-        tabs={tabs}
-        selected={selected}
-        onSelect={onSelect}
-        style={styles.tabContainer}
-        tabStyle={styles.tab}
-      />
-    </Box>
+    <Kb.Box2 direction="vertical" fullWidth={true}>
+      <Kb.Box style={styles.container}>
+        {Styles.isMobile ? (
+          <Kb.ScrollView
+            horizontal={true}
+            contentContainerStyle={{minWidth: '100%'}}
+            alwaysBounceHorizontal={false}
+          >
+            {tabContent}
+          </Kb.ScrollView>
+        ) : (
+          tabContent
+        )}
+        {!Styles.isMobile && props.loading && flags.teamsRedesign && (
+          <Kb.ProgressIndicator style={styles.inlineProgressIndicator} />
+        )}
+      </Kb.Box>
+      {!!props.error && <Kb.Banner color="red">{props.error}</Kb.Banner>}
+    </Kb.Box2>
   )
 }
 
-const styles = styleSheetCreate({
-  badge: platformStyles({
-    isElectron: {
-      marginLeft: globalMargins.xtiny,
-    },
-    isMobile: {
-      marginLeft: 2,
-      marginTop: 1,
-    },
-  }),
-  clickableBox: platformStyles({
+const styles = Styles.styleSheetCreate(() => ({
+  clickableBox: Styles.platformStyles({
+    isElectron: flags.teamsRedesign ? {flex: 1} : {},
     isMobile: {
       flexGrow: 1,
     },
   }),
   container: {
-    backgroundColor: globalColors.white,
+    backgroundColor: Styles.globalColors.white,
   },
-  icon: {
-    alignSelf: 'center',
-  },
-  iconSelected: {
-    alignSelf: 'center',
-    color: globalColors.black,
-  },
-  progressIndicator: {
+  inlineProgressIndicator: {
     height: 17,
+    position: 'absolute',
+    right: Styles.globalMargins.small,
+    top: Styles.globalMargins.small,
     width: 17,
   },
-  tab: platformStyles({
+  tab: Styles.platformStyles({
+    isElectron: {
+      flexGrow: 1,
+    },
     isMobile: {
-      paddingLeft: globalMargins.tiny,
-      paddingRight: globalMargins.tiny,
+      paddingLeft: Styles.globalMargins.tiny,
+      paddingRight: Styles.globalMargins.tiny,
     },
   }),
   tabContainer: {
-    backgroundColor: globalColors.white,
+    backgroundColor: Styles.globalColors.white,
     flexBasis: '100%',
     marginTop: 0,
   },
-  tabText: {},
-  tabTextContainer: {
-    ...globalStyles.flexBoxRow,
-    justifyContent: 'center',
-  },
-  tabTextSelected: {color: globalColors.black},
-})
+}))
 
 export default TeamTabs

@@ -42,6 +42,15 @@ const load = () => {
         })}
       />
     ))
+    .add('Picker w/ Set Individually', () => state => (
+      <RolePicker
+        {...rolePickerProps({
+          includeSetIndividually: true,
+          selectedRole: 'owner',
+          ...state,
+        })}
+      />
+    ))
     .add('Picker - Disabled Owners', () => state => (
       <RolePicker
         {...rolePickerProps({
@@ -49,15 +58,6 @@ const load = () => {
             owner: 'Non-Keybase users can not be added as owners.',
           },
           onLetIn: Sb.action('Let in'),
-          ...state,
-        })}
-      />
-    ))
-    .add('Picker - Header text', () => state => (
-      <RolePicker
-        {...rolePickerProps({
-          headerText: 'Add them as:',
-          onCancel: Sb.action('cancel'),
           ...state,
         })}
       />
@@ -88,9 +88,9 @@ const load = () => {
       />
     ))
     .add('Picker as popup dropdown from button', () => (state, setState) => (
-      <Kb.Box2 direction="vertical" alignItems={'center'} style={{height: 600, justifyContent: 'flex-end'}}>
+      <Kb.Box2 direction="vertical" alignItems="center" style={{height: 600, justifyContent: 'flex-end'}}>
         <FloatingRolePicker
-          position={'top center'}
+          position="top center"
           open={state.opened}
           {...rolePickerProps({
             headerText: 'Add them as:',

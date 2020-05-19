@@ -2,20 +2,21 @@ import * as React from 'react'
 import * as Types from '../../../constants/types/teams'
 import * as Kb from '../../../common-adapters'
 import * as Styles from '../../../styles'
+import * as Container from '../../../util/container'
 import {FloatingRolePicker, roleIconMap} from '../../role-picker'
+import {useTeamDetailsSubscribe} from '../../subscriber'
 
 type RolePickerSpecificProps = {
   isRolePickerOpen: boolean
   onCancelRolePicker: () => void
   onConfirmRolePicker: (role: Types.TeamRoleType) => void
   onEditMembership: () => void
-  onSelectRole: (role: Types.TeamRoleType) => void
-  selectedRole: Types.TeamRoleType | null
 }
 
 export type MemberProps = {
   admin: boolean
   disabledReasonsForRolePicker: Types.DisabledReasonsForRolePicker
+  error: string
   follower: boolean
   following: boolean
   loading: boolean
@@ -23,6 +24,7 @@ export type MemberProps = {
     type: Types.TeamRoleType | null
     username: string
   }
+  teamID: Types.TeamID
   teamname: string
   you: {
     type: Types.TeamRoleType | null
@@ -32,15 +34,31 @@ export type MemberProps = {
   onChat: () => void
   onRemoveMember: () => void
   onBack: () => void
+  onBlur: () => void
 }
 
 export type Props = MemberProps & RolePickerSpecificProps
 
+const useCloseIfNoLongerInTeam = (type: Types.TeamRoleType | null) => {
+  const prevType = Container.usePrevious(type)
+  const dispatch = Container.useDispatch()
+  const nav = Container.useSafeNavigation()
+  React.useEffect(() => {
+    if (type === null && prevType !== null) {
+      dispatch(nav.safeNavigateUpPayload())
+    }
+  })
+}
+
 export const TeamMember = (props: Props) => {
-  const {user, you} = props
+  useTeamDetailsSubscribe(props.teamID)
+  Container.useFocusBlur(undefined, props.onBlur)
+  const {user, you, error} = props
   const iconType = user.type && roleIconMap[user.type]
+  useCloseIfNoLongerInTeam(user.type)
   return (
     <Kb.Box style={{...Styles.globalStyles.flexBoxColumn, alignItems: 'center', flex: 1}}>
+      {!!error && <Kb.Banner color="red">{error}</Kb.Banner>}
       <Kb.Box
         style={{
           ...Styles.globalStyles.flexBoxColumn,
@@ -90,10 +108,10 @@ export const TeamMember = (props: Props) => {
         >
           {props.loading && <Kb.ProgressIndicator style={{alignSelf: 'center', height: 20, width: 20}} />}
         </Kb.Box>
-        <Kb.Usernames
+        <Kb.ConnectedUsernames
           type="HeaderBig"
           colorFollowing={!(you && you.username === user.username)} // De-colorize if this is own member page
-          users={[{following: props.following, username: user.username}]}
+          usernames={user.username}
           onUsernameClicked={props.onOpenProfile}
         />
         <Kb.Text type="BodySmall">
@@ -107,18 +125,16 @@ export const TeamMember = (props: Props) => {
             style={{
               marginRight: 8,
             }}
-            color={Styles.globalColors.white}
+            color={Styles.globalColors.whiteOrWhite}
           />
         </Kb.Button>
-        {props.admin && (
+        {props.admin && user.type !== 'bot' && user.type !== 'restrictedbot' && (
           <FloatingRolePicker
-            selectedRole={props.selectedRole}
             presetRole={props.user.type}
-            onSelectRole={props.onSelectRole}
             floatingContainerStyle={styles.floatingRolePicker}
             onConfirm={props.onConfirmRolePicker}
             onCancel={props.onCancelRolePicker}
-            position={'top center'}
+            position="top center"
             open={props.isRolePickerOpen}
             disabledRoles={props.disabledReasonsForRolePicker}
           >
@@ -137,11 +153,11 @@ export const TeamMember = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   floatingRolePicker: Styles.platformStyles({
     isElectron: {
       bottom: -32,
       position: 'relative',
     },
   }),
-})
+}))

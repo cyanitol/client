@@ -1,6 +1,6 @@
 import * as React from 'react'
-import Download, {Props} from './download'
 import {NativeAnimated, NativeEasing} from '../../common-adapters/mobile.native'
+import {Props} from './download-wrapper'
 
 type State = {
   opacity: NativeAnimated.AnimatedValue
@@ -12,6 +12,7 @@ export default class DownloadNativeWrapper extends React.PureComponent<Props, St
     duration: 3000,
     easing: NativeEasing.linear,
     toValue: 0,
+    useNativeDriver: false,
   })
 
   _started = false
@@ -32,7 +33,7 @@ export default class DownloadNativeWrapper extends React.PureComponent<Props, St
   }
 
   _update = () => {
-    this.props.isFirst && this.props.isDone ? this._ensureStarted() : this._ensureStopped()
+    this.props.isFirst && this.props.done ? this._ensureStarted() : this._ensureStopped()
   }
 
   componentDidMount() {
@@ -46,10 +47,6 @@ export default class DownloadNativeWrapper extends React.PureComponent<Props, St
   }
 
   render() {
-    return (
-      <NativeAnimated.View style={{opacity: this._opacity}}>
-        <Download {...this.props} />
-      </NativeAnimated.View>
-    )
+    return <NativeAnimated.View style={{opacity: this._opacity}}>{this.props.children}</NativeAnimated.View>
   }
 }

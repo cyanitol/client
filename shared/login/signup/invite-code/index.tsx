@@ -17,7 +17,7 @@ type State = {
 
 class InviteCode extends React.Component<Props, State> {
   state = {inviteCode: '', loading: !__STORYSHOT__}
-  _loadingID: NodeJS.Timeout | undefined
+  _loadingID: ReturnType<typeof setInterval> | undefined
   _doneLoading = () => this.setState({loading: false})
 
   componentDidMount() {
@@ -40,7 +40,6 @@ class InviteCode extends React.Component<Props, State> {
         ) : (
           <>
             <Kb.Text type="Header">Type in your invite code:</Kb.Text>
-            <Kb.Icon type="icon-invite-code-48" />
             <Input
               autoFocus={true}
               value={this.state.inviteCode}
@@ -60,10 +59,13 @@ class InviteCode extends React.Component<Props, State> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  progress: {
-    width: 40,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      progress: {
+        width: 40,
+      },
+    } as const)
+)
 
 export default InviteCode

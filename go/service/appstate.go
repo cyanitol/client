@@ -25,12 +25,8 @@ func newAppStateHandler(xp rpc.Transporter, g *libkb.GlobalContext) *appStateHan
 	}
 }
 
-func (a *appStateHandler) Shutdown() {
-	a.G().DesktopAppState.Disconnected(a.xp)
-}
-
 func (a *appStateHandler) UpdateAppState(ctx context.Context, state keybase1.MobileAppState) (err error) {
-	a.G().Trace(fmt.Sprintf("UpdateAppState(%v)", state), func() error { return err })()
+	a.G().Trace(fmt.Sprintf("UpdateAppState(%v)", state), &err)()
 
 	// Update app state
 	a.G().MobileAppState.Update(state)

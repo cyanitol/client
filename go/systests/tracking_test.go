@@ -101,6 +101,10 @@ func (h *trackingNotifyHandler) TrackingInfo(context.Context, keybase1.TrackingI
 	return nil
 }
 
+func (h *trackingNotifyHandler) NotifyUserBlocked(context.Context, keybase1.UserBlockedSummary) error {
+	return nil
+}
+
 func TestTrackingNotifications(t *testing.T) {
 	tc := setupTest(t, "signup")
 	defer tc.Cleanup()
@@ -254,10 +258,7 @@ func TestV2Compressed(t *testing.T) {
 
 		cli2, err := client.GetUserClient(aliceG)
 		require.NoError(t, err)
-		_, err = cli2.ListTrackers2(ctx, keybase1.ListTrackers2Arg{
-			Assertion: username,
-			Reverse:   false,
-		})
+		_, err = cli2.ListTrackersUnverified(ctx, keybase1.ListTrackersUnverifiedArg{Assertion: username})
 		require.NoError(t, err)
 	}
 

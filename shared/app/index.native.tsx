@@ -1,21 +1,25 @@
 import * as ConfigGen from '../actions/config-gen'
+import * as DeeplinksGen from '../actions/deeplinks-gen'
 import Main from './main.native'
-import React, {Component} from 'react'
+import * as React from 'react'
 import configureStore from '../store/configure-store'
 import {AppRegistry, AppState, Linking} from 'react-native'
-import {GatewayProvider} from 'react-gateway'
+import {GatewayProvider} from '@chardskarth/react-gateway'
 import {Provider} from 'react-redux'
 import {makeEngine} from '../engine'
+import {SafeAreaProvider} from 'react-native-safe-area-context'
 
 module.hot &&
   module.hot.accept(() => {
     console.log('accepted update in shared/index.native')
   })
 
-let store
+let store: ReturnType<typeof configureStore>['store']
 
-class Keybase extends Component<any> {
-  constructor(props: any) {
+type Props = {}
+
+class Keybase extends React.Component<Props> {
+  constructor(props: Props) {
     super(props)
 
     if (!global.DEBUGLoaded) {
@@ -38,7 +42,7 @@ class Keybase extends Component<any> {
 
   componentDidMount() {
     Linking.addEventListener('url', this._handleOpenURL)
-    Linking.getInitialURL().then(event => event && event.url && this._handleOpenURL(event))
+    Linking.getInitialURL().then(url => url && this._handleOpenURL({url}))
   }
 
   componentWillUnmount() {
@@ -47,7 +51,7 @@ class Keybase extends Component<any> {
   }
 
   _handleOpenURL(event: {url: string}) {
-    store && store.dispatch(ConfigGen.createLink({link: event.url}))
+    store && store.dispatch(DeeplinksGen.createLink({link: event.url}))
   }
 
   _handleAppStateChange = (nextAppState: 'active' | 'background' | 'inactive') => {
@@ -58,7 +62,9 @@ class Keybase extends Component<any> {
     return (
       <Provider store={store}>
         <GatewayProvider>
-          <Main />
+          <SafeAreaProvider>
+            <Main />
+          </SafeAreaProvider>
         </GatewayProvider>
       </Provider>
     )

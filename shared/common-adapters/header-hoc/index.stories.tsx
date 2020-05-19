@@ -1,8 +1,8 @@
 import * as React from 'react'
 import * as Sb from '../../stories/storybook'
-import * as Kb from '../'
+import * as Kb from '..'
 import {HeaderHocHeader} from '.'
-import {Action} from './types'
+import {Action} from '.'
 
 const onAction = Sb.action('onAction')
 const rightActions = (length: number = 3): Action[] =>
@@ -33,7 +33,7 @@ const rightActions = (length: number = 3): Action[] =>
       onPress: onAction,
     },
     {
-      icon: 'iconfont-time-reversed' as 'iconfont-time-reversed',
+      icon: 'iconfont-film' as 'iconfont-film',
       label: 'Movie trope',
       onPress: onAction,
     },

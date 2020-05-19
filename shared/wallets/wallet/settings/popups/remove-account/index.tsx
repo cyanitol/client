@@ -33,7 +33,7 @@ const RemoveAccountPopup = (props: Props) => {
       <Kb.Box2 centerChildren={true} direction="vertical" style={styles.flexOne} fullWidth={true}>
         <Kb.Icon
           type={Styles.isMobile ? 'icon-wallet-remove-64' : 'icon-wallet-remove-48'}
-          style={Kb.iconCastPlatformStyles(styles.icon)}
+          style={styles.icon}
         />
         <Kb.Text center={true} style={styles.warningText} type="Header">
           This removes{' '}
@@ -56,7 +56,7 @@ const RemoveAccountPopup = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   flexOne: {flex: 1},
   header: {borderBottomWidth: 0},
   icon: Styles.platformStyles({
@@ -69,12 +69,12 @@ const styles = Styles.styleSheetCreate({
     backgroundColor: Styles.globalColors.fastBlank,
   },
   warningText: Styles.platformStyles({
-    isElectron: {wordBreak: 'break-word'},
+    isElectron: {wordBreak: 'break-word'} as const,
     isMobile: {
       paddingLeft: Styles.globalMargins.medium,
       paddingRight: Styles.globalMargins.medium,
     },
   }),
-})
+}))
 
 export default RemoveAccountPopup

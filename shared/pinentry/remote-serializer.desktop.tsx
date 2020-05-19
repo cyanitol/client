@@ -1,25 +1,32 @@
-export const serialize = {
-  cancelLabel: v => v,
-  prompt: v => v,
-  retryLabel: v => v,
-  sessionID: v => v,
-  showTyping: v => v,
-  submitLabel: v => v,
-  submitted: v => v,
-  type: v => v,
-  windowComponent: v => v,
-  windowOpts: v => v,
-  windowParam: v => v,
-  windowPositionBottomRight: v => v,
-  windowTitle: v => v,
-}
-const initialState = {}
+import * as RPCTypes from '../constants/types/rpc-gen'
+import * as Types from '../constants/types/pinentry'
 
-export const deserialize = (state: any = initialState, props: any) => {
-  if (!props) return state
+export type ProxyProps = {
+  darkMode: boolean
+} & Types.State
 
-  return {
-    ...state,
-    ...props,
-  }
+type SerializeProps = ProxyProps
+export type DeserializeProps = ProxyProps
+
+const initialState: DeserializeProps = {
+  darkMode: false,
+  prompt: '',
+  showTyping: {
+    allow: false,
+    defaultValue: false,
+    label: '',
+    readonly: false,
+  },
+  type: RPCTypes.PassphraseType.none,
+  windowTitle: '',
 }
+
+export const serialize = (p: ProxyProps): Partial<SerializeProps> => p
+
+export const deserialize = (
+  state: DeserializeProps = initialState,
+  props: SerializeProps
+): DeserializeProps => ({
+  ...state,
+  ...props,
+})

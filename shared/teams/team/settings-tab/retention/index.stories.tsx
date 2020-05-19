@@ -18,8 +18,10 @@ const actions = {
 }
 
 const commonProps = {
+  load: action('load'),
   loading: false,
   showSaveIndicator: false,
+  teamID: '',
 }
 
 const load = () => {
@@ -36,7 +38,6 @@ const load = () => {
         teamPolicy={policyRetain}
         showInheritOption={true}
         showOverrideNotice={false}
-        type="simple"
         {...commonProps}
         {...actions}
       />
@@ -49,7 +50,6 @@ const load = () => {
         policyIsExploding={false}
         showInheritOption={false}
         showOverrideNotice={true}
-        type="simple"
         {...commonProps}
         {...actions}
       />
@@ -62,7 +62,6 @@ const load = () => {
         policyIsExploding={false}
         showInheritOption={false}
         showOverrideNotice={false}
-        type="simple"
         {...commonProps}
         {...actions}
       />
@@ -75,7 +74,6 @@ const load = () => {
         policyIsExploding={false}
         showInheritOption={false}
         showOverrideNotice={false}
-        type="simple"
         {...commonProps}
         {...actions}
       />
@@ -89,7 +87,6 @@ const load = () => {
         teamPolicy={policy30Days}
         showInheritOption={true}
         showOverrideNotice={false}
-        type="simple"
         {...commonProps}
         {...actions}
       />
@@ -103,7 +100,6 @@ const load = () => {
         teamPolicy={policy30Days}
         showInheritOption={true}
         showOverrideNotice={false}
-        type="auto"
         {...commonProps}
         {...actions}
       />
@@ -116,7 +112,6 @@ const load = () => {
         policyIsExploding={false}
         showInheritOption={false}
         showOverrideNotice={true}
-        type="simple"
         {...commonProps}
         {...actions}
       />
@@ -130,7 +125,6 @@ const load = () => {
         teamPolicy={policyRetain}
         showInheritOption={true}
         showOverrideNotice={false}
-        type="simple"
         {...commonProps}
         {...actions}
       />
@@ -144,7 +138,6 @@ const load = () => {
         teamPolicy={policy7Days}
         showInheritOption={true}
         showOverrideNotice={false}
-        type="simple"
         {...commonProps}
         {...actions}
       />
@@ -157,7 +150,6 @@ const load = () => {
         policyIsExploding={false}
         showInheritOption={false}
         showOverrideNotice={false}
-        type="simple"
         {...commonProps}
         {...actions}
       />
@@ -170,7 +162,6 @@ const load = () => {
         policyIsExploding={true}
         showInheritOption={false}
         showOverrideNotice={false}
-        type="simple"
         {...commonProps}
         {...actions}
       />

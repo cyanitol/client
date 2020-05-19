@@ -1,8 +1,8 @@
 import * as React from 'react'
 import * as Constants from '../../constants/teams'
 import * as Kb from '../../common-adapters'
-import {globalStyles, globalColors, globalMargins} from '../../styles'
-import {Props} from './index.types'
+import * as Styles from '../../styles'
+import {Props} from './index'
 
 const CreateChannel = (props: Props) => (
   <Kb.Box>
@@ -11,33 +11,31 @@ const CreateChannel = (props: Props) => (
         <Kb.BannerParagraph bannerColor="red" content={props.errorText} />
       </Kb.Banner>
     )}
-    <Kb.Box style={_boxStyle}>
-      <Kb.Box style={_inputStyle}>
-        <Kb.Input
+    <Kb.Box style={styles.box}>
+      <Kb.Box2 direction="vertical" fullWidth={true} gap="small">
+        <Kb.LabeledInput
           autoFocus={true}
-          hintText="Channel name"
+          placeholder="Channel name"
           value={props.channelname}
           onChangeText={channelname => props.onChannelnameChange(channelname)}
         />
-      </Kb.Box>
-      <Kb.Box style={_inputStyle}>
-        <Kb.Input
+        <Kb.LabeledInput
           autoCorrect={true}
           autoFocus={false}
           autoCapitalize="sentences"
           multiline={true}
           rowsMin={1}
-          rowsMax={4}
+          rowsMax={2}
           // From go/chat/msgchecker/constants.go#HeadlineMaxLength
           maxLength={280}
-          hintText="Description or topic (optional)"
+          placeholder="Add a description or topic..."
           value={props.description}
           onChangeText={description => props.onDescriptionChange(description)}
         />
-      </Kb.Box>
-      <Kb.ButtonBar>
+      </Kb.Box2>
+      <Kb.ButtonBar fullWidth={true} style={styles.buttonBar}>
         <Kb.WaitingButton
-          waitingKey={Constants.createChannelWaitingKey(props.teamname)}
+          waitingKey={Constants.createChannelWaitingKey(props.teamID)}
           onClick={props.onSubmit}
           label="Save"
         />
@@ -46,32 +44,18 @@ const CreateChannel = (props: Props) => (
   </Kb.Box>
 )
 
-const Header = (props: Props) => (
-  <Kb.Box style={_headerStyle}>
-    <Kb.Box style={{...globalStyles.flexBoxRow, alignItems: 'center', height: 15}}>
-      <Kb.Avatar isTeam={true} teamname={props.teamname} size={16} />
-      <Kb.Text type="BodySmallSemibold" style={{marginLeft: globalMargins.xtiny}} lineClamp={1}>
-        {props.teamname}
-      </Kb.Text>
-    </Kb.Box>
-    <Kb.Text type="BodyBig">New channel</Kb.Text>
-  </Kb.Box>
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      box: {padding: 16},
+      buttonBar: {alignItems: 'center'},
+    } as const)
 )
 
-const _headerStyle = {
-  ...globalStyles.fillAbsolute,
-  ...globalStyles.flexBoxColumn,
-  alignItems: 'center',
-}
+const Wrapper = (props: Props) => (
+  <Kb.HeaderHocWrapper onBack={props.onBack}>
+    <CreateChannel {...props} onBack={undefined} />
+  </Kb.HeaderHocWrapper>
+)
 
-const _boxStyle = {
-  padding: 16,
-}
-
-const _inputStyle = {
-  marginTop: globalMargins.large,
-}
-
-const Wrapper = (props: Props) => <CreateChannel {...props} onBack={undefined} />
-
-export default Kb.HeaderHoc(Wrapper)
+export default Wrapper

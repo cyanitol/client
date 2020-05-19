@@ -7,27 +7,30 @@
 import * as React from 'react'
 import Overlay from '../overlay'
 import {Position} from '../relative-popup-hoc.types'
-import MenuLayout, {MenuItem, MenuItems} from './menu-layout'
+import MenuLayout, {MenuItems as _MenuItems} from './menu-layout'
 import {Color, StylesCrossPlatform} from '../../styles'
 
+export type MenuItems = _MenuItems
+
 export type Props = {
+  attachTo?: () => React.Component<any> | null
+  backgroundColor?: Color
   closeOnSelect: boolean
   closeText?: string // mobile only; default to "Close",
   containerStyle?: StylesCrossPlatform
-  items: MenuItems
-  header?: MenuItem
-  backgroundColor?: Color
+  header?: React.ReactNode
+  items: _MenuItems
   listStyle?: Object
   onHidden: () => void
-  visible: boolean
-  attachTo?: () => React.Component<any> | null
   position?: Position
   positionFallbacks?: Position[]
   propagateOutsideClicks?: boolean
+  remeasureHint?: number
   textColor?: Color
+  visible: boolean
 }
 
-export default (props: Props) => {
+const FloatingMenu = (props: Props) => {
   if (!props.visible) {
     return null
   }
@@ -38,6 +41,7 @@ export default (props: Props) => {
       onHidden={props.onHidden}
       visible={props.visible}
       attachTo={props.attachTo}
+      remeasureHint={props.remeasureHint}
       style={props.containerStyle}
       propagateOutsideClicks={props.propagateOutsideClicks}
     >
@@ -54,3 +58,4 @@ export default (props: Props) => {
     </Overlay>
   )
 }
+export default FloatingMenu

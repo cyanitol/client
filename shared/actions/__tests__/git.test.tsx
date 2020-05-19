@@ -1,8 +1,8 @@
 /* eslint-env jest */
-import * as I from 'immutable'
 import * as Tabs from '../../constants/tabs'
 import * as GitGen from '../git-gen'
 import * as RPCTypes from '../../constants/types/rpc-gen'
+import * as Container from '../../util/container'
 import * as RouteTreeGen from '../route-tree-gen'
 import gitSaga from '../git'
 import * as Testing from '../../util/testing'
@@ -13,25 +13,19 @@ jest.mock('../../engine/require')
 const blankStore = Testing.getInitialStore()
 const initialStore = {
   ...blankStore,
-  config: blankStore.config.merge({
-    deviceID: '999',
-    loggedIn: true,
-    username: 'username',
-  }),
+  config: {...blankStore.config, deviceID: '999', loggedIn: true, username: 'username'},
 }
 
 const gitRepos = [
   {
     canDelete: true,
-    channelName: null,
     chatDisabled: false,
     devicename: 'My Mac Device',
     id: '1b091b39c3c248a0b97d09a4c46c9224_b3749db074a859d991c71bc28d99d82c',
-    lastEditTime: 'a minute ago',
+    lastEditTime: '1 minute ago',
     lastEditUser: 'eifjls092',
     name: 'meta',
     repoID: 'b3749db074a859d991c71bc28d99d82c',
-    teamname: null,
     url: 'keybase://private/eifjls092/meta',
   },
   {
@@ -40,7 +34,7 @@ const gitRepos = [
     chatDisabled: false,
     devicename: 'My Mac Device',
     id: '39ae3a19bf4215414d424677c37dce24_1a53ac017631bfbd59adfeb453c84c2c',
-    lastEditTime: 'a few seconds ago',
+    lastEditTime: 'less than a minute ago',
     lastEditUser: 'eifjls092',
     name: 'tea-shop',
     repoID: '1a53ac017631bfbd59adfeb453c84c2c',
@@ -118,15 +112,15 @@ const nowTimestamp = 1534635058000
 
 const loadedStore = {
   ...initialStore,
-  // @ts-ignore codemod issue
-  git: initialStore.git.merge({
-    idToInfo: gitRepos.reduce((acc, r) => acc.set(r.id, I.Record(r)()), I.Map()),
-  }),
+  git: {
+    ...initialStore.git,
+    idToInfo: gitRepos.reduce((m, r) => m.set(r.id, r), new Map()),
+  },
 }
 
-const startOnGitTab = dispatch => {
-  dispatch(RouteTreeGen.createSwitchRouteDef({loggedIn: true}))
-  dispatch(RouteTreeGen.createNavigateTo({path: [Tabs.gitTab]}))
+const startOnGitTab = (dispatch: Container.Dispatch) => {
+  dispatch(RouteTreeGen.createSwitchLoggedIn({loggedIn: true}))
+  dispatch(RouteTreeGen.createNavigateAppend({path: [Tabs.gitTab]}))
 }
 
 const startReduxSaga = Testing.makeStartReduxSaga(gitSaga, initialStore, startOnGitTab)
@@ -136,8 +130,8 @@ const startReduxSagaWithLoadedStore = Testing.makeStartReduxSaga(gitSaga, loaded
 // const getRouteState = getState => getRoutePathState(getState().routeTree.routeState, [Tabs.gitTab])
 
 describe('reload side effects', () => {
-  let init
-  let rpc
+  let init: any
+  let rpc: any
   beforeEach(() => {
     init = startReduxSaga()
     rpc = jest.spyOn(RPCTypes, 'gitGetAllGitMetadataRpcPromise')
@@ -162,9 +156,9 @@ describe('reload side effects', () => {
 })
 
 describe('load', () => {
-  let init
-  let rpc
-  let date
+  let init: any
+  let rpc: any
+  let date: any
   beforeEach(() => {
     init = startReduxSaga()
     date = jest.spyOn(Date, 'now')
@@ -181,11 +175,7 @@ describe('load', () => {
 
     dispatch(GitGen.createLoadGit())
     return Testing.flushPromises().then(() => {
-      expect(
-        getState()
-          .git.idToInfo.sort()
-          .toJS()
-      ).toEqual(loadedStore.git.idToInfo.sort().toJS())
+      expect(getState().git.idToInfo).toEqual(loadedStore.git.idToInfo)
       expect(rpc).toHaveBeenCalled()
     })
   })
@@ -196,16 +186,16 @@ describe('load', () => {
     rpc.mockImplementation(() => Promise.resolve())
     dispatch(GitGen.createLoadGit())
     return Testing.flushPromises().then(() => {
-      expect(getState().git.idToInfo).toEqual(I.Map())
+      expect(getState().git.idToInfo).toEqual(new Map())
       expect(rpc).toHaveBeenCalled()
     })
   })
 })
 
 describe('Team Repos', () => {
-  let init
-  let rpc
-  let date
+  let init: any
+  let rpc: any
+  let date: any
   beforeEach(() => {
     init = startReduxSagaWithLoadedStore()
     date = jest.spyOn(Date, 'now')
@@ -236,7 +226,6 @@ describe('Team Repos', () => {
     const {dispatch} = init
     dispatch(
       GitGen.createSetTeamRepoSettings({
-        channelName: null,
         chatDisabled: true,
         repoID: '1a53ac017631bfbd59adfeb453c84c2c',
         teamname: 'test_shop_932',
@@ -247,9 +236,9 @@ describe('Team Repos', () => {
 })
 
 describe('Create / Delete', () => {
-  let init
-  let rpc
-  let date
+  let init: any
+  let rpc: any
+  let date: any
   beforeEach(() => {
     init = startReduxSagaWithLoadedStore()
     date = jest.spyOn(Date, 'now')

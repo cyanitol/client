@@ -29,6 +29,7 @@ type PaperKeyGenArg struct {
 	SigningKey     libkb.GenericKey      // optional
 	EncryptionKey  libkb.NaclDHKeyPair   // optional
 	PerUserKeyring *libkb.PerUserKeyring // optional
+	IsEldest       bool
 }
 
 // PaperKeyGen is an engine.
@@ -36,8 +37,9 @@ type PaperKeyGen struct {
 	arg *PaperKeyGenArg
 
 	// keys of the generated paper key
-	sigKey libkb.GenericKey
-	encKey libkb.NaclDHKeyPair
+	sigKey   libkb.GenericKey
+	encKey   libkb.NaclDHKeyPair
+	deviceID keybase1.DeviceID
 
 	libkb.Contextified
 }
@@ -59,7 +61,7 @@ func (e *PaperKeyGen) Name() string {
 func (e *PaperKeyGen) Prereqs() Prereqs {
 	// only need a device if pushing keys
 	return Prereqs{
-		Device: !e.arg.SkipPush,
+		Device: !e.arg.SkipPush && !e.arg.IsEldest,
 	}
 }
 
@@ -81,8 +83,12 @@ func (e *PaperKeyGen) EncKey() libkb.NaclDHKeyPair {
 	return e.encKey
 }
 
+func (e *PaperKeyGen) DeviceID() keybase1.DeviceID {
+	return e.deviceID
+}
+
 func (e *PaperKeyGen) DeviceWithKeys() *libkb.DeviceWithKeys {
-	return libkb.NewDeviceWithKeysOnly(e.sigKey, e.encKey)
+	return libkb.NewDeviceWithKeysOnly(e.sigKey, e.encKey, libkb.KeychainModeNone)
 }
 
 // Run starts the engine.
@@ -187,9 +193,9 @@ func (e *PaperKeyGen) makeEncKey(seed []byte) error {
 }
 
 func (e *PaperKeyGen) getClientHalfFromSecretStore(m libkb.MetaContext) (clientHalf libkb.LKSecClientHalf, ppgen libkb.PassphraseGeneration, err error) {
-	defer m.Trace("PaperKeyGen#getClientHalfFromSecretStore", func() error { return err })
+	defer m.Trace("PaperKeyGen#getClientHalfFromSecretStore", &err)
 
-	secretStore := libkb.NewSecretStore(e.G(), e.arg.Me.GetNormalizedName())
+	secretStore := libkb.NewSecretStore(m, e.arg.Me.GetNormalizedName())
 	if secretStore == nil {
 		return clientHalf, ppgen, errors.New("No secret store available")
 	}
@@ -224,7 +230,7 @@ func (e *PaperKeyGen) getClientHalfFromSecretStore(m libkb.MetaContext) (clientH
 }
 
 func (e *PaperKeyGen) push(m libkb.MetaContext) (err error) {
-	defer m.Trace("PaperKeyGen#push", func() error { return err })()
+	defer m.Trace("PaperKeyGen#push", &err)()
 	if e.arg.SkipPush {
 		return nil
 	}
@@ -240,6 +246,7 @@ func (e *PaperKeyGen) push(m libkb.MetaContext) (err error) {
 	if err != nil {
 		return err
 	}
+	e.deviceID = backupDev.ID
 
 	// create lks halves for this device.  Note that they aren't used for
 	// local, encrypted storage of the paper keys, but just for recovery
@@ -291,19 +298,23 @@ func (e *PaperKeyGen) push(m libkb.MetaContext) (err error) {
 		return err
 	}
 
-	if err := libkb.PostDeviceLKS(m, backupDev.ID, libkb.DeviceTypePaper, backupLks.GetServerHalf(), backupLks.Generation(), ctext, e.encKey.GetKID()); err != nil {
+	if err := libkb.PostDeviceLKS(m, backupDev.ID, keybase1.DeviceTypeV2_PAPER, backupLks.GetServerHalf(), backupLks.Generation(), ctext, e.encKey.GetKID()); err != nil {
 		return err
 	}
 
 	// push the paper signing key
 	sigDel := libkb.Delegator{
-		NewKey:         e.sigKey,
-		DelegationType: libkb.DelegationTypeSibkey,
-		Expire:         libkb.NaclEdDSAExpireIn,
-		ExistingKey:    e.arg.SigningKey,
-		Me:             e.arg.Me,
-		Device:         backupDev,
-		Contextified:   libkb.NewContextified(e.G()),
+		NewKey:       e.sigKey,
+		Expire:       libkb.NaclEdDSAExpireIn,
+		Me:           e.arg.Me,
+		Device:       backupDev,
+		Contextified: libkb.NewContextified(e.G()),
+	}
+	if e.arg.IsEldest {
+		sigDel.DelegationType = libkb.DelegationTypeEldest
+	} else {
+		sigDel.DelegationType = libkb.DelegationTypeSibkey
+		sigDel.ExistingKey = e.arg.SigningKey
 	}
 
 	// push the paper encryption key

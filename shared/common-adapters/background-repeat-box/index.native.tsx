@@ -2,13 +2,13 @@ import * as React from 'react'
 import Box from '../box'
 import * as Styles from '../../styles'
 import {NativeImage} from '../native-wrappers.native'
-import {Props} from './index.types'
+import {Props} from '.'
 
 const BackgroundRepeatBox = (props: Props) => {
   let backgroundImage: React.ReactNode = null
   if (!props.skipBackground) {
     backgroundImage = (
-      <NativeImage source={props.imageName} resizeMode="repeat" style={styles.backgroundImage} />
+      <NativeImage source={props.imageName as number} resizeMode="repeat" style={styles.backgroundImage} />
     )
   }
   return (
@@ -19,11 +19,11 @@ const BackgroundRepeatBox = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   backgroundImage: {...Styles.globalStyles.fillAbsolute, height: 'auto', width: 'auto'},
   container: {
     position: 'relative',
   },
-})
+}))
 
 export default BackgroundRepeatBox

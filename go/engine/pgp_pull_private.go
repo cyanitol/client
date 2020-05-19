@@ -5,6 +5,8 @@ package engine
 
 import (
 	"errors"
+	"fmt"
+
 	"github.com/keybase/client/go/libkb"
 	keybase1 "github.com/keybase/client/go/protocol/keybase1"
 )
@@ -40,11 +42,11 @@ func (e *PGPPullPrivate) read(m libkb.MetaContext, fs *keybase1.SimpleFSClient, 
 	}
 	err = fs.SimpleFSOpen(m.Ctx(), keybase1.SimpleFSOpenArg{
 		OpID:  opid,
-		Dest:  keybase1.NewPathWithKbfs(filepath),
+		Dest:  keybase1.NewPathWithKbfsPath(filepath),
 		Flags: keybase1.OpenFlags_READ | keybase1.OpenFlags_EXISTING,
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("pgp key not found; you may need to run `keybase pgp push-private` first (error: %s)", err)
 	}
 	defer fs.SimpleFSClose(m.Ctx(), opid)
 	var offset int64
@@ -87,7 +89,7 @@ func (e *PGPPullPrivate) pull(m libkb.MetaContext, fp libkb.PGPFingerprint, tty 
 		return err
 	}
 
-	err = m.G().GetGpgClient().ExportKeyArmored(armored)
+	err = m.G().GetGpgClient().ExportKeyArmored(m, armored)
 	if err != nil {
 		return err
 	}
@@ -96,7 +98,7 @@ func (e *PGPPullPrivate) pull(m libkb.MetaContext, fp libkb.PGPFingerprint, tty 
 
 func (e *PGPPullPrivate) Run(m libkb.MetaContext) (err error) {
 
-	defer m.Trace("PGPPullPrivate#Run", func() error { return err })()
+	defer m.Trace("PGPPullPrivate#Run", &err)()
 
 	tty, err := m.UIs().GPGUI.GetTTY(m.Ctx())
 	if err != nil {

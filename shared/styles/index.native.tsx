@@ -1,14 +1,20 @@
 import {StyleSheet, Dimensions} from 'react-native'
 import * as iPhoneXHelper from 'react-native-iphone-x-helper'
-import {isIOS} from '../constants/platform'
+import {isIOS, isTablet} from '../constants/platform'
 import globalColors from './colors'
-import {CollapsibleStyle} from './index.types'
+import styleSheetCreateProxy from './style-sheet-proxy'
 import * as Shared from './shared'
+
+type _Elem = Object | null | false | void
+// CollapsibleStyle is a generic version of ?StylesMobile and family,
+// slightly extended to support "isFoo && myStyle".
+export type CollapsibleStyle = _Elem | ReadonlyArray<_Elem>
 
 const font = isIOS
   ? {
       fontBold: {fontFamily: 'Keybase', fontWeight: '700'},
       fontExtrabold: {fontFamily: 'Keybase', fontWeight: '800'},
+      fontNyctographic: {fontFamily: 'Nyctographic', fontWeight: '400'},
       fontRegular: {fontFamily: 'Keybase', fontWeight: '500'},
       fontSemibold: {fontFamily: 'Keybase', fontWeight: '600'},
       fontTerminal: {fontFamily: 'Source Code Pro Medium'},
@@ -19,6 +25,7 @@ const font = isIOS
       // The fontFamily name must match the font file's name exactly on Android.
       fontBold: {fontFamily: 'keybase-bold', fontWeight: 'normal'},
       fontExtrabold: {fontFamily: 'keybase-extrabold', fontWeight: 'normal'},
+      fontNyctographic: {fontFamily: 'Nyctographic', fontWeight: 'normal'},
       fontRegular: {fontFamily: 'keybase-medium', fontWeight: 'normal'},
       fontSemibold: {fontFamily: 'keybase-semibold', fontWeight: 'normal'},
       fontTerminal: {fontFamily: 'SourceCodePro-Medium', fontWeight: 'normal'},
@@ -27,11 +34,15 @@ const font = isIOS
     }
 
 const util = {
-  ...Shared.util({}),
+  ...Shared.util,
+  largeWidthPercent: '70%',
   loadingTextStyle: {
     backgroundColor: globalColors.greyLight,
     height: 16,
   },
+  mediumSubNavWidth: isTablet ? '25%' : '100%',
+  mediumWidth: isTablet ? 460 : '100%',
+  shortSubNavWidth: isTablet ? '15%' : '100%',
 }
 
 export const desktopStyles = {
@@ -49,17 +60,19 @@ export const globalStyles = {
 
 export const statusBarHeight = iPhoneXHelper.getStatusBarHeight(true)
 export const hairlineWidth = StyleSheet.hairlineWidth
-export const styleSheetCreate = (obj: Object) => StyleSheet.create(obj)
+// @ts-ignore TODO fix native styles
+export const styleSheetCreate = obj => styleSheetCreateProxy(obj, o => StyleSheet.create(o))
+export {isDarkMode} from './dark-mode'
 export const collapseStyles = (
   styles: ReadonlyArray<CollapsibleStyle>
 ): ReadonlyArray<Object | null | false | void> => {
-  return styles
+  return styles.filter(Boolean)
 }
-export const transition = (...properties: Array<string>) => ({})
-export const backgroundURL = (...path: Array<string>) => ({})
+export const transition = () => ({})
+export const backgroundURL = () => ({})
 export const styledKeyframes = () => null
 
-export {isMobile, fileUIName, isIPhoneX, isIOS, isAndroid} from '../constants/platform'
+export {isMobile, isPhone, isTablet, fileUIName, isIPhoneX, isIOS, isAndroid} from '../constants/platform'
 export {
   globalMargins,
   backgroundModeToColor,
@@ -69,8 +82,9 @@ export {
 } from './shared'
 export {default as glamorous} from '@emotion/native'
 export {default as styled, css as styledCss} from '@emotion/native'
-export {default as globalColors} from './colors'
+export {themed as globalColors} from './colors'
 export {default as classNames} from 'classnames'
 export const borderRadius = 6
 export const dimensionWidth = Dimensions.get('window').width
 export const dimensionHeight = Dimensions.get('window').height
+export const headerExtraHeight = isTablet ? 16 : 0

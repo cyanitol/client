@@ -5,6 +5,7 @@
 package libdokan
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -47,10 +48,13 @@ func startMounting(options StartOptions,
 // Start the filesystem
 func Start(options StartOptions, kbCtx libkbfs.Context) *libfs.Error {
 	// Hook simplefs implementation in.
+	shutdownSimpleFS := func(_ context.Context) error { return nil }
 	createSimpleFS := func(
 		libkbfsCtx libkbfs.Context, config libkbfs.Config) (rpc.Protocol, error) {
-		return keybase1.SimpleFSProtocol(
-			simplefs.NewSimpleFS(libkbfsCtx, config)), nil
+		var simplefsIface keybase1.SimpleFSInterface
+		simplefsIface, shutdownSimpleFS = simplefs.NewSimpleFS(
+			libkbfsCtx, config)
+		return keybase1.SimpleFSProtocol(simplefsIface), nil
 	}
 	// Hook git implementation in.
 	shutdownGit := func() {}
@@ -62,6 +66,10 @@ func Start(options StartOptions, kbCtx libkbfs.Context) *libfs.Error {
 		return keybase1.KBFSGitProtocol(handler), nil
 	}
 	defer func() {
+		err := shutdownSimpleFS(context.Background())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Couldn't shut down SimpleFS: %+v\n", err)
+		}
 		shutdownGit()
 	}()
 
@@ -116,6 +124,14 @@ func Start(options StartOptions, kbCtx libkbfs.Context) *libfs.Error {
 		}
 		log.CInfof(ctx, "Got mount dir from service: -%s-", options.MountPoint)
 	}
+
+	// There is misleading documentation that causes people to set their mount point to
+	// 'K' instead of 'K:'. Fix this here, rather than correct all the users with problems.
+	if len(options.MountPoint) == 1 {
+		options.MountPoint = options.MountPoint + ":"
+		log.CInfof(ctx, "Invalid single letter mount point, patching to %q", options.MountPoint)
+	}
+
 	options.DokanConfig.Path = options.MountPoint
 
 	if !options.SkipMount && !strings.EqualFold(options.MountPoint, "none") {
@@ -140,7 +156,10 @@ func Start(options StartOptions, kbCtx libkbfs.Context) *libfs.Error {
 			// Abort on error if we were force mounting, otherwise continue.
 			if options.ForceMount {
 				// Cleanup when exiting in case the mount got dirty.
-				mi.Done()
+				err = mi.Done()
+				if err != nil {
+					log.CErrorf(ctx, "Couldn't mount: %v", err)
+				}
 				return libfs.MountError(err.Error())
 			}
 			log.CErrorf(ctx, "Running KBFS without a filesystem mount due to: %v", err)

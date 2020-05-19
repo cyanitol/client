@@ -1,7 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
   xmlns:tools="http://schemas.android.com/tools"
   package="io.keybase.ossifrage">
-
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
@@ -10,7 +9,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <application
       android:name=".MainApplication"
       android:allowBackup="true"
@@ -23,7 +22,7 @@
       <activity
         android:name=".MainActivity"
         android:screenOrientation="portrait"
-        android:launchMode="singleTop"
+        android:launchMode="singleTask"
         android:label="@string/app_name"
         android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
         android:windowSoftInputMode="adjustResize"
@@ -51,6 +50,21 @@
           <category android:name="android.intent.category.BROWSABLE" />
           <data android:scheme="web+stellar" />
         </intent-filter>
+        <intent-filter android:label="Open with Keybase">
+          <action android:name="android.intent.action.VIEW" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <category android:name="android.intent.category.BROWSABLE" />
+          <data android:scheme="keybase" />
+        </intent-filter>
+        <intent-filter android:autoVerify="true">
+          <action android:name="android.intent.action.VIEW" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <category android:name="android.intent.category.BROWSABLE" />
+          <data android:scheme="http" android:host="keybase.io" android:pathPrefix="/app" />
+          <data android:scheme="http" android:host="keybase.io" android:pathPrefix="/phone-app" />
+          <data android:scheme="https" android:host="keybase.io" android:pathPrefix="/app" />
+          <data android:scheme="https" android:host="keybase.io" android:pathPrefix="/phone-app" />
+        </intent-filter>
         <!-- TODO: enable
         <intent-filter>
           <action android:name="android.intent.action.SEND_MULTIPLE" />
@@ -61,15 +75,9 @@
       </activity>
       <activity android:name="com.facebook.react.devsupport.DevSettingsActivity" />
 
-      <receiver android:name="com.dieam.reactnativepushnotification.modules.RNPushNotificationPublisher" />
-      <receiver android:name="com.dieam.reactnativepushnotification.modules.RNPushNotificationBootEventReceiver">
-          <intent-filter>
-              <action android:name="android.intent.action.BOOT_COMPLETED" />
-          </intent-filter>
-      </receiver>
-      <service android:name="com.dieam.reactnativepushnotification.modules.RNPushNotificationRegistrationService"/>
+      <receiver android:name="io.keybase.ossifrage.ChatBroadcastReceiver" />
       <service
-          android:name="io.keybase.ossifrage.KeybasePushNotificationListenerService"
+          android:name=".KeybasePushNotificationListenerService"
           android:exported="false" >
           <intent-filter>
               <action android:name="com.google.firebase.MESSAGING_EVENT" />
@@ -95,5 +103,11 @@
               android:name="android.support.FILE_PROVIDER_PATHS"
               android:resource="@xml/fileprovider"/>
       </provider>
+
+      <!-- For expo image picker  -->
+      <activity
+          android:name="com.theartofdev.edmodo.cropper.CropImageActivity"
+          android:theme="@style/Base.Theme.AppCompat">
+      </activity>
     </application>
 </manifest>

@@ -377,3 +377,65 @@ func FillInDiskSpaceStatus(
 	}
 	status.OutOfSyncSpace = !hasRoom
 }
+
+// KeybaseServicePassthrough is an implementation of
+// `KeybaseServiceCn` that just uses the existing services in a given,
+// existing Config object.
+type KeybaseServicePassthrough struct {
+	config Config
+}
+
+// NewKeybaseServicePassthrough returns a new service passthrough
+// using the given config.
+func NewKeybaseServicePassthrough(config Config) KeybaseServicePassthrough {
+	return KeybaseServicePassthrough{config: config}
+}
+
+var _ KeybaseServiceCn = KeybaseServicePassthrough{}
+
+// NewKeybaseService implements the KeybaseServiceCn for
+// KeybaseServicePassthrough.
+func (ksp KeybaseServicePassthrough) NewKeybaseService(
+	_ Config, _ InitParams, _ Context, _ logger.Logger) (
+	KeybaseService, error) {
+	return ksp.config.KeybaseService(), nil
+}
+
+// NewCrypto implements the KeybaseServiceCn for
+// KeybaseServicePassthrough.
+func (ksp KeybaseServicePassthrough) NewCrypto(
+	_ Config, _ InitParams, _ Context, _ logger.Logger) (Crypto, error) {
+	return ksp.config.Crypto(), nil
+}
+
+// NewChat implements the KeybaseServiceCn for
+// KeybaseServicePassthrough.
+func (ksp KeybaseServicePassthrough) NewChat(
+	_ Config, _ InitParams, _ Context, _ logger.Logger) (Chat, error) {
+	return ksp.config.Chat(), nil
+}
+
+// MakeDiskMDServer creates a disk-based local MD server.
+func MakeDiskMDServer(config Config, serverRootDir string) (MDServer, error) {
+	mdPath := filepath.Join(serverRootDir, "kbfs_md")
+	return NewMDServerDir(mdServerLocalConfigAdapter{config}, mdPath)
+}
+
+// MakeDiskBlockServer creates a disk-based local block server.
+func MakeDiskBlockServer(config Config, serverRootDir string) BlockServer {
+	blockPath := filepath.Join(serverRootDir, "kbfs_block")
+	bserverLog := config.MakeLogger("BSD")
+	return NewBlockServerDir(config.Codec(), bserverLog, blockPath)
+}
+
+func cacheHashBehavior(
+	bsGetter blockServerGetter, modeGetter initModeGetter,
+	id tlf.ID) data.BlockCacheHashBehavior {
+	if modeGetter.Mode().IsSingleOp() || TLFJournalEnabled(bsGetter, id) {
+		// If the journal is enabled, or single-op mode is enabled
+		// (which implies either local or journal writes), then skip
+		// any known-ptr block hash computations.
+		return data.SkipCacheHash
+	}
+	return data.DoCacheHash
+}

@@ -6,6 +6,7 @@ package libkb
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -99,9 +100,10 @@ func (s *SecretStoreImp) SetOptions(mctx MetaContext, options *SecretStoreOption
 // NewSecretStore returns a SecretStore interface that is only used for
 // a short period of time (i.e. one function block).  Multiple calls to RetrieveSecret()
 // will only call the underlying store.RetrieveSecret once.
-func NewSecretStore(g *GlobalContext, username NormalizedUsername) SecretStore {
-	store := g.SecretStore()
+func NewSecretStore(m MetaContext, username NormalizedUsername) SecretStore {
+	store := m.G().SecretStore()
 	if store != nil {
+		m.Debug("NewSecretStore: reifying SecretStoreImp for %q", username)
 		return &SecretStoreImp{
 			username: username,
 			store:    store,
@@ -110,25 +112,47 @@ func NewSecretStore(g *GlobalContext, username NormalizedUsername) SecretStore {
 	return nil
 }
 
-func GetConfiguredAccounts(m MetaContext, s SecretStoreAll) ([]keybase1.ConfiguredAccount, error) {
-
-	currentUsername, allUsernames, err := GetAllProvisionedUsernames(m)
-	if err != nil {
-		return nil, err
-	}
-
+func GetConfiguredAccountsFromProvisionedUsernames(m MetaContext, s SecretStoreAll, currentUsername NormalizedUsername, allUsernames []NormalizedUsername) ([]keybase1.ConfiguredAccount, error) {
 	if !currentUsername.IsNil() {
 		allUsernames = append(allUsernames, currentUsername)
 	}
 
 	accounts := make(map[NormalizedUsername]keybase1.ConfiguredAccount)
-
 	for _, username := range allUsernames {
 		accounts[username] = keybase1.ConfiguredAccount{
 			Username:  username.String(),
 			IsCurrent: username.Eq(currentUsername),
 		}
 	}
+
+	// Get the full names
+	uids := make([]keybase1.UID, len(allUsernames))
+	for idx, username := range allUsernames {
+		uids[idx] = GetUIDByNormalizedUsername(m.G(), username)
+	}
+	usernamePackages, err := m.G().UIDMapper.MapUIDsToUsernamePackages(m.Ctx(), m.G(),
+		uids, time.Hour*24, time.Second*10, false)
+	if err != nil {
+		if usernamePackages != nil {
+			// If data is returned, interpret the error as a warning
+			m.G().Log.CInfof(m.Ctx(),
+				"error while retrieving full names: %+v", err)
+		} else {
+			return nil, err
+		}
+	}
+	for _, uPackage := range usernamePackages {
+		if uPackage.FullName == nil {
+			continue
+		}
+		if account, ok := accounts[uPackage.NormalizedUsername]; ok {
+			account.Fullname = uPackage.FullName.FullName
+			accounts[uPackage.NormalizedUsername] = account
+		}
+	}
+
+	// Check for secrets
+
 	var storedSecretUsernames []string
 	if s != nil {
 		storedSecretUsernames, err = s.GetUsersWithStoredSecrets(m)
@@ -151,7 +175,43 @@ func GetConfiguredAccounts(m MetaContext, s SecretStoreAll) ([]keybase1.Configur
 		configuredAccounts = append(configuredAccounts, account)
 	}
 
+	loginTimes, err := getLoginTimes(m)
+	if err != nil {
+		m.Warning("Failed to get login times: %s", err)
+		loginTimes = make(loginTimeMap)
+	}
+
+	sort.Slice(configuredAccounts, func(i, j int) bool {
+		iUsername := configuredAccounts[i].Username
+		jUsername := configuredAccounts[j].Username
+		iTime, iOk := loginTimes[NormalizedUsername(iUsername)]
+		jTime, jOk := loginTimes[NormalizedUsername(jUsername)]
+		if !iOk && !jOk {
+			iSignedIn := configuredAccounts[i].HasStoredSecret
+			jSignedIn := configuredAccounts[j].HasStoredSecret
+			if iSignedIn != jSignedIn {
+				return iSignedIn
+			}
+			return strings.Compare(iUsername, jUsername) < 0
+		}
+		if !iOk {
+			return false
+		}
+		if !jOk {
+			return true
+		}
+		return iTime.After(jTime)
+	})
+
 	return configuredAccounts, nil
+}
+
+func GetConfiguredAccounts(m MetaContext, s SecretStoreAll) ([]keybase1.ConfiguredAccount, error) {
+	currentUsername, allUsernames, err := GetAllProvisionedUsernames(m)
+	if err != nil {
+		return nil, err
+	}
+	return GetConfiguredAccountsFromProvisionedUsernames(m, s, currentUsername, allUsernames)
 }
 
 func ClearStoredSecret(m MetaContext, username NormalizedUsername) error {
@@ -174,27 +234,20 @@ type SecretStoreLocked struct {
 }
 
 func NewSecretStoreLocked(m MetaContext) *SecretStoreLocked {
-	var disk SecretStoreAll
-
-	mem := NewSecretStoreMem()
-
-	if m.G().Env.RememberPassphrase() {
-		// use os-specific secret store
-		m.Debug("NewSecretStoreLocked: using os-specific SecretStore")
-		disk = NewSecretStoreAll(m)
-	} else {
-		// config or command line flag said to use in-memory secret store
-		m.Debug("NewSecretStoreLocked: using memory-only SecretStore")
-	}
-
+	// We always make an on-disk secret store, but if the user has opted not
+	// to remember their passphrase, we don't store it on-disk.
 	return &SecretStoreLocked{
-		mem:  mem,
-		disk: disk,
+		mem:  NewSecretStoreMem(),
+		disk: NewSecretStoreAll(m),
 	}
 }
 
 func (s *SecretStoreLocked) isNil() bool {
 	return s.mem == nil && s.disk == nil
+}
+
+func (s *SecretStoreLocked) ClearMem() {
+	s.mem = NewSecretStoreMem()
 }
 
 func (s *SecretStoreLocked) RetrieveSecret(m MetaContext, username NormalizedUsername) (LKSecFullSecret, error) {
@@ -221,7 +274,7 @@ func (s *SecretStoreLocked) RetrieveSecret(m MetaContext, username NormalizedUse
 	}
 	tmp := s.mem.StoreSecret(m, username, res)
 	if tmp != nil {
-		m.Debug("SecretStoreLocked#RetrieveSecret: failed to store secret in memory: %s", err.Error())
+		m.Debug("SecretStoreLocked#RetrieveSecret: failed to store secret in memory: %s", tmp.Error())
 	}
 	return res, err
 }
@@ -237,6 +290,10 @@ func (s *SecretStoreLocked) StoreSecret(m MetaContext, username NormalizedUserna
 		m.Debug("SecretStoreLocked#StoreSecret: failed to store secret in memory: %s", err.Error())
 	}
 	if s.disk == nil {
+		return err
+	}
+	if !m.G().Env.GetRememberPassphrase(username) {
+		m.Debug("SecretStoreLocked: should not remember passphrase for %s; not storing on disk", username)
 		return err
 	}
 	return s.disk.StoreSecret(m, username, secret)
@@ -271,10 +328,31 @@ func (s *SecretStoreLocked) GetUsersWithStoredSecrets(m MetaContext) ([]string, 
 	}
 	s.Lock()
 	defer s.Unlock()
-	if s.disk == nil {
-		return s.mem.GetUsersWithStoredSecrets(m)
+	users := make(map[string]struct{})
+
+	memUsers, memErr := s.mem.GetUsersWithStoredSecrets(m)
+	if memErr == nil {
+		for _, memUser := range memUsers {
+			users[memUser] = struct{}{}
+		}
 	}
-	return s.disk.GetUsersWithStoredSecrets(m)
+	if s.disk == nil {
+		return memUsers, memErr
+	}
+	diskUsers, diskErr := s.disk.GetUsersWithStoredSecrets(m)
+	if diskErr == nil {
+		for _, diskUser := range diskUsers {
+			users[diskUser] = struct{}{}
+		}
+	}
+	if memErr != nil && diskErr != nil {
+		return nil, CombineErrors(memErr, diskErr)
+	}
+	var ret []string
+	for user := range users {
+		ret = append(ret, user)
+	}
+	return ret, nil
 }
 
 func (s *SecretStoreLocked) PrimeSecretStores(mctx MetaContext) (err error) {
@@ -323,7 +401,7 @@ func PrimeSecretStore(mctx MetaContext, ss SecretStoreAll) (err error) {
 			go reportPrimeSecretStoreFailure(mctx.BackgroundWithLogTags(), ss, err)
 		}
 	}()
-	defer mctx.TraceTimed("PrimeSecretStore", func() error { return err })()
+	defer mctx.Trace("PrimeSecretStore", &err)()
 
 	// Generate test username and test secret
 	testUsername, err := RandString("test_ss_", 5)
@@ -340,7 +418,7 @@ func PrimeSecretStore(mctx MetaContext, ss SecretStoreAll) (err error) {
 	mctx.Debug("PrimeSecretStore: priming secret store with username %q and secret %v", testUsername, randBytes)
 	testNormUsername := NormalizedUsername(testUsername)
 	var secretF [LKSecLen]byte
-	copy(secretF[:], randBytes[:])
+	copy(secretF[:], randBytes)
 	testSecret := LKSecFullSecret{f: &secretF}
 
 	defer func() {
@@ -386,7 +464,7 @@ func PrimeSecretStore(mctx MetaContext, ss SecretStoreAll) (err error) {
 
 func reportPrimeSecretStoreFailure(mctx MetaContext, ss SecretStoreAll, reportErr error) {
 	var err error
-	defer mctx.TraceTimed("reportPrimeSecretStoreFailure", func() error { return err })()
+	defer mctx.Trace("reportPrimeSecretStoreFailure", &err)()
 	osVersion, osBuild, err := OSVersionAndBuild()
 	if err != nil {
 		mctx.Debug("os info error: %v", err)
@@ -409,72 +487,33 @@ func reportPrimeSecretStoreFailure(mctx MetaContext, ss SecretStoreAll, reportEr
 	err = mctx.G().API.PostDecode(mctx, apiArg, &apiRes)
 }
 
-func notifySecretStoreCreate(g *GlobalContext, username NormalizedUsername) {
-	g.Log.Debug("got secret store file notifyCreate")
+type loginTimeMap map[NormalizedUsername]time.Time
 
-	// check leveldb for existence of notification dismissal
-	dbobj, found, err := g.LocalDb.GetRaw(DbKeyNotificationDismiss(NotificationDismissPGPPrefix, username))
-	if err != nil {
-		g.Log.Debug("notifySecretStoreCreate: localDb.GetRaw error: %s", err)
-		return
+func loginTimesDbKey(mctx MetaContext) DbKey {
+	return DbKey{
+		// Should not be per-user, so not using uid in the db key
+		Typ: DBLoginTimes,
+		Key: "",
 	}
-	if found && string(dbobj) == NotificationDismissPGPValue {
-		g.Log.Debug("notifySecretStoreCreate: %s already dismissed", NotificationDismissPGPPrefix)
-		return
-	}
-
-	// check keyring for pgp keys
-	// can't use the keyring in LoginState because this could be called
-	// within a LoginState request.
-	kr, err := LoadSKBKeyring(username, g)
-	if err != nil {
-		g.Log.Debug("LoadSKBKeyring error: %s", err)
-		return
-	}
-	blocks, err := kr.AllPGPBlocks()
-	if err != nil {
-		g.Log.Debug("keyring.AllPGPBlocks error: %s", err)
-		return
-	}
-
-	if len(blocks) == 0 {
-		g.Log.Debug("notifySecretStoreCreate: no pgp blocks in keyring")
-		return
-	}
-
-	// pgp blocks exist, send a notification
-	g.Log.Debug("user has pgp blocks in keyring, sending notification")
-	if g.NotifyRouter != nil {
-		g.NotifyRouter.HandlePGPKeyInSecretStoreFile()
-	}
-
-	// also log a warning (so CLI users see it)
-	g.Log.Info(pgpStorageWarningText)
-
-	// Note: a separate RPC, callable by CLI or electron, will dismiss
-	// this warning by inserting into leveldb.
 }
 
-const pgpStorageWarningText = `
-Policy change on passphrases
+func getLoginTimes(mctx MetaContext) (ret loginTimeMap, err error) {
+	found, err := mctx.G().LocalDb.GetInto(&ret, loginTimesDbKey(mctx))
+	if err != nil {
+		return ret, err
+	}
+	if !found {
+		ret = make(loginTimeMap)
+	}
+	return ret, nil
+}
 
-We've gotten lots of feedback that it's annoying as all hell to enter a
-Keybase passphrase after restarts and updates. The consensus is you can
-trust a device's storage to keep a secret that's specific to that device.
-Passphrases stink, like passed gas, and are bloody painful, like passed stones.
-
-Note, however: on this device you have a PGP private key in Keybase's local
-keychain.  Some people want to type a passphrase to unlock their PGP key, and
-this new policy would bypass that. If you're such a person, you can run the
-following command to remove your PGP private key.
-
-    keybase pgp purge
-
-If you do it, you'll have to use GPG for your PGP operations.
-
-If you're ok with the new policy, you can run this command so you won't
-get bothered with this message in the future:
-
-    keybase dismiss pgp-storage
-
-Thanks!`
+func RecordLoginTime(mctx MetaContext, username NormalizedUsername) (err error) {
+	ret, err := getLoginTimes(mctx)
+	if err != nil {
+		mctx.Warning("failed to get login times from db; overwriting existing data: %s", err)
+		ret = make(loginTimeMap)
+	}
+	ret[username] = time.Now()
+	return mctx.G().LocalDb.PutObj(loginTimesDbKey(mctx), nil, ret)
+}

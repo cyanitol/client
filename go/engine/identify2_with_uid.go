@@ -169,7 +169,7 @@ func loadIdentifyUser(m libkb.MetaContext, arg libkb.LoadUserArg, cache libkb.Id
 }
 
 func (i *identifyUser) trackChainLinkFor(m libkb.MetaContext, name libkb.NormalizedUsername, uid keybase1.UID) (ret *libkb.TrackChainLink, err error) {
-	defer m.Trace(fmt.Sprintf("identifyUser#trackChainLinkFor(%s)", name), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("identifyUser#trackChainLinkFor(%s)", name), &err)()
 
 	if i.full != nil {
 		m.Debug("| Using full user object")
@@ -223,8 +223,8 @@ func (i *identifyUser) trackChainLinkFor(m libkb.MetaContext, name libkb.Normali
 //   - Work back in the identify card
 //
 
-// Identify2WithUID is the Identify engine used in KBFS and as a subroutine
-// of command-line crypto.
+// Identify2WithUID is the Identify engine used in KBFS, chat, and as a
+// subroutine of command-line crypto.
 type Identify2WithUID struct {
 	libkb.Contextified
 
@@ -297,7 +297,7 @@ func (e *Identify2WithUID) WantDelegate(k libkb.UIKind) bool {
 
 func (e *Identify2WithUID) resetError(m libkb.MetaContext, inErr error) (outErr error) {
 
-	defer m.Trace(fmt.Sprintf("Identify2WithUID#resetError(%s)", libkb.ErrToOk(inErr)), func() error { return outErr })()
+	defer m.Trace(fmt.Sprintf("Identify2WithUID#resetError(%s)", libkb.ErrToOk(inErr)), &outErr)()
 
 	if inErr == nil {
 		return nil
@@ -323,7 +323,7 @@ func (e *Identify2WithUID) Run(m libkb.MetaContext) (err error) {
 	m = m.WithLogTag("ID2")
 
 	n := fmt.Sprintf("Identify2WithUID#Run(UID=%v, Assertion=%s)", e.arg.Uid, e.arg.UserAssertion)
-	defer m.TraceTimed(n, func() error { return err })()
+	defer m.Trace(n, &err)()
 	m.Debug("| Full Arg: %+v", e.arg)
 
 	if e.arg.Uid.IsNil() {
@@ -343,16 +343,62 @@ func (e *Identify2WithUID) Run(m libkb.MetaContext) (err error) {
 	return err
 }
 
+func (e *Identify2WithUID) notifyChat(m libkb.MetaContext, inErr error) error {
+	m.Debug("Identify2WithUID.run: notifyChat")
+	if !e.arg.IdentifyBehavior.ShouldRefreshChatView() {
+		return nil
+	}
+	if e.them == nil {
+		return fmt.Errorf("nil user")
+	}
+	nun := e.them.GetNormalizedName()
+	if nun.IsNil() {
+		return fmt.Errorf("no username for user")
+	}
+	// Don't notify if there's a non-identity proof error.
+	if inErr != nil && !libkb.IsIdentifyProofError(inErr) {
+		return nil
+	}
+
+	res, err := e.Result(m)
+	if err != nil {
+		return err
+	}
+
+	update := keybase1.CanonicalTLFNameAndIDWithBreaks{
+		CanonicalName: keybase1.CanonicalTlfName(nun),
+	}
+	if libkb.IsIdentifyProofError(inErr) {
+		update.Breaks = keybase1.TLFBreak{Breaks: []keybase1.TLFIdentifyFailure{
+			{
+				User:   *e.them.Export(),
+				Breaks: res.TrackBreaks,
+			},
+		}}
+	}
+	m.Debug("Identify2WithUID.run: running HandleChatIdentifyUpdate: %#v", update)
+	m.G().NotifyRouter.HandleChatIdentifyUpdate(m.Ctx(), update)
+
+	return nil
+}
+
 func (e *Identify2WithUID) run(m libkb.MetaContext) {
 	err := e.runReturnError(m)
-	e.unblock(m /* isFinal */, true, err)
+
+	if notifyChatErr := e.notifyChat(m, err); notifyChatErr != nil {
+		m.Warning("failed to notify chat of identify result: %s", notifyChatErr)
+	}
 
 	// always cancel IdentifyUI to allow clients to clean up.
 	// If no identifyUI was specified (because running the background)
 	// then don't do anything.
 	if m.UIs().IdentifyUI != nil {
-		m.UIs().IdentifyUI.Cancel(m)
+		err := m.UIs().IdentifyUI.Cancel(m)
+		if err != nil {
+			m.Debug("| error during cancel: %+v", err)
+		}
 	}
+	e.unblock(m, true /* isFinal */, err)
 }
 
 func (e *Identify2WithUID) hitFastCache(m libkb.MetaContext) bool {
@@ -378,7 +424,7 @@ func (e *Identify2WithUID) hitFastCache(m libkb.MetaContext) bool {
 
 func (e *Identify2WithUID) untrackedFastPath(m libkb.MetaContext) (ret bool) {
 
-	defer m.TraceOK("Identify2WithUID#untrackedFastPath", func() bool { return ret })()
+	defer m.Trace("Identify2WithUID#untrackedFastPath", nil)()
 
 	if !e.arg.IdentifyBehavior.CanUseUntrackedFastPath() {
 		m.Debug("| Can't use untracked fast path due to identify behavior %v", e.arg.IdentifyBehavior)
@@ -527,7 +573,7 @@ func (e *Identify2WithUID) runReturnError(m libkb.MetaContext) (err error) {
 	m = m.BackgroundWithLogTags()
 
 	if (!e.useTracking && !e.useRemoteAssertions() && e.allowEarlyOuts()) || e.arg.IdentifyBehavior.UnblockThenForceIDTable() {
-		e.unblock(m /* isFinal */, false, nil)
+		e.unblock(m, false /* isFinal */, nil /* err */)
 	}
 
 	return e.runIdentifyUI(m)
@@ -558,7 +604,10 @@ func (e *Identify2WithUID) maybeCacheSelf(m libkb.MetaContext) {
 	if e.getCache() != nil {
 		v, err := e.exportToResult(m)
 		if v != nil && err == nil {
-			e.getCache().Insert(v)
+			err := e.getCache().Insert(v)
+			if err != nil {
+				m.Debug("| error inserting: %+v", err)
+			}
 		}
 	}
 }
@@ -602,7 +651,10 @@ func (e *Identify2WithUID) maybeCacheResult(m libkb.MetaContext) {
 	if !isOK && !canCacheFailures {
 		m.Debug("| clearing cache due to failure")
 		uid := e.them.GetUID()
-		e.getCache().Delete(uid)
+		err := e.getCache().Delete(uid)
+		if err != nil {
+			m.Debug("| Error deleting uid: %+v", err)
+		}
 		if err := e.removeSlowCacheFromDB(m); err != nil {
 			m.Debug("| Error in removing slow cache from db: %s", err)
 		}
@@ -619,7 +671,11 @@ func (e *Identify2WithUID) maybeCacheResult(m libkb.MetaContext) {
 		m.Debug("| not caching; nil result")
 		return
 	}
-	e.getCache().Insert(v)
+	err = e.getCache().Insert(v)
+	if err != nil {
+		m.Debug("| error inserting: %+v", err)
+	}
+
 	m.VLogf(libkb.VLog1, "| insert %+v", v)
 
 	// Don't write failures to the disk cache
@@ -631,7 +687,7 @@ func (e *Identify2WithUID) maybeCacheResult(m libkb.MetaContext) {
 }
 
 func (e *Identify2WithUID) insertTrackToken(m libkb.MetaContext, outcome *libkb.IdentifyOutcome) (err error) {
-	defer m.Trace("Identify2WithUID#insertTrackToken", func() error { return err })()
+	defer m.Trace("Identify2WithUID#insertTrackToken", &err)()
 	e.trackToken, err = m.G().TrackCache().Insert(outcome)
 	if err != nil {
 		return err
@@ -787,7 +843,7 @@ func (e *Identify2WithUID) setupIdentifyUI(m libkb.MetaContext) libkb.MetaContex
 
 func (e *Identify2WithUID) runIdentifyUI(m libkb.MetaContext) (err error) {
 	n := fmt.Sprintf("+ runIdentifyUI(%s)", e.them.GetName())
-	defer m.Trace(n, func() error { return err })()
+	defer m.Trace(n, &err)()
 
 	// RemoteReceived, start with the baseProofSet that has PGP
 	// fingerprints and the user's UID and username.
@@ -828,7 +884,7 @@ func (e *Identify2WithUID) runIdentifyUI(m libkb.MetaContext) (err error) {
 		identifyTableMode = libkb.IdentifyTableModePassive
 	}
 
-	// When we get a callback from IDTabe().Identify, we don't get to thread our metacontext
+	// When we get a callback from IDTable().Identify, we don't get to thread our metacontext
 	// through (for now), so stash it in the this.
 	e.metaContext = m
 	if them.IDTable() == nil {
@@ -856,7 +912,10 @@ func (e *Identify2WithUID) runIdentifyUI(m libkb.MetaContext) (err error) {
 		return err
 	}
 
-	e.insertTrackToken(m, outcome)
+	err = e.insertTrackToken(m, outcome)
+	if err != nil {
+		m.Debug("| Error inserting track token: %+v", err)
+	}
 
 	if err = iui.Finish(m); err != nil {
 		m.Debug("| Failure in iui.Finish")
@@ -866,6 +925,8 @@ func (e *Identify2WithUID) runIdentifyUI(m libkb.MetaContext) (err error) {
 
 	err = e.checkRemoteAssertions([]keybase1.ProofState{keybase1.ProofState_OK})
 	e.maybeCacheResult(m)
+
+	m.Debug("| IdentifyUI: checked remote assertions (%s)", e.them.GetName())
 
 	if err == nil && !e.arg.NoErrorOnTrackFailure {
 		// We only care about tracking errors in this case; hence GetErrorLax
@@ -884,7 +945,7 @@ func (e *Identify2WithUID) forceRemoteCheck() bool {
 }
 
 func (e *Identify2WithUID) createIdentifyState(m libkb.MetaContext) (err error) {
-	defer m.Trace("createIdentifyState", func() error { return err })()
+	defer m.Trace("createIdentifyState", &err)()
 	var them *libkb.User
 	them, err = e.them.User(e.getCache())
 	if err != nil {
@@ -1026,7 +1087,7 @@ func (e *Identify2WithUID) loadUsers(m libkb.MetaContext) (err error) {
 
 func (e *Identify2WithUID) checkFastCacheHit(m libkb.MetaContext) (hit bool) {
 	prfx := fmt.Sprintf("Identify2WithUID#checkFastCacheHit(%s)", e.arg.Uid)
-	defer m.ExitTraceOK(prfx, func() bool { return hit })()
+	defer m.Trace(prfx, nil)()
 	if e.getCache() == nil {
 		return false
 	}
@@ -1056,7 +1117,7 @@ func (e *Identify2WithUID) dbKey(them keybase1.UID) libkb.DbKey {
 }
 
 func (e *Identify2WithUID) loadSlowCacheFromDB(m libkb.MetaContext) (ret *keybase1.Identify2ResUPK2) {
-	defer m.ExitTraceOK("Identify2WithUID#loadSlowCacheFromDB", func() bool { return ret != nil })()
+	defer m.Trace("Identify2WithUID#loadSlowCacheFromDB", nil)()
 
 	if e.getCache() != nil && !e.getCache().UseDiskCache() {
 		m.Debug("| Disk cached disabled")
@@ -1097,7 +1158,7 @@ func (e *Identify2WithUID) loadSlowCacheFromDB(m libkb.MetaContext) (ret *keybas
 // Thus, after a cold boot, we don't start up with a cold identify cache.
 func (e *Identify2WithUID) storeSlowCacheToDB(m libkb.MetaContext) (err error) {
 	prfx := fmt.Sprintf("Identify2WithUID#storeSlowCacheToDB(%s)", e.them.GetUID())
-	defer e.G().ExitTrace(prfx, func() error { return err })()
+	defer e.G().Trace(prfx, &err)()
 	if e.me == nil {
 		m.Debug("not storing to persistent slow cache since no me user")
 		return nil
@@ -1112,7 +1173,7 @@ func (e *Identify2WithUID) storeSlowCacheToDB(m libkb.MetaContext) (err error) {
 // Remove (themUID) from the identify cache, if they're there.
 func (e *Identify2WithUID) removeSlowCacheFromDB(m libkb.MetaContext) (err error) {
 	prfx := fmt.Sprintf("Identify2WithUID#removeSlowCacheFromDB(%s)", e.them.GetUID())
-	defer e.G().Trace(prfx, func() error { return err })()
+	defer e.G().Trace(prfx, &err)()
 	if e.me == nil {
 		m.Debug("not removing from persistent slow cache since no me user")
 		return nil
@@ -1124,7 +1185,7 @@ func (e *Identify2WithUID) removeSlowCacheFromDB(m libkb.MetaContext) (err error
 
 func (e *Identify2WithUID) checkSlowCacheHit(m libkb.MetaContext) (ret bool) {
 	prfx := fmt.Sprintf("Identify2WithUID#checkSlowCacheHit(%s)", e.them.GetUID())
-	defer m.ExitTraceOK(prfx, func() bool { return ret })()
+	defer m.Trace(prfx, nil)()
 
 	if e.getCache() == nil {
 		return false
@@ -1170,7 +1231,10 @@ func (e *Identify2WithUID) checkSlowCacheHit(m libkb.MetaContext) (ret bool) {
 
 	// Update so that it hits the fast cache the next time
 	u.Upk.Uvv.CachedAt = keybase1.ToTime(e.getNow(m))
-	e.getCache().Insert(u)
+	err = e.getCache().Insert(u)
+	if err != nil {
+		m.Debug("| error on insert: %+v", err)
+	}
 	return true
 }
 
@@ -1257,6 +1321,7 @@ func (e *Identify2WithUID) maybeNotify(mctx libkb.MetaContext, explanation strin
 		// This check is needed because ActLoggedOut causes the untracked fast path
 		// to succeed even when the true active user is tracking the identifyee.
 		mctx.Debug("Identify2WithUID.maybeNotify(%v, %v) nope missing ME", target, explanation)
+		return
 	}
 	if target.IsNil() {
 		mctx.Debug("Identify2WithUID.maybeNotify(%v, %v) nope missing UID", target, explanation)

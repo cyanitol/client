@@ -2,40 +2,49 @@ import * as React from 'react'
 import * as Kb from '../../../../common-adapters'
 import * as Styles from '../../../../styles'
 import UserNotice from '../user-notice'
-import SystemMessageTimestamp from '../system-message-timestamp'
+import * as TeamTypes from '../../../../constants/types/teams'
+import {typeToLabel} from '../../../../constants/teams'
+import {getAddedUsernames} from '../system-users-added-to-conv'
+import {indefiniteArticle} from '../../../../util/string'
 
 type Props = {
-  isAdmin: boolean
   addee: string
   adder: string
-  onManageChannels: () => void
+  bulkAdds: Array<string>
+  role: TeamTypes.MaybeTeamRoleType
   onManageNotifications: () => void
+  onViewBot: () => void
   onViewTeam: () => void
+  isTeam: boolean
   teamname: string
   timestamp: number
   you: string
+  isAdmin: boolean
 }
 
-const connectedUsernamesProps = {
-  colorFollowing: true,
-  inline: true,
-  onUsernameClicked: 'profile',
-  type: 'BodySmallSemibold',
-  underline: true,
-} as const
+const isBot = (role: TeamTypes.MaybeTeamRoleType) => {
+  return role === 'bot' || role === 'restrictedbot'
+}
 
 const ManageComponent = (props: Props) => {
   const textType = 'BodySmallSemiboldPrimaryLink'
+  const bot = isBot(props.role)
+  if (!props.isTeam && !bot) {
+    return null
+  }
   if (props.addee === props.you) {
     return (
-      <Kb.Box style={{...Styles.globalStyles.flexBoxColumn, alignItems: 'center'}}>
-        <Kb.Text onClick={props.onManageNotifications} type={textType} center={true}>
+      <Kb.Box style={{...Styles.globalStyles.flexBoxColumn}}>
+        <Kb.Text onClick={props.onManageNotifications} type={textType}>
           Manage phone and computer notifications
         </Kb.Text>
-        <Kb.Text onClick={props.onManageChannels} type={textType}>
-          Browse other channels
-        </Kb.Text>
       </Kb.Box>
+    )
+  } else if (bot) {
+    return (
+      <Kb.Text onClick={props.onViewBot} type={textType}>
+        View bot settings
+      </Kb.Text>
     )
   } else if (props.isAdmin) {
     return (
@@ -53,45 +62,39 @@ const ManageComponent = (props: Props) => {
 }
 
 const youOrUsername = (props: {username: string; you: string; capitalize: boolean; adder?: string}) => {
-  if (props.adder === props.you) return 'yourself'
+  if (props.adder === props.you) return 'yourself '
   if (props.username === props.you) {
-    return props.capitalize ? 'You' : 'you'
+    return props.capitalize ? 'You ' : 'you '
   }
-  return <Kb.ConnectedUsernames {...connectedUsernamesProps} usernames={[props.username]} />
+  return ''
 }
 
 const AddedToTeam = (props: Props) => {
+  const role = props.role !== 'none' && isBot(props.role) ? typeToLabel[props.role].toLowerCase() : null
   if (props.addee === props.you) {
     return <YouAddedToTeam {...props} />
   }
   return (
-    <Kb.Text type="BodySmall" style={{flex: 1}}>
-      was added by {youOrUsername({capitalize: false, username: props.adder, you: props.you})}.{' '}
-      <ManageComponent {...props} />
-    </Kb.Text>
+    <UserNotice>
+      <Kb.Text type="BodySmall">
+        {youOrUsername({capitalize: true, username: props.adder, you: props.you})}added{' '}
+        {getAddedUsernames(props.bulkAdds.length === 0 ? [props.addee] : props.bulkAdds)}
+        {props.isTeam && ' to the team'}
+        {role && ` as ${indefiniteArticle(role)} ${role}`}. <ManageComponent {...props} />
+      </Kb.Text>
+    </UserNotice>
   )
 }
 
 const YouAddedToTeam = (props: Props) => {
-  const {teamname, you, onViewTeam, adder, addee, timestamp} = props
+  const {teamname, you, onViewTeam, adder, addee, role} = props
   return (
-    <UserNotice
-      style={{marginTop: Styles.globalMargins.small}}
-      teamname={teamname}
-      bgColor={Styles.globalColors.blueLighter2}
-      onClickAvatar={onViewTeam}
-    >
-      <Kb.Icon type="icon-team-sparkles-64-40" style={{height: 40, marginTop: -36, width: 64}} />
-      <SystemMessageTimestamp timestamp={timestamp} />
-      <Kb.Box style={{...Styles.globalStyles.flexBoxColumn, alignItems: 'center'}}>
-        <Kb.Text
-          type="BodySmallSemibold"
-          center={true}
-          negative={true}
-          style={{color: Styles.globalColors.black_50}}
-        >
-          {youOrUsername({capitalize: true, username: adder, you})} added{' '}
-          {youOrUsername({adder, capitalize: false, username: addee, you})} to{' '}
+    <UserNotice>
+      <Kb.Text type="BodySmall">
+        {youOrUsername({capitalize: true, username: adder, you})}added{' '}
+        {youOrUsername({adder, capitalize: false, username: addee, you})}
+        {teamname && ` to `}
+        {teamname && (
           <Kb.Text
             onClick={onViewTeam}
             style={{color: Styles.globalColors.black_50}}
@@ -99,18 +102,13 @@ const YouAddedToTeam = (props: Props) => {
           >
             {teamname}
           </Kb.Text>
-          .{' '}
-          <Kb.Text type="BodySmallSemibold">
-            Say hi!{' '}
-            <Kb.EmojiIfExists
-              style={Styles.isMobile ? {display: 'inline-block'} : null}
-              emojiName=":wave:"
-              size={14}
-            />
-          </Kb.Text>
-        </Kb.Text>
-        <ManageComponent {...props} />
-      </Kb.Box>
+        )}
+        {role !== 'none' &&
+          typeToLabel[role] &&
+          ` as ${indefiniteArticle(props.role)} ${typeToLabel[role].toLowerCase()}`}
+        .
+      </Kb.Text>
+      <ManageComponent {...props} />
     </UserNotice>
   )
 }

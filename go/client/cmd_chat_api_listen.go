@@ -21,8 +21,7 @@ import (
 type CmdChatAPIListen struct {
 	libkb.Contextified
 
-	showLocal       bool
-	hideExploding   bool
+	chatConfig      chatNotificationConfig
 	subscribeDev    bool
 	subscribeWallet bool
 	channelFilters  []ChatChannel
@@ -49,6 +48,10 @@ func newCmdChatAPIListen(cl *libcmdline.CommandLine, g *libkb.GlobalContext) cli
 				Usage: "Hide exploding messages",
 			},
 			cli.BoolFlag{
+				Name:  "convs",
+				Usage: "Subscribe to notifications of new conversations",
+			},
+			cli.BoolFlag{
 				Name:  "dev",
 				Usage: "Subscribe to notifications for chat dev channels",
 			},
@@ -65,7 +68,7 @@ func newCmdChatAPIListen(cl *libcmdline.CommandLine, g *libkb.GlobalContext) cli
 				Usage: "Only show notifications for specified list of channels.",
 			},
 		},
-		Description: `"keybase chat api-listen" is a command that will print incoming chat messages or
+		Description: `"keybase chat api-listen" is a command that will print incoming chat messages, conversation, or
    wallet notifications until it's exited. Messages are printed to standard output in
    a JSON format similar to the format used in "keybase chat api" command.
 
@@ -91,8 +94,11 @@ func (c *CmdChatAPIListen) ParseArgv(ctx *cli.Context) error {
 		return err
 	}
 
-	c.hideExploding = ctx.Bool("hide-exploding")
-	c.showLocal = ctx.Bool("local")
+	c.chatConfig = chatNotificationConfig{
+		showNewConvs:  ctx.Bool("convs"),
+		showLocal:     ctx.Bool("local"),
+		hideExploding: ctx.Bool("hide-exploding"),
+	}
 	c.subscribeDev = ctx.Bool("dev")
 	c.subscribeWallet = ctx.Bool("wallet")
 
@@ -137,7 +143,7 @@ func sendPing(cli keybase1.SessionClient) error {
 }
 
 func (c *CmdChatAPIListen) ErrWriteLn(format string, obj ...interface{}) {
-	c.G().UI.GetTerminalUI().ErrorWriter().Write([]byte(fmt.Sprintf(format, obj...) + "\n"))
+	_, _ = c.G().UI.GetTerminalUI().ErrorWriter().Write([]byte(fmt.Sprintf(format, obj...) + "\n"))
 }
 
 func (c *CmdChatAPIListen) Run() error {
@@ -146,8 +152,7 @@ func (c *CmdChatAPIListen) Run() error {
 		return err
 	}
 
-	chatDisplay := newChatNotificationDisplay(c.G(), c.showLocal, c.hideExploding)
-
+	chatDisplay := newChatNotificationDisplay(c.G(), c.chatConfig)
 	if err := chatDisplay.setupFilters(context.TODO(), c.channelFilters); err != nil {
 		return err
 	}
@@ -183,10 +188,16 @@ func (c *CmdChatAPIListen) Run() error {
 		return err
 	}
 	errWriter := c.G().UI.GetTerminalUI().ErrorWriter()
-	errWriter.Write([]byte(fmt.Sprintf("Listening for chat notifications. Config: hideExploding: %v, showLocal: %v, subscribeDevChannels: %v\n",
-		c.hideExploding, c.showLocal, c.subscribeDev)))
+	_, err = errWriter.Write([]byte(fmt.Sprintf("Listening for chat notifications. Config: %+v, subscribeDevChannels: %v\n",
+		c.chatConfig, c.subscribeDev)))
+	if err != nil {
+		return err
+	}
 	if c.subscribeWallet {
-		errWriter.Write([]byte("Listening for wallet notifications\n"))
+		_, err := errWriter.Write([]byte("Listening for wallet notifications\n"))
+		if err != nil {
+			return err
+		}
 	}
 
 	for {
@@ -223,8 +234,8 @@ func (d *baseNotificationDisplay) errorf(format string, args ...interface{}) err
 
 func (d *baseNotificationDisplay) printJSON(data interface{}) {
 	if jsonStr, err := json.Marshal(data); err != nil {
-		d.errorf("Error while marshaling JSON: %s\n", err)
+		_ = d.errorf("Error while marshaling JSON: %s\n", err)
 	} else {
-		d.printf("%s\n", string(jsonStr))
+		_ = d.printf("%s\n", string(jsonStr))
 	}
 }

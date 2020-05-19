@@ -47,6 +47,8 @@ func (a *MobileAppState) updateLocked(state keybase1.MobileAppState) {
 	if a.state != state {
 		a.G().Log.Debug("MobileAppState.Update: useful update: %v, we are currently in state: %v",
 			state, a.state)
+		a.G().PerfLog.Debug("MobileAppState.Update: useful update: %v, we are currently in state: %v",
+			state, a.state)
 		a.state = state
 		t := time.Now()
 		a.mtime = &t // only update mtime if we're changing state
@@ -59,6 +61,8 @@ func (a *MobileAppState) updateLocked(state keybase1.MobileAppState) {
 		switch a.state {
 		case keybase1.MobileAppState_BACKGROUND:
 			a.G().RPCCanceler.CancelLiveContexts(RPCCancelerReasonBackground)
+		default:
+			// Nothing to do for other states.
 		}
 	} else {
 		a.G().Log.Debug("MobileAppState.Update: ignoring update: %v, we are currently in state: %v",
@@ -68,7 +72,7 @@ func (a *MobileAppState) updateLocked(state keybase1.MobileAppState) {
 
 func (a *MobileAppState) UpdateWithCheck(state keybase1.MobileAppState,
 	check func(keybase1.MobileAppState) bool) {
-	defer a.G().Trace(fmt.Sprintf("MobileAppState.UpdateWithCheck(%v)", state), func() error { return nil })()
+	defer a.G().Trace(fmt.Sprintf("MobileAppState.UpdateWithCheck(%v)", state), nil)()
 	a.Lock()
 	defer a.Unlock()
 	if check(a.state) {
@@ -80,7 +84,7 @@ func (a *MobileAppState) UpdateWithCheck(state keybase1.MobileAppState,
 
 // Update updates the current app state, and notifies any waiting calls from NextUpdate
 func (a *MobileAppState) Update(state keybase1.MobileAppState) {
-	defer a.G().Trace(fmt.Sprintf("MobileAppState.Update(%v)", state), func() error { return nil })()
+	defer a.G().Trace(fmt.Sprintf("MobileAppState.Update(%v)", state), nil)()
 	a.Lock()
 	defer a.Unlock()
 	a.updateLocked(state)
@@ -133,7 +137,7 @@ func (a *MobileNetState) NextUpdate(lastState *keybase1.MobileNetworkState) chan
 // Update updates the current network state, and notifies any waiting calls
 // from NextUpdate
 func (a *MobileNetState) Update(state keybase1.MobileNetworkState) {
-	defer a.G().Trace(fmt.Sprintf("MobileNetState.Update(%v)", state), func() error { return nil })()
+	defer a.G().Trace(fmt.Sprintf("MobileNetState.Update(%v)", state), nil)()
 	a.Lock()
 	defer a.Unlock()
 	if a.state != state {
@@ -169,7 +173,15 @@ type DesktopAppState struct {
 }
 
 func NewDesktopAppState(g *GlobalContext) *DesktopAppState {
-	return &DesktopAppState{Contextified: NewContextified(g)}
+	d := &DesktopAppState{Contextified: NewContextified(g)}
+	g.PushShutdownHook(func(mctx MetaContext) error {
+		d.Lock()
+		defer d.Unlock()
+		// reset power state on shutdown
+		d.resetLocked()
+		return nil
+	})
+	return d
 }
 
 func (a *DesktopAppState) NextSuspendUpdate(lastState *bool) chan bool {
@@ -218,8 +230,7 @@ func (a *DesktopAppState) Disconnected(provider rpc.Transporter) {
 		a.provider = nil
 		// The connection to electron has been severed. We won't get any more power
 		// status updates from it. So act as though the machine is on in the default state.
-		a.suspended = false
-		a.locked = false
+		a.resetLocked()
 	}
 }
 
@@ -227,4 +238,9 @@ func (a *DesktopAppState) AwakeAndUnlocked(mctx MetaContext) bool {
 	a.Lock()
 	defer a.Unlock()
 	return !a.suspended && !a.locked
+}
+
+func (a *DesktopAppState) resetLocked() {
+	a.suspended = false
+	a.locked = false
 }

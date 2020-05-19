@@ -14,7 +14,7 @@ import (
 )
 
 func CreateImplicitTeam(ctx context.Context, g *libkb.GlobalContext, impTeam keybase1.ImplicitTeamDisplayName) (res keybase1.TeamID, teamName keybase1.TeamName, err error) {
-	defer g.CTrace(ctx, "CreateImplicitTeam", func() error { return err })()
+	defer g.CTrace(ctx, "CreateImplicitTeam", &err)()
 
 	teamName, err = NewImplicitTeamName()
 	if err != nil {
@@ -98,11 +98,12 @@ func CreateImplicitTeam(ctx context.Context, g *libkb.GlobalContext, impTeam key
 	}
 
 	members := SCTeamMembers{
-		Owners:  &[]SCTeamMember{},
-		Admins:  &[]SCTeamMember{},
-		Writers: &[]SCTeamMember{},
-		Readers: &[]SCTeamMember{},
-		Bots:    &[]SCTeamMember{},
+		Owners:         &[]SCTeamMember{},
+		Admins:         &[]SCTeamMember{},
+		Writers:        &[]SCTeamMember{},
+		Readers:        &[]SCTeamMember{},
+		Bots:           &[]SCTeamMember{},
+		RestrictedBots: &[]SCTeamMember{},
 	}
 	if len(owners) > 0 {
 		members.Owners = &owners
@@ -151,7 +152,7 @@ func makeSigAndPostRootTeam(ctx context.Context, g *libkb.GlobalContext, me libk
 	invites *SCTeamInvites, secretboxRecipients map[keybase1.UserVersion]keybase1.PerUserKey, name string,
 	teamID keybase1.TeamID, public, implicit bool, settings *SCTeamSettings, merkleRoot libkb.MerkleRoot) (err error) {
 	mctx := libkb.NewMetaContext(ctx, g)
-	defer g.Trace("makeSigAndPostRootTeam", func() error { return err })()
+	defer g.Trace("makeSigAndPostRootTeam", &err)()
 	mctx.Debug("makeSigAndPostRootTeam get device keys")
 	deviceSigningKey, err := mctx.G().ActiveDevice.SigningKey()
 	if err != nil {
@@ -215,7 +216,10 @@ func makeSigAndPostRootTeam(ctx context.Context, g *libkb.GlobalContext, me libk
 	// accidentally capture different global state (like ctime and merkle
 	// seqno).
 	sigBodyAfterReverse := sigBodyBeforeReverse
-	sigBodyAfterReverse.SetValueAtPath("body.team.per_team_key.reverse_sig", jsonw.NewString(reverseSig))
+	err = sigBodyAfterReverse.SetValueAtPath("body.team.per_team_key.reverse_sig", jsonw.NewString(reverseSig))
+	if err != nil {
+		return err
+	}
 
 	sigJSONAfterReverse, err := sigBodyAfterReverse.Marshal()
 	if err != nil {
@@ -276,7 +280,7 @@ func makeSigAndPostRootTeam(ctx context.Context, g *libkb.GlobalContext, me libk
 }
 
 func CreateRootTeam(ctx context.Context, g *libkb.GlobalContext, nameString string, settings keybase1.TeamSettings) (res *keybase1.TeamID, err error) {
-	defer g.CTraceTimed(ctx, "CreateRootTeam", func() error { return err })()
+	defer g.CTrace(ctx, "CreateRootTeam", &err)()
 
 	perUserKeyUpgradeSoft(ctx, g, "create-root-team")
 
@@ -308,11 +312,12 @@ func CreateRootTeam(ctx context.Context, g *libkb.GlobalContext, nameString stri
 	}
 
 	members := SCTeamMembers{
-		Owners:  &[]SCTeamMember{SCTeamMember(me.ToUserVersion())},
-		Admins:  &[]SCTeamMember{},
-		Writers: &[]SCTeamMember{},
-		Readers: &[]SCTeamMember{},
-		Bots:    &[]SCTeamMember{},
+		Owners:         &[]SCTeamMember{SCTeamMember(me.ToUserVersion())},
+		Admins:         &[]SCTeamMember{},
+		Writers:        &[]SCTeamMember{},
+		Readers:        &[]SCTeamMember{},
+		Bots:           &[]SCTeamMember{},
+		RestrictedBots: &[]SCTeamMember{},
 	}
 
 	var scSettings *SCTeamSettings
@@ -333,7 +338,7 @@ func CreateRootTeam(ctx context.Context, g *libkb.GlobalContext, nameString stri
 
 func CreateSubteam(ctx context.Context, g *libkb.GlobalContext, subteamBasename string,
 	parentName keybase1.TeamName, addSelfAs keybase1.TeamRole) (ret *keybase1.TeamID, err error) {
-	defer g.CTrace(ctx, "CreateSubteam", func() error { return err })()
+	defer g.CTrace(ctx, "CreateSubteam", &err)()
 	mctx := libkb.NewMetaContext(ctx, g)
 
 	subteamName, err := parentName.Append(subteamBasename)
@@ -512,15 +517,16 @@ func generateHeadSigForSubteamChain(ctx context.Context, g *libkb.GlobalContext,
 	}
 
 	members := SCTeamMembers{
-		Owners:  &[]SCTeamMember{},
-		Admins:  &[]SCTeamMember{},
-		Writers: &[]SCTeamMember{},
-		Readers: &[]SCTeamMember{},
-		Bots:    &[]SCTeamMember{},
+		Owners:         &[]SCTeamMember{},
+		Admins:         &[]SCTeamMember{},
+		Writers:        &[]SCTeamMember{},
+		Readers:        &[]SCTeamMember{},
+		Bots:           &[]SCTeamMember{},
+		RestrictedBots: &[]SCTeamMember{},
 	}
 
 	memSet := newMemberSet()
-	_, err = memSet.loadGroup(ctx, g, allParentAdmins, true /* store recipients */, true /* force poll */)
+	_, err = memSet.loadGroup(ctx, g, allParentAdmins, storeMemberKindRecipient, true /* force poll */)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -529,6 +535,8 @@ func generateHeadSigForSubteamChain(ctx context.Context, g *libkb.GlobalContext,
 		meUV := me.ToUserVersion()
 		memList := []SCTeamMember{SCTeamMember(meUV)}
 		switch addSelfAs {
+		case keybase1.TeamRole_BOT:
+			members.Bots = &memList
 		case keybase1.TeamRole_READER:
 			members.Readers = &memList
 		case keybase1.TeamRole_WRITER:
@@ -537,10 +545,13 @@ func generateHeadSigForSubteamChain(ctx context.Context, g *libkb.GlobalContext,
 			members.Admins = &memList
 		case keybase1.TeamRole_OWNER:
 			return nil, nil, errors.New("Cannot add self as owner to a subteam")
-		case keybase1.TeamRole_BOT:
-			return nil, nil, errors.New("Cannot add self as bot to a subteam")
+		case keybase1.TeamRole_RESTRICTEDBOT:
+			return nil, nil, errors.New("Cannot add self as restricted bot to a subteam")
 		}
-		memSet.loadMember(ctx, g, meUV, true /* store recipient */, false /* force poll */)
+		_, err := memSet.addMember(ctx, g, meUV, storeMemberKindRecipient, false /* force poll */)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	// These boxes will get posted along with the sig below.
@@ -593,7 +604,10 @@ func generateHeadSigForSubteamChain(ctx context.Context, g *libkb.GlobalContext,
 	// accidentally capture different global state (like ctime and merkle
 	// seqno).
 	subteamHeadSigBodyAfterReverse := subteamHeadSigBodyBeforeReverse
-	subteamHeadSigBodyAfterReverse.SetValueAtPath("body.team.per_team_key.reverse_sig", jsonw.NewString(reverseSig))
+	err = subteamHeadSigBodyAfterReverse.SetValueAtPath("body.team.per_team_key.reverse_sig", jsonw.NewString(reverseSig))
+	if err != nil {
+		return nil, nil, err
+	}
 
 	subteamHeadSigJSON, err := subteamHeadSigBodyAfterReverse.Marshal()
 	if err != nil {

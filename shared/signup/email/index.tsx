@@ -1,44 +1,48 @@
 import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
+import * as Platform from '../../constants/platform'
 import {SignupScreen, errorBanner} from '../common'
-import {ButtonType} from '../../common-adapters/button'
-import flags from '../../util/feature-flags'
 
-type Props = {
+export type Props = {
   error: string
-  initialEmail?: string
-  onBack?: () => void
-  onFinish: (email: string, allowSearch: boolean) => void
+  initialEmail: string
+  onCreate: (email: string, searchable: boolean) => void
   onSkip?: () => void
+  waiting: boolean
 }
-// Parts that are commented out allow skipping entering an email, we don't want
-// to allow skipping for now. TODO Y2K-57 allow skipping.
+
 const EnterEmail = (props: Props) => {
   const [email, onChangeEmail] = React.useState(props.initialEmail || '')
-  const [allowSearch, onChangeAllowSearch] = React.useState(true)
-  const disabled = !email
-  const onContinue = () => (disabled ? {} : props.onFinish(email, allowSearch))
+  const [searchable, onChangeSearchable] = React.useState(true)
+  const disabled = !email.trim()
+  const onContinue = () => (disabled ? {} : props.onCreate(email.trim(), searchable))
+
   return (
     <SignupScreen
       banners={errorBanner(props.error)}
       buttons={[
-        {disabled, label: 'Continue', onClick: onContinue, type: 'Success'},
-        ...(Styles.isMobile ? [] : []), // [{label: 'Skip for now', onClick: props.onSkip, type: 'Dim' as ButtonType}]),
+        {
+          disabled,
+          label: 'Finish',
+          onClick: onContinue,
+          type: 'Success',
+          waiting: props.waiting,
+        },
       ]}
       rightActionLabel="Skip"
-      onBack={props.onBack}
-      // onRightAction={props.onSkip}
+      onRightAction={props.onSkip}
       title="Your email address"
+      showHeaderInfoicon={true}
     >
       <EnterEmailBody
         onChangeEmail={onChangeEmail}
         onContinue={onContinue}
         email={email}
-        showAllowSearch={true}
-        allowSearch={allowSearch}
-        onChangeAllowSearch={onChangeAllowSearch}
-        icon={Styles.isMobile ? <Kb.Icon type="icon-email-add-96" style={styles.icon} /> : null}
+        showSearchable={true}
+        searchable={searchable}
+        onChangeSearchable={onChangeSearchable}
+        iconType={Platform.isLargeScreen ? 'icon-email-add-96' : 'icon-email-add-64'}
       />
     </SignupScreen>
   )
@@ -48,59 +52,50 @@ type BodyProps = {
   onChangeEmail: (email: string) => void
   onContinue: () => void
   email: string
-  allowSearch: boolean
-  onChangeAllowSearch: (allow: boolean) => void
-  showAllowSearch: boolean
-  icon: React.ReactNode
+  searchable: boolean
+  onChangeSearchable: (allow: boolean) => void
+  showSearchable: boolean
+  iconType: Kb.IconType
 }
 export const EnterEmailBody = (props: BodyProps) => (
-  <Kb.Box2
-    alignItems="center"
-    direction="vertical"
-    gap={Styles.isMobile ? 'small' : 'medium'}
-    fullWidth={true}
-    style={Styles.globalStyles.flexOne}
-  >
-    {props.icon}
-    <Kb.Box2 direction="vertical" gap="tiny" gapStart={Styles.isMobile} style={styles.inputBox}>
-      <Kb.NewInput
-        autoFocus={true}
-        containerStyle={styles.input}
-        keyboardType="email-address"
-        placeholder="Email address"
-        onChangeText={props.onChangeEmail}
-        onEnterKeyDown={props.onContinue}
-        textContentType="emailAddress"
-        value={props.email}
-      />
-      {props.showAllowSearch && flags.sbsContacts && (
-        <Kb.Checkbox
-          label="Allow friends to find you by this email address"
-          checked={props.allowSearch}
-          onCheck={props.onChangeAllowSearch}
-          style={styles.checkbox}
+  <Kb.ScrollView>
+    <Kb.Box2
+      alignItems="center"
+      direction="vertical"
+      gap={Styles.isMobile ? 'small' : 'medium'}
+      fullWidth={true}
+      style={Styles.globalStyles.flexOne}
+    >
+      <Kb.Icon type={props.iconType} />
+      <Kb.Box2 direction="vertical" gap="tiny" style={styles.inputBox}>
+        <Kb.LabeledInput
+          autoFocus={true}
+          containerStyle={styles.input}
+          keyboardType="email-address"
+          placeholder="Email address"
+          onChangeText={props.onChangeEmail}
+          onEnterKeyDown={props.onContinue}
+          textContentType="emailAddress"
+          value={props.email}
         />
-      )}
+        {props.showSearchable && (
+          <Kb.Checkbox
+            label="Allow friends to find you by this email address"
+            checked={props.searchable}
+            onCheck={props.onChangeSearchable}
+            style={styles.checkbox}
+          />
+        )}
+      </Kb.Box2>
     </Kb.Box2>
-  </Kb.Box2>
+  </Kb.ScrollView>
 )
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   checkbox: {width: '100%'},
-  icon: {
-    height: 96,
-    width: 96,
-  },
   input: Styles.platformStyles({
-    common: {},
     isElectron: {
-      ...Styles.padding(0, Styles.globalMargins.xsmall),
-      height: 38,
       width: 368,
-    },
-    isMobile: {
-      ...Styles.padding(0, Styles.globalMargins.small),
-      height: 48,
     },
   }),
   inputBox: Styles.platformStyles({
@@ -108,7 +103,10 @@ const styles = Styles.styleSheetCreate({
       // need to set width so subtext will wrap
       width: 368,
     },
+    isMobile: {
+      width: '100%',
+    },
   }),
-})
+}))
 
 export default EnterEmail

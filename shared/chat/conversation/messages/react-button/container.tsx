@@ -24,6 +24,7 @@ export type OwnProps = {
 export type WrapperProps = {
   active: boolean
   count: number
+  decorated: string
   emoji: string
   onAddReaction: (emoji: string) => void
   onClick: () => void
@@ -41,6 +42,7 @@ class Wrapper extends React.Component<WrapperProps> {
         count={props.count}
         getAttachmentRef={props.getAttachmentRef}
         emoji={props.emoji}
+        decorated={props.decorated}
         onClick={props.onClick}
         onLongPress={props.onLongPress}
         onMouseLeave={props.onMouseLeave}
@@ -65,28 +67,33 @@ class Wrapper extends React.Component<WrapperProps> {
 const noEmoji = {
   active: false,
   count: 0,
+  decorated: '',
   emoji: '',
 }
 
-const mapStateToProps = (state, ownProps: OwnProps) => {
-  const me = state.config.username || ''
+const mapStateToProps = (state: Container.TypedState, ownProps: OwnProps) => {
+  const me = state.config.username
   const message = Constants.getMessage(state, ownProps.conversationIDKey, ownProps.ordinal)
-  if (!message || message.type === 'placeholder' || message.type === 'deleted') {
+  if (!message || !Constants.isMessageWithReactions(message)) {
     return noEmoji
   }
   const reaction = message.reactions.get(ownProps.emoji || '')
   if (!reaction) {
     return noEmoji
   }
-  const active = reaction.some(r => r.username === me)
+  const active = [...reaction.users].some(r => r.username === me)
   return {
     active,
-    count: reaction.size,
+    count: reaction.users.size,
+    decorated: reaction.decorated,
     emoji: ownProps.emoji || '',
   }
 }
 
-const mapDispatchToProps = (dispatch, {conversationIDKey, emoji, ordinal}: OwnProps) => ({
+const mapDispatchToProps = (
+  dispatch: Container.TypedDispatch,
+  {conversationIDKey, emoji, ordinal}: OwnProps
+) => ({
   onAddReaction: (emoji: string) =>
     dispatch(Chat2Gen.createToggleMessageReaction({conversationIDKey, emoji, ordinal})),
   onClick: () =>
@@ -94,16 +101,21 @@ const mapDispatchToProps = (dispatch, {conversationIDKey, emoji, ordinal}: OwnPr
   onOpenEmojiPicker: () =>
     dispatch(
       RouteTreeGen.createNavigateAppend({
-        path: [{props: {conversationIDKey, ordinal}, selected: 'chatChooseEmoji'}],
+        path: [{props: {conversationIDKey, onPickAddToMessageOrdinal: ordinal}, selected: 'chatChooseEmoji'}],
       })
     ),
 })
 
-const mergeProps = (stateProps, dispatchProps, ownProps: OwnProps) => ({
+const mergeProps = (
+  stateProps: ReturnType<typeof mapStateToProps>,
+  dispatchProps: ReturnType<typeof mapDispatchToProps>,
+  ownProps: OwnProps
+) => ({
   active: stateProps.active,
   className: ownProps.className,
   conversationIDKey: ownProps.conversationIDKey,
   count: stateProps.count,
+  decorated: stateProps.decorated,
   emoji: stateProps.emoji,
   getAttachmentRef: ownProps.getAttachmentRef,
   onAddReaction: dispatchProps.onAddReaction,

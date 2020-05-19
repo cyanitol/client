@@ -6,20 +6,22 @@
 //  Copyright © 2016 Keybase. All rights reserved.
 //
 #import "AppDelegate.h"
-#import <AVFoundation/AVFoundation.h> 
+#import <AVFoundation/AVFoundation.h>
 #import <React/RCTPushNotificationManager.h>
 #import <React/RCTBundleURLProvider.h>
-#import <React/RCTRootView.h>
+#import "AppearanceRootView.h"
 #import "Engine.h"
 #import "LogSend.h"
 #import <React/RCTLinkingManager.h>
 #import <keybase/keybase.h>
 #import "Pusher.h"
 #import "Fs.h"
+#import "Storybook.h"
 
 #import <UMCore/UMModuleRegistry.h>
 #import <UMReactNativeAdapter/UMNativeModulesProxy.h>
 #import <UMReactNativeAdapter/UMModuleRegistryAdapter.h>
+#import <RNHWKeyboardEvent.h>
 
 @interface AppDelegate ()
 @property UIBackgroundTaskIdentifier backgroundTask;
@@ -71,10 +73,10 @@
   self.moduleRegistryAdapter = [[UMModuleRegistryAdapter alloc] initWithModuleRegistryProvider: [[UMModuleRegistryProvider alloc] init]];
 
   RCTBridge *bridge = [[RCTBridge alloc] initWithDelegate:self launchOptions:launchOptions];
-  RCTRootView *rootView = [[RCTRootView alloc] initWithBridge:bridge
+  AppearanceRootView *rootView = [[AppearanceRootView alloc] initWithBridge:bridge
                                                    moduleName:@"Keybase"
                                             initialProperties:nil];
-  rootView.backgroundColor = [[UIColor alloc] initWithRed:1.0f green:1.0f blue:1.0f alpha:1];
+  rootView.backgroundColor = [UIColor colorWithWhite:0.f alpha:0.f];
 
   self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
   UIViewController *rootViewController = [UIViewController new];
@@ -83,10 +85,27 @@
   [self.window makeKeyAndVisible];
 
   // To simplify the cover animation raciness
-  self.resignImageView = [[UIImageView alloc] initWithFrame:self.window.bounds];
+  
+  // With iPads, we had a bug with this resignImageView where if
+  // you backgrounded the app in portrait and then rotated to
+  // landscape while the app was in the background, the resignImageView
+  // in the snapshot would not be covering the entire app and would
+  // display content in the app.  The following code makes the
+  // image view a square in the largest dimensipn of the device so
+  // that when the iPad OS makes the snapshots the image view is
+  // covering in both orientations.
+  CGRect screenRect = [UIScreen mainScreen].bounds;
+  CGFloat dim = screenRect.size.width;
+  if (screenRect.size.height > dim) {
+    dim = screenRect.size.height;
+  }
+  CGRect square;
+  square = CGRectMake(screenRect.origin.x, screenRect.origin.y, dim, dim);
+  self.resignImageView = [[UIImageView alloc] initWithFrame:square];
+  
   self.resignImageView.contentMode = UIViewContentModeCenter;
   self.resignImageView.alpha = 0;
-  self.resignImageView.backgroundColor = [UIColor whiteColor];
+  self.resignImageView.backgroundColor = rootView.backgroundColor;
   [self.resignImageView setImage:[UIImage imageNamed:@"LaunchImage"]];
   [self.window addSubview:self.resignImageView];
 
@@ -102,7 +121,11 @@
 #if DEBUG
   // uncomment to get a prod bundle. If you set this it remembers so set it back and re-run to reset it!
 //  [[RCTBundleURLProvider sharedSettings] setEnableDev: false];
-  return [[RCTBundleURLProvider sharedSettings] jsBundleURLForBundleRoot:@"index" fallbackResource:nil];
+  
+  // This is a mildly hacky solution to mock out some code when we're in storybook mode.
+  // The code that handles this is in `shared/metro.config.js`.
+  NSString *bundlerURL = IS_STORYBOOK ? @"storybook-index" : @"normal-index";
+  return [[RCTBundleURLProvider sharedSettings] jsBundleURLForBundleRoot:bundlerURL fallbackResource:nil];
 #else
   return [[NSBundle mainBundle] URLForResource:@"main" withExtension:@"jsbundle"];
 #endif
@@ -128,36 +151,34 @@
 {
   [RCTPushNotificationManager didRegisterForRemoteNotificationsWithDeviceToken:deviceToken];
 }
-// Required for the registrationError event.
-- (void)application:(UIApplication *)application didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
-{
-  [RCTPushNotificationManager didFailToRegisterForRemoteNotificationsWithError:error];
-}
+
 // Required for the notification event.
 - (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)notification
 {
   [RCTPushNotificationManager didReceiveRemoteNotification:notification];
 }
+
 // Require for handling silent notifications
 - (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)notification fetchCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler {
   NSString* type = notification[@"type"];
+  NSString* body = notification[@"m"];
+  int badgeCount = [notification[@"b"] intValue];
+  int unixTime = [notification[@"x"] intValue];
+  NSString* soundName = notification[@"s"];
+  bool displayPlaintext = [notification[@"n"] boolValue];
+  int membersType = [notification[@"t"] intValue];
+  NSString* sender = notification[@"u"];
+  PushNotifier* pusher = [[PushNotifier alloc] init];
   if (type != nil && [type isEqualToString:@"chat.newmessageSilent_2"]) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^(void){
       NSError* err = nil;
       NSString* convID = notification[@"c"];
-      NSString* body = notification[@"m"];
-      int membersType = [notification[@"t"] intValue];
-      bool displayPlaintext = [notification[@"n"] boolValue];
       int messageID = [notification[@"d"] intValue];
       NSString* pushID = [notification[@"p"] objectAtIndex:0];
-      int badgeCount = [notification[@"b"] intValue];
-      int unixTime = [notification[@"x"] intValue];
-      NSString* soundName = notification[@"s"];
-      PushNotifier* pusher = [[PushNotifier alloc] init];
       // This always tries to unbox the notification and adds a plaintext
       // notification if displayPlaintext is set.
-      KeybaseHandleBackgroundNotification(convID, body, membersType, displayPlaintext,
-            messageID, pushID, badgeCount, unixTime, soundName, pusher, &err);
+      KeybaseHandleBackgroundNotification(convID, body, @"", sender, membersType, displayPlaintext,
+            messageID, pushID, badgeCount, unixTime, soundName, pusher, false, &err);
       if (err != nil) {
         NSLog(@"Failed to handle in engine: %@", err);
       }
@@ -165,18 +186,6 @@
       NSLog(@"Remote notification handle finished...");
     });
   } else if (type != nil && [type isEqualToString:@"chat.newmessage"]) {
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^(void){
-      NSError* err = nil;
-      NSString* convID = notification[@"convID"];
-      NSString* body = notification[@"m"];
-      int membersType = [notification[@"t"] intValue];
-      int messageID = [notification[@"msgID"] intValue];
-      KeybaseHandleBackgroundNotification(convID, body, membersType, false,
-                                          messageID, @"", 0, 0, @"", nil, &err);
-      if (err != nil) {
-        NSLog(@"Failed to handle in engine: %@", err);
-      }
-    });
     [RCTPushNotificationManager didReceiveRemoteNotification:notification];
     completionHandler(UIBackgroundFetchResultNewData);
   } else {
@@ -184,13 +193,16 @@
     completionHandler(UIBackgroundFetchResultNewData);
   }
 }
-
+// Required for the registrationError event.
+- (void)application:(UIApplication *)application didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
+{
+  [RCTPushNotificationManager didFailToRegisterForRemoteNotificationsWithError:error];
+}
 // Required for the localNotification event.
 - (void)application:(UIApplication *)application didReceiveLocalNotification:(UILocalNotification *)notification
 {
   [RCTPushNotificationManager didReceiveLocalNotification:notification];
 }
-
 - (void)applicationWillTerminate:(UIApplication *)application {
   self.window.rootViewController.view.hidden = YES;
   KeybaseAppWillExit([[PushNotifier alloc] init]);
@@ -302,6 +314,30 @@
   // You can inject any extra modules that you would like here, more information at:
   // https://facebook.github.io/react-native/docs/native-modules-ios.html#dependency-injection
   return extraModules;
+}
+
+RNHWKeyboardEvent *hwKeyEvent = nil;
+- (NSMutableArray<UIKeyCommand *> *)keyCommands {
+  NSMutableArray *keys = [NSMutableArray new];
+  if (hwKeyEvent == nil) {
+    hwKeyEvent = [[RNHWKeyboardEvent alloc] init];
+  }
+  if ([hwKeyEvent isListening]) {
+    [keys addObject: [UIKeyCommand keyCommandWithInput:@"\r" modifierFlags:0 action:@selector(sendEnter:)]];
+    [keys addObject: [UIKeyCommand keyCommandWithInput:@"\r" modifierFlags:UIKeyModifierShift action:@selector(sendShiftEnter:)]];
+  }
+  return keys;
+}
+
+- (void)sendEnter:(UIKeyCommand *)sender {
+  // Detects user pressing the enter key
+  NSString *selected = sender.input;
+  [hwKeyEvent sendHWKeyEvent:@"enter"];
+}
+- (void)sendShiftEnter:(UIKeyCommand *)sender {
+// Detects user pressing the shift-enter combination
+  NSString *selected = sender.input;
+  [hwKeyEvent sendHWKeyEvent:@"shift-enter"];
 }
 
 @end

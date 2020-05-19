@@ -4,9 +4,13 @@
 package libkb
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -14,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/keybase/go-framed-msgpack-rpc/rpc"
@@ -150,7 +155,7 @@ func NewClient(g *GlobalContext, config *ClientConfig, needCookie bool) (*Client
 			}
 		}
 	}
-	extraLog(nil, "api.Client:%v New", needCookie)
+	extraLog(context.TODO(), "api.Client:%v New", needCookie)
 	env := g.Env
 	var jar *cookiejar.Jar
 	if needCookie && (config == nil || config.UseCookies) && env.GetTorMode().UseCookies() {
@@ -233,7 +238,7 @@ func NewClient(g *GlobalContext, config *ClientConfig, needCookie bool) (*Client
 	if jar != nil {
 		ret.cli.Jar = jar
 	}
-	ret.cli.Transport = &xprt
+	ret.cli.Transport = NewInstrumentedRoundTripper(g, InstrumentationTagFromRequest, &xprt)
 	return ret, nil
 }
 
@@ -254,4 +259,117 @@ func ServerLookup(env *Env, mode RunMode) (string, error) {
 		return ProductionSiteURI, nil
 	}
 	return "", fmt.Errorf("Did not find a server to use with the current RunMode!")
+}
+
+type InstrumentedBody struct {
+	MetaContextified
+	record *rpc.NetworkInstrumenter
+	body   io.ReadCloser
+	// track how large the body is
+	n int
+	// uncompressed indicates if the body was compressed on the wire but
+	// uncompressed by the http library. In this case we recompress to
+	// instrument the gzipped size.
+	uncompressed bool
+	gzipBuf      bytes.Buffer
+	gzipGetter   func(io.Writer) (*gzip.Writer, func())
+}
+
+var _ io.ReadCloser = (*InstrumentedBody)(nil)
+
+func NewInstrumentedBody(mctx MetaContext, record *rpc.NetworkInstrumenter, body io.ReadCloser, uncompressed bool,
+	gzipGetter func(io.Writer) (*gzip.Writer, func())) *InstrumentedBody {
+	return &InstrumentedBody{
+		MetaContextified: NewMetaContextified(mctx),
+		record:           record,
+		body:             body,
+		gzipGetter:       gzipGetter,
+		uncompressed:     uncompressed,
+	}
+}
+
+func (b *InstrumentedBody) Read(p []byte) (n int, err error) {
+	n, err = b.body.Read(p)
+	b.n += n
+	if b.uncompressed && n > 0 {
+		if n, err := b.gzipBuf.Write(p[:n]); err != nil {
+			return n, err
+		}
+	}
+	return n, err
+}
+
+func (b *InstrumentedBody) Close() (err error) {
+	// instrument the full body size even if the caller hasn't consumed it.
+	_, _ = io.Copy(ioutil.Discard, b.body)
+	// Do actual instrumentation in the background
+	go func() {
+		if b.uncompressed {
+			// gzip the body we stored and instrument the compressed size
+			var buf bytes.Buffer
+			writer, reclaim := b.gzipGetter(&buf)
+			defer reclaim()
+			if _, err = writer.Write(b.gzipBuf.Bytes()); err != nil {
+				b.M().Debug("InstrumentedBody:unable to write gzip %v", err)
+				return
+			}
+			if err = writer.Close(); err != nil {
+				b.M().Debug("InstrumentedBody:unable to close gzip %v", err)
+				return
+			}
+			b.record.IncrementSize(int64(buf.Len()))
+		} else {
+			b.record.IncrementSize(int64(b.n))
+		}
+		if err := b.record.Finish(b.M().Ctx()); err != nil {
+			b.M().Debug("InstrumentedBody: unable to instrument network request: %s, %s", b.record, err)
+		}
+	}()
+	return b.body.Close()
+}
+
+type InstrumentedRoundTripper struct {
+	Contextified
+	RoundTripper http.RoundTripper
+	tagger       func(*http.Request) string
+	gzipPool     sync.Pool
+}
+
+var _ http.RoundTripper = (*InstrumentedRoundTripper)(nil)
+
+func NewInstrumentedRoundTripper(g *GlobalContext, tagger func(*http.Request) string, xprt http.RoundTripper) *InstrumentedRoundTripper {
+	return &InstrumentedRoundTripper{
+		Contextified: NewContextified(g),
+		RoundTripper: xprt,
+		tagger:       tagger,
+		gzipPool: sync.Pool{
+			New: func() interface{} {
+				return gzip.NewWriter(ioutil.Discard)
+			},
+		},
+	}
+}
+
+func (i *InstrumentedRoundTripper) getGzipWriter(writer io.Writer) (*gzip.Writer, func()) {
+	gzipWriter := i.gzipPool.Get().(*gzip.Writer)
+	gzipWriter.Reset(writer)
+	return gzipWriter, func() {
+		i.gzipPool.Put(gzipWriter)
+	}
+}
+
+func (i *InstrumentedRoundTripper) RoundTrip(req *http.Request) (resp *http.Response, err error) {
+	tags := LogTagsFromString(req.Header.Get("X-Keybase-Log-Tags"))
+	mctx := NewMetaContextTODO(i.G()).WithLogTags(tags)
+	record := rpc.NewNetworkInstrumenter(i.G().RemoteNetworkInstrumenterStorage, i.tagger(req))
+	resp, err = i.RoundTripper.RoundTrip(req)
+	record.EndCall()
+	if err != nil {
+		if rerr := record.Finish(mctx.Ctx()); rerr != nil {
+			mctx.Debug("InstrumentedTransport: unable to instrument network request %s, %s", record, rerr)
+		}
+		return resp, err
+	}
+	resp.Body = NewInstrumentedBody(mctx, record, resp.Body, resp.Uncompressed, i.getGzipWriter)
+	return resp, err
 }

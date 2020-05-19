@@ -197,6 +197,7 @@ func (tlf *TLF) Attr(ctx context.Context, a *fuse.Attr) error {
 // not, which can cause a tracker popup storm (see KBFS-2649).
 var tlfLoadAvoidingLookupNames = map[string]bool{
 	".localized": true,
+	"Contents":   true,
 }
 
 // Lookup implements the fs.NodeRequestLookuper interface for TLF.
@@ -287,6 +288,14 @@ func (tlf *TLF) Symlink(ctx context.Context, req *fuse.SymlinkRequest) (
 	return dir.Symlink(ctx, req)
 }
 
+var _ fs.NodeLinker = (*TLF)(nil)
+
+// Link implements the fs.NodeLinker interface for TLF.
+func (tlf *TLF) Link(
+	_ context.Context, _ *fuse.LinkRequest, _ fs.Node) (fs.Node, error) {
+	return nil, fuse.ENOTSUP
+}
+
 // Rename implements the fs.NodeRenamer interface for TLF.
 func (tlf *TLF) Rename(ctx context.Context, req *fuse.RenameRequest,
 	newDir fs.Node) error {
@@ -320,6 +329,8 @@ func (tlf *TLF) Forget() {
 	dir := tlf.getStoredDir()
 	if dir != nil {
 		dir.Forget()
+	} else {
+		tlf.folder.list.forgetFolder(string(tlf.folder.name()))
 	}
 }
 
@@ -358,4 +369,8 @@ func (tlf *TLF) Open(ctx context.Context, req *fuse.OpenRequest,
 		return nil, err
 	}
 	return tlf, nil
+}
+
+func (tlf *TLF) openFileCount() int64 {
+	return tlf.folder.openFileCount()
 }

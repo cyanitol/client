@@ -1,52 +1,50 @@
 import * as React from 'react'
-import Box from './box'
+import {Box2} from './box'
 import Text from './text'
-import {
-  globalColors,
-  globalStyles,
-  platformStyles,
-  collapseStyles,
-  styleSheetCreate,
-  StylesCrossPlatform,
-} from '../styles'
+import Icon from './icon'
+import {IconType} from './icon.constants-gen'
+import * as Styles from '../styles'
 
 type Props = {
-  title: string
-  style?: StylesCrossPlatform
+  title: string | number
+  style?: Styles.StylesCrossPlatform
   size?: 'Small'
   color?: string
   backgroundColor: string
   noUppercase?: boolean
+  icon?: IconType
+  iconColor?: Styles.Color
 }
 
 const Meta = (props: Props) => (
-  <Box
+  <Box2
+    alignSelf="flex-start"
+    alignItems="center"
+    direction={props.icon ? 'horizontal' : 'vertical'}
     pointerEvents="none"
-    style={collapseStyles([
+    style={Styles.collapseStyles([
       styles.container,
       props.backgroundColor && {backgroundColor: props.backgroundColor},
       props.style,
       props.size === 'Small' && styles.containerSmall,
     ])}
   >
+    {!!props.icon && <Icon color={props.iconColor} sizeType="Small" style={styles.icon} type={props.icon} />}
     <Text
-      type="BodyTinyBold"
-      style={collapseStyles([
+      type={typeof props.title === 'number' ? 'BodySmallBold' : 'BodyTinyBold'}
+      style={Styles.collapseStyles([
         styles.text,
         props.color && {color: props.color},
         props.size === 'Small' && styles.textSmall,
       ])}
     >
-      {props.noUppercase ? props.title : props.title.toUpperCase()}
+      {props.noUppercase || typeof props.title === 'number' ? props.title : props.title.toUpperCase()}
     </Text>
-  </Box>
+  </Box2>
 )
 
-const styles = styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   container: {
-    ...globalStyles.flexBoxColumn,
-    alignItems: 'center',
-    alignSelf: 'flex-start',
     borderRadius: 2,
     paddingLeft: 3,
     paddingRight: 3,
@@ -55,9 +53,12 @@ const styles = styleSheetCreate({
     paddingLeft: 2,
     paddingRight: 2,
   },
-  text: platformStyles({
+  icon: {
+    paddingRight: Styles.globalMargins.xtiny,
+  },
+  text: Styles.platformStyles({
     common: {
-      color: globalColors.white,
+      color: Styles.globalColors.white,
       marginBottom: -1,
       marginTop: -1,
     },
@@ -65,7 +66,7 @@ const styles = styleSheetCreate({
       fontSize: 12,
     },
   }),
-  textSmall: platformStyles({
+  textSmall: Styles.platformStyles({
     isElectron: {
       fontSize: 10,
     },
@@ -73,6 +74,6 @@ const styles = styleSheetCreate({
       fontSize: 11,
     },
   }),
-})
+}))
 
 export default Meta

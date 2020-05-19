@@ -1,66 +1,83 @@
-import * as I from 'immutable'
 import * as RPCChatTypes from '../../../../constants/types/rpc-chat-gen'
 import * as Types from '../../../../constants/types/chat2'
+import * as TeamTypes from '../../../../constants/types/teams'
 import {PlainInput} from '../../../../common-adapters'
 
 type CommonProps = {
+  botRestrictMap?: Map<string, boolean>
   cannotWrite: boolean | null
+  clearInboxFilter: () => void
   conversationIDKey: Types.ConversationIDKey
+  editText: string
+  explodingModeSeconds: number
+  focusInputCounter: number
+  getUnsentText: () => string
+  inputHintText?: string
   isEditExploded: boolean
   isEditing: boolean
   isExploding: boolean
   isSearching: boolean
-  explodingModeSeconds: number
-  focusInputCounter: number
-  clearInboxFilter: () => void
-  minWriterRole: string
+  maxInputArea?: number
+  minWriterRole: TeamTypes.TeamRoleType
   onAttach: (paths: Array<string>) => void
-  onEditLastMessage: () => void
   onCancelEditing: () => void
   onCancelReply: () => void
+  onEditLastMessage: () => void
   onFilePickerError: (error: Error) => void
+  onGiphyToggle: () => void
   onRequestScrollDown: () => void
   onRequestScrollUp: () => void
   onSubmit: (text: string) => void
+  onChannelSuggestionsTriggered: () => void
+  onFetchEmoji: () => void
+  prependText: string | null
+  quoteCounter: number
+  quoteText: string
+  sendTyping: (typing: boolean) => void
+  setUnsentText: (text: string) => void
   showCommandMarkdown: boolean
   showCommandStatus: boolean
   showGiphySearch: boolean
   showReplyPreview: boolean
   showTypingStatus: boolean
   showWalletsIcon: boolean
-  editText: string
-  quoteCounter: number
-  quoteText: string
-  getUnsentText: () => string
-  setUnsentText: (text: string) => void
-  sendTyping: (typing: boolean) => void
+  unsentText: string | null
   unsentTextChanged: (text: string) => void
-  unsentTextRefresh: boolean
 }
 
 export type InputProps = {
+  infoPanelShowing: boolean
   isActiveForFocus: boolean
   suggestTeams: Array<{
     username: string
     fullName: string
     teamname: string
   }>
-  suggestUsers: I.List<{
+  suggestUsers: Array<{
     username: string
     fullName: string
     teamname?: string
   }>
-  suggestChannels: I.List<string>
-  suggestAllChannels: I.List<{
+  suggestChannels: Array<{
+    channelname: string
+    teamname?: string
+  }>
+  suggestChannelsLoading: boolean
+  suggestAllChannels: Array<{
     teamname: string
     channelname: string
   }>
   suggestCommands: Array<RPCChatTypes.ConversationCommand>
+  suggestBotCommands: Array<RPCChatTypes.ConversationCommand>
+  suggestBotCommandsUpdateStatus: RPCChatTypes.UIBotCommandsUpdateStatusTyp
+  userEmojis?: Array<RPCChatTypes.Emoji>
+  userEmojisLoading: boolean
 } & CommonProps
 
 export type PlatformInputProps = {
   inputSetRef: (r: null | PlainInput) => void
   onChangeText: (newText: string) => void
-  onKeyDown: (evt: React.KeyboardEvent, isComposingIME: boolean) => void
+  onKeyDown: (evt: React.KeyboardEvent) => void
   setHeight: (inputHeight: number) => void
+  suggestBotCommandsUpdateStatus: RPCChatTypes.UIBotCommandsUpdateStatusTyp
 } & CommonProps

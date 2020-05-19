@@ -3,7 +3,7 @@ import {Box} from '../../common-adapters/index'
 import * as Sb from '../../stories/storybook'
 import * as Constants from '../../constants/wallets'
 import SEP7Confirm from '.'
-import SEP7Error from './error'
+import {KeybaseLinkErrorBody} from '../../deeplinks/error'
 
 const commonPath = {
   amountError: '',
@@ -22,10 +22,13 @@ const commonProps = {
   assetCode: '',
   availableToSendFiat: '$12.34 USD',
   availableToSendNative: '20 XLM',
+  builtPaymentAdvancedWaitingKey: 'false',
   callbackURL: null,
   displayAmountFiat: '$23.45 USD',
   displayAmountNative: '40 XLM',
   error: '',
+  findPathError: '',
+  fromQRCode: false,
   loading: false,
   memo: '',
   memoType: 'MEMO_NONE',
@@ -37,9 +40,10 @@ const commonProps = {
   onLookupPath: Sb.action('onLookupPath'),
   path: commonPath,
   readyToSend: true,
+  sendError: '',
+  sep7WaitingKey: 'false',
   userAmount: '',
   waiting: false,
-  waitingKey: 'false',
 }
 
 const payProps = {
@@ -48,6 +52,23 @@ const payProps = {
   operation: 'pay' as const,
   originDomain: 'blog.stathat.com',
   recipient: 'GBZX4364PEPQTDICMIQDZ56K4T75QZCR4NBEYKO6PDRJAHZKGUOJPCXB',
+  signed: true,
+  summary: {
+    fee: '',
+    memo: '',
+    memoType: 'MEMO_NONE',
+    operations: [],
+    source: '',
+  },
+}
+
+const payUnsignedProps = {
+  amount: '10',
+  message: 'test message',
+  operation: 'pay' as const,
+  originDomain: '',
+  recipient: 'GBZX4364PEPQTDICMIQDZ56K4T75QZCR4NBEYKO6PDRJAHZKGUOJPCXB',
+  signed: false,
   summary: {
     fee: '',
     memo: '',
@@ -63,6 +84,7 @@ const txProps = {
   operation: 'tx' as const,
   originDomain: 'stathat.com',
   recipient: '',
+  signed: true,
   summary: {
     fee: '100',
     memo: 'test memo',
@@ -72,24 +94,45 @@ const txProps = {
   },
 }
 
-const common = Sb.createStoreWithCommon()
-
-const store = {
-  ...common,
-  wallets: {
-    sep7ConfirmError:
-      "This Stellar link claims to be signed by keybaze.io, but the Keybase app cannot currently verify the signature came from keybaze.io, there's nothing you can do with this Stellar link.",
+const unsignedTxProps = {
+  amount: '',
+  message: '',
+  operation: 'tx' as const,
+  originDomain: '',
+  recipient: '',
+  signed: false,
+  summary: {
+    fee: '100',
+    memo: 'test memo',
+    memoType: 'MEMO_TEXT',
+    operations: ['Establish trust line to WHAT/GBZX4364PEPQTDICMIQDZ56K4T75QZCR4NBEYKO6PDRJAHZKGUOJPCXB'],
+    source: 'GBZX4364PEPQTDICMIQDZ56K4T75QZCR4NBEYKO6PDRJAHZKGUOJPCXB',
   },
 }
 
 const load = () => {
   Sb.storiesOf('Wallets/SEP7ConfirmForm', module)
     .addDecorator(story => <Box style={{maxWidth: 1000, padding: 5}}>{story()}</Box>)
-    .add('Pay', () => <SEP7Confirm {...commonProps} {...payProps} />)
-    .add('Tx', () => <SEP7Confirm {...commonProps} {...txProps} />)
-  Sb.storiesOf('Wallets/SEP7Error', module)
-    .addDecorator((story: any) => <Sb.MockStore store={store}>{story()}</Sb.MockStore>)
-    .add('Error', () => <SEP7Error />)
+    .add('Signed Pay', () => <SEP7Confirm {...commonProps} {...payProps} />)
+    .add('Unsigned Pay', () => <SEP7Confirm {...commonProps} {...payUnsignedProps} />)
+    .add('Signed Tx', () => <SEP7Confirm {...commonProps} {...txProps} />)
+    .add('Unsigned Tx', () => <SEP7Confirm {...commonProps} {...unsignedTxProps} />)
+    .add('Signed Pay with send error', () => (
+      <SEP7Confirm {...commonProps} {...payProps} sendError="Your balance is too low." />
+    ))
+    .add('Find path error ', () => (
+      <SEP7Confirm
+        {...commonProps}
+        {...payProps}
+        findPathError="No path was found to convert these 2 assets. Please pick other assets."
+      />
+    ))
+  Sb.storiesOf('Wallets/SEP7Error', module).add('Error', () => (
+    <KeybaseLinkErrorBody
+      isError={true}
+      message="This Stellar link claims to be signed by keybaze.io, but the Keybase app cannot currently verify the signature came from keybaze.io. Sorry, there's nothing you can do with this Stellar link."
+    />
+  ))
 }
 
 export default load

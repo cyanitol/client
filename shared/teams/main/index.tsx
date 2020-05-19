@@ -1,38 +1,42 @@
 import * as React from 'react'
 import * as Styles from '../../styles'
 import * as Kb from '../../common-adapters'
-import * as I from 'immutable'
+import * as Types from '../../constants/types/teams'
+import * as TeamsGen from '../../actions/teams-gen'
+import * as Container from '../../util/container'
 import Header from './header'
 import Banner from './banner'
-import NoTeamsPlaceholder from './no-teams-placeholder'
+import TeamsFooter from './footer'
+import TeamRowNew from './team-row'
 import {memoize} from '../../util/memoize'
+import {pluralize} from '../../util/string'
+import flags from '../../util/feature-flags'
 
 type DeletedTeam = {
   teamName: string
   deletedBy: string
 }
 
-export type Props = {
+export type OwnProps = {
   loaded: boolean
   deletedTeams: ReadonlyArray<DeletedTeam>
-  newTeams: ReadonlyArray<string>
-  onBack?: () => void
-  onCreateTeam: () => void
+  newTeams: Set<Types.TeamID>
   onHideChatBanner: () => void
-  onJoinTeam: () => void
-  onManageChat: (arg0: string) => void
-  onOpenFolder: (arg0: string) => void
+  onManageChat: (teamID: Types.TeamID) => void
+  onOpenFolder: (teamID: Types.TeamID) => void
   onReadMore: () => void
-  onViewTeam: (arg0: string) => void
+  onViewTeam: (teamID: Types.TeamID) => void
   sawChatBanner: boolean
-  teamNameToCanManageChat: {[K in string]: boolean}
-  teamNameToIsOpen: {[K in string]: boolean}
-  teammembercounts: {[K in string]: number}
-  teamnames: ReadonlyArray<string>
-  teamresetusers: {[K in string]: I.Set<string> | null}
-  teamToRequest: {[K in string]: number}
-  title?: string
+  teamresetusers: Map<Types.TeamID, Set<string>>
+  newTeamRequests: Map<Types.TeamID, Set<string>>
+  teams: Array<Types.TeamMeta>
 }
+
+type HeaderProps = {
+  onCreateTeam: () => void
+  onJoinTeam: () => void
+}
+export type Props = OwnProps & HeaderProps
 
 type RowProps = {
   firstItem: boolean
@@ -42,7 +46,7 @@ type RowProps = {
   isOpen: boolean
   newRequests: number
   onOpenFolder: () => void
-  onManageChat: (() => void) | null
+  onManageChat?: () => void
   resetUserCount: number
   onViewTeam: () => void
 }
@@ -79,9 +83,7 @@ export const TeamRow = React.memo<RowProps>((props: RowProps) => {
           </Kb.Box2>
           <Kb.Box2 direction="horizontal" gap="tiny" alignSelf="flex-start">
             {props.isNew && <Kb.Meta title="new" backgroundColor={Styles.globalColors.orange} />}
-            <Kb.Text type="BodySmall">
-              {props.membercount + ' member' + (props.membercount !== 1 ? 's' : '')}
-            </Kb.Text>
+            <Kb.Text type="BodySmall">{getMembersText(props.membercount)}</Kb.Text>
           </Kb.Box2>
         </Kb.Box2>
       }
@@ -92,7 +94,7 @@ export const TeamRow = React.memo<RowProps>((props: RowProps) => {
             {props.onManageChat ? (
               <ChatIcon />
             ) : (
-              <Kb.WithTooltip text="You need to join this team before you can chat.">
+              <Kb.WithTooltip tooltip="You need to join this team before you can chat.">
                 <ChatIcon />
               </Kb.WithTooltip>
             )}
@@ -103,6 +105,93 @@ export const TeamRow = React.memo<RowProps>((props: RowProps) => {
   )
 })
 
+const TeamBigButtons = (props: HeaderProps & {empty: boolean}) => (
+  <Kb.Box2 direction="horizontal" fullWidth={true} style={styles.teamButtons} gap="tiny">
+    <Kb.ClickableBox
+      style={styles.bigButton}
+      onClick={props.onCreateTeam}
+      className="background_color_white hover_background_color_blueLighter2"
+    >
+      <Kb.Box2 direction="vertical" gap="tiny" alignItems="center">
+        <Kb.Text type="BodyBig">Create a team</Kb.Text>
+        <Kb.Box style={styles.relative}>
+          <Kb.Avatar isTeam={true} size={96} />
+          <Kb.Icon type="iconfont-add-solid" sizeType="Default" style={styles.teamPlus} />
+        </Kb.Box>
+      </Kb.Box2>
+    </Kb.ClickableBox>
+    <Kb.ClickableBox
+      style={styles.bigButton}
+      onClick={props.onJoinTeam}
+      className="background_color_white hover_background_color_blueLighter2"
+    >
+      <Kb.Box2 direction="vertical" gap="tiny" alignItems="center">
+        <Kb.Text type="BodyBig">Join a team</Kb.Text>
+        <Kb.Icon type="icon-illustration-teams-96" />
+      </Kb.Box2>
+    </Kb.ClickableBox>
+    {props.empty && !Styles.isMobile && (
+      <Kb.Text type="BodySmall" style={styles.emptyNote}>
+        Keybase team chats are encrypted – unlike Slack – and work for any size group, from casual friends to
+        large communities.
+      </Kb.Text>
+    )}
+  </Kb.Box2>
+)
+
+const sortOrderToTitle = {
+  activity: 'Activity',
+  alphabetical: 'Alphabetical',
+  role: 'Your role',
+}
+const SortHeader = () => {
+  const dispatch = Container.useDispatch()
+  const onChangeSort = (sortOrder: Types.TeamListSort) =>
+    dispatch(TeamsGen.createSetTeamListFilterSort({sortOrder}))
+  const {popup, toggleShowingPopup, popupAnchor, showingPopup} = Kb.usePopup(getAttachmentRef => (
+    <Kb.FloatingMenu
+      attachTo={getAttachmentRef}
+      items={[
+        {icon: 'iconfont-team', onClick: () => onChangeSort('role'), title: sortOrderToTitle.role},
+        {
+          icon: 'iconfont-campfire',
+          onClick: () => onChangeSort('activity'),
+          title: sortOrderToTitle.activity,
+        },
+        {
+          icon: 'iconfont-sort-alpha',
+          onClick: () => onChangeSort('alphabetical'),
+          title: sortOrderToTitle.alphabetical,
+        },
+      ]}
+      closeOnSelect={true}
+      onHidden={toggleShowingPopup}
+      visible={showingPopup}
+      position="bottom left"
+    />
+  ))
+  const sortOrder = Container.useSelector(s => s.teams.teamListSort)
+  return (
+    <Kb.Box2 direction="horizontal" style={styles.sortHeader} alignItems="center" fullWidth={true}>
+      <Kb.ClickableBox onClick={toggleShowingPopup} ref={popupAnchor}>
+        <Kb.Box2 direction="horizontal" gap="tiny" alignItems="center">
+          <Kb.Icon type="iconfont-arrow-full-down" />
+          <Kb.Text type="BodySmallSemibold">{sortOrderToTitle[sortOrder]}</Kb.Text>
+        </Kb.Box2>
+      </Kb.ClickableBox>
+      {popup}
+    </Kb.Box2>
+  )
+}
+
+const getMembersText = (count: number) => (count === -1 ? '' : `${count} ${pluralize('member', count)}`)
+
+type Row = {key: React.Key} & (
+  | {type: '_banner' | '_sortHeader' | '_buttons' | '_footer'}
+  | {team: DeletedTeam; type: 'deletedTeam'}
+  | {team: Types.TeamMeta; type: 'team'}
+)
+
 type State = {
   sawChatBanner: boolean
 }
@@ -110,29 +199,47 @@ type State = {
 class Teams extends React.PureComponent<Props, State> {
   state = {sawChatBanner: this.props.sawChatBanner}
 
-  _teamsAndExtras = memoize((deletedTeams, sawChatBanner, teamnames) => [
-    {key: '_banner', type: '_banner'},
-    ...deletedTeams.map(t => ({key: 'deletedTeam' + t.teamName, team: t, type: 'deletedTeam'})),
-    ...teamnames.map(t => ({key: t, team: t, type: 'team'})),
-    ...(teamnames.length === 0 ? [{key: '_placeholder', type: '_placeholder'}] : []),
-  ])
+  private teamsAndExtras = memoize(
+    (deletedTeams: Props['deletedTeams'], teams: Props['teams']): Array<Row> => [
+      ...(flags.teamsRedesign
+        ? [
+            {key: '_buttons', type: '_buttons' as const},
+            {key: '_sortHeader', type: '_sortHeader' as const},
+          ]
+        : []),
+      ...(this.state.sawChatBanner || flags.teamsRedesign
+        ? []
+        : [{key: '_banner', type: '_banner' as const}]),
+      ...deletedTeams.map(dt => ({key: 'deletedTeam' + dt.teamName, team: dt, type: 'deletedTeam' as const})),
+      ...teams.map(team => ({key: team.id, team, type: 'team' as const})),
+      ...(teams.length === 0 || flags.teamsRedesign ? [{key: '_footer', type: '_footer' as const}] : []),
+    ]
+  )
 
-  _onHideChatBanner = () => {
+  private onHideChatBanner = () => {
     this.setState({sawChatBanner: true})
     this.props.onHideChatBanner()
   }
-  _onOpenFolder = name => this.props.onOpenFolder(name)
-  _onManageChat = name => this.props.onManageChat(name)
-  _onViewTeam = name => this.props.onViewTeam(name)
+  private onOpenFolder = id => this.props.onOpenFolder(id)
+  private onManageChat = id => this.props.onManageChat(id)
+  private onViewTeam = (teamID: Types.TeamID) => this.props.onViewTeam(teamID)
 
-  _renderItem = (index, item) => {
+  private renderItem = (index: number, item: Row) => {
     switch (item.type) {
       case '_banner':
-        return this.state.sawChatBanner ? null : (
-          <Banner onReadMore={this.props.onReadMore} onHideChatBanner={this._onHideChatBanner} />
+        return <Banner onReadMore={this.props.onReadMore} onHideChatBanner={this.onHideChatBanner} />
+      case '_footer':
+        return <TeamsFooter empty={this.props.teams.length === 0} />
+      case '_buttons':
+        return (
+          <TeamBigButtons
+            onCreateTeam={this.props.onCreateTeam}
+            onJoinTeam={this.props.onJoinTeam}
+            empty={this.props.teams.length === 0}
+          />
         )
-      case '_placeholder':
-        return <NoTeamsPlaceholder />
+      case '_sortHeader':
+        return <SortHeader />
       case 'deletedTeam': {
         const {deletedBy, teamName} = item.team
         return (
@@ -145,27 +252,28 @@ class Teams extends React.PureComponent<Props, State> {
         )
       }
       case 'team': {
-        const name = item.team
-        const reset = this.props.teamresetusers[name]
+        const team = item.team
+        const reset = this.props.teamresetusers.get(team.id)
         const resetUserCount = (reset && reset.size) || 0
+        if (flags.teamsRedesign) {
+          return <TeamRowNew firstItem={index === 2} showChat={!Styles.isMobile} teamID={team.id} />
+        }
         return (
           <TeamRow
-            firstItem={index === 1}
-            key={name}
-            name={name}
-            isNew={this.props.newTeams.includes(name)}
-            isOpen={this.props.teamNameToIsOpen[name]}
-            newRequests={this.props.teamToRequest[name] || 0}
-            membercount={this.props.teammembercounts[name]}
-            onOpenFolder={() => this._onOpenFolder(name)}
-            onManageChat={this.props.teamNameToCanManageChat[name] ? () => this._onManageChat(name) : null}
-            onViewTeam={() => this._onViewTeam(name)}
+            firstItem={index === (this.state.sawChatBanner ? 0 : 1)}
+            key={team.teamname}
+            name={team.teamname}
+            isNew={this.props.newTeams.has(team.id)}
+            isOpen={team.isOpen}
+            newRequests={this.props.newTeamRequests.get(team.id)?.size ?? 0}
+            membercount={team.memberCount}
+            onOpenFolder={() => this.onOpenFolder(team.teamname)}
+            onManageChat={team.isMember ? () => this.onManageChat(team.id) : undefined}
+            onViewTeam={() => this.onViewTeam(team.id)}
             resetUserCount={resetUserCount}
           />
         )
       }
-      default:
-        return null
     }
   }
 
@@ -177,9 +285,9 @@ class Teams extends React.PureComponent<Props, State> {
   }
 
   render() {
-    const renderHeader = Styles.isMobile
+    const renderHeader = Styles.isMobile && !flags.teamsRedesign
     return (
-      <Kb.Box2 direction="vertical" fullWidth={true} fullHeight={true}>
+      <Kb.Box2 direction="vertical" fullWidth={true} fullHeight={true} style={styles.container}>
         {renderHeader && (
           <Header
             loaded={this.props.loaded}
@@ -188,28 +296,65 @@ class Teams extends React.PureComponent<Props, State> {
           />
         )}
         <Kb.List
-          items={this._teamsAndExtras(
-            this.props.deletedTeams,
-            this.state.sawChatBanner,
-            this.props.teamnames
-          )}
-          renderItem={this._renderItem}
+          items={this.teamsAndExtras(this.props.deletedTeams, this.props.teams)}
+          renderItem={this.renderItem}
+          style={Styles.globalStyles.fullHeight}
         />
       </Kb.Box2>
     )
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  avatarContainer: {position: 'relative'},
-  badge: {
-    position: 'absolute',
-    right: -5,
-    top: -5,
-  },
-  kerning: {letterSpacing: 0.2},
-  maxWidth: {maxWidth: '100%'},
-  openMeta: {alignSelf: 'center'},
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      avatarContainer: {position: 'relative'},
+      badge: {
+        position: 'absolute',
+        right: -5,
+        top: -5,
+      },
+      bigButton: Styles.platformStyles({
+        common: {
+          borderColor: Styles.globalColors.black_10,
+          borderRadius: 8,
+          borderStyle: 'solid',
+          borderWidth: 1,
+        },
+        isElectron: {padding: Styles.globalMargins.small},
+        isMobile: {
+          ...Styles.padding(Styles.globalMargins.small, 0),
+          backgroundColor: Styles.globalColors.white,
+          width: 140,
+        },
+      }),
+      container: {
+        backgroundColor: flags.teamsRedesign ? Styles.globalColors.blueGrey : Styles.globalColors.white,
+      },
+      emptyNote: Styles.padding(60, 42, Styles.globalMargins.medium, Styles.globalMargins.medium),
+      kerning: {letterSpacing: 0.2},
+      maxWidth: {maxWidth: '100%'},
+      openMeta: {alignSelf: 'center'},
+      relative: {position: 'relative'},
+      sortHeader: Styles.platformStyles({
+        common: {
+          backgroundColor: Styles.globalColors.blueGrey,
+        },
+        isElectron: {...Styles.padding(Styles.globalMargins.tiny, Styles.globalMargins.small)},
+        isMobile: {...Styles.padding(Styles.globalMargins.xsmall, Styles.globalMargins.tiny)},
+      }),
+      teamButtons: {
+        ...Styles.padding(Styles.globalMargins.xsmall, Styles.globalMargins.small),
+        backgroundColor: Styles.globalColors.blueGrey,
+        justifyContent: 'flex-start',
+      },
+      teamPlus: {
+        bottom: -2,
+        color: Styles.globalColors.blue,
+        position: 'absolute',
+        right: -1,
+      },
+    } as const)
+)
 
 export default Teams

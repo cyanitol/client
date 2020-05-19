@@ -6,7 +6,7 @@ import {sequentially} from '../util/saga'
 import {CommonResponseHandler} from './types'
 import {RPCError} from '../util/errors'
 import {printOutstandingRPCs} from '../local-debug'
-import {isArray} from 'lodash-es'
+import isArray from 'lodash/isArray'
 
 type WaitingKey = string | Array<string>
 
@@ -30,7 +30,7 @@ const makeWaitingResponse = (r, waitingKey) => {
 
   const response = {}
 
-  if (r.result) {
+  if (r.error) {
     // @ts-ignore codemode issue
     response.error = (...args) => {
       // Waiting on the server again
@@ -41,7 +41,7 @@ const makeWaitingResponse = (r, waitingKey) => {
     }
   }
 
-  if (r.error) {
+  if (r.result) {
     // @ts-ignore codemode issue
     response.result = (...args) => {
       // Waiting on the server again
@@ -92,7 +92,7 @@ function* call(p: {
   // @ts-ignore codemode issue
   const eventChannel: RS.Channel = yield RS.eventChannel(emitter => {
     // convert call map
-    const callMap = bothCallMaps.reduce((map, {method, custom, handler}) => {
+    const callMap = bothCallMaps.reduce((map, {method, custom}) => {
       map[method] = (params: any, _response: CommonResponseHandler) => {
         // No longer waiting on the server
         if (waitingKey) {

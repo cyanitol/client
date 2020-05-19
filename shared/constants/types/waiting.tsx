@@ -1,9 +1,6 @@
-import * as I from 'immutable'
 import {RPCError} from '../../util/errors'
 
-export type _State = {
-  counts: I.Map<string, number>
-  errors: I.Map<string, RPCError | null>
+export type State = {
+  readonly counts: Map<string, number>
+  readonly errors: Map<string, RPCError | undefined>
 }
-
-export type State = I.RecordOf<_State>

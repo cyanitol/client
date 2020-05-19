@@ -33,15 +33,11 @@ type FastTeamChainLoader struct {
 	world LoaderContext
 
 	// single-flight lock on TeamID
-	locktab libkb.LockTable
+	locktab *libkb.LockTable
 
 	// Hold onto FastTeamLoad by-products as long as we have room, and store
 	// them persistently to disk.
 	storage *storage.FTLStorage
-
-	// Feature-flagging is powered by the server. If we get feature flagged off, we
-	// won't retry for another hour.
-	featureFlagGate *libkb.FeatureFlagGate
 
 	// We can get pushed by the server into "force repoll" mode, in which we're
 	// not getting cache invalidations. An example: when Coyne or Nojima revokes
@@ -56,12 +52,10 @@ const FTLVersion = 1
 // NewFastLoader makes a new fast loader and initializes it.
 func NewFastTeamLoader(g *libkb.GlobalContext) *FastTeamChainLoader {
 	ret := &FastTeamChainLoader{
-		world:           NewLoaderContextFromG(g),
-		featureFlagGate: libkb.NewFeatureFlagGate(libkb.FeatureFTL, 2*time.Minute),
+		world:   NewLoaderContextFromG(g),
+		locktab: libkb.NewLockTable(),
 	}
-	ret.storage = storage.NewFTLStorage(g, func(mctx libkb.MetaContext, s *keybase1.FastTeamData) (bool, error) {
-		return ret.upgradeStoredState(mctx, s)
-	})
+	ret.storage = storage.NewFTLStorage(g, ret.upgradeStoredState)
 	return ret
 }
 
@@ -119,13 +113,8 @@ func (f ftlCombinedData) perTeamKey(g keybase1.PerTeamKeyGeneration) *keybase1.P
 // from the server, and then the keys can be output in the result.
 func (f *FastTeamChainLoader) Load(m libkb.MetaContext, arg keybase1.FastTeamLoadArg) (res keybase1.FastTeamLoadRes, err error) {
 	m = ftlLogTag(m)
-	defer m.TraceTimed(fmt.Sprintf("FastTeamChainLoader#Load(%+v)", arg), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#Load(%+v)", arg), &err)()
 	originalArg := arg.DeepCopy()
-
-	err = f.featureFlagGate.ErrorIfFlagged(m)
-	if err != nil {
-		return res, err
-	}
 
 	res, err = f.loadOneAttempt(m, arg)
 	if err != nil {
@@ -160,12 +149,13 @@ func (f *FastTeamChainLoader) Load(m libkb.MetaContext, arg keybase1.FastTeamLoa
 // (and not verifying sigs along the way).
 func (f *FastTeamChainLoader) VerifyTeamName(m libkb.MetaContext, id keybase1.TeamID, name keybase1.TeamName, forceRefresh bool) (err error) {
 	m = m.WithLogTag("FTL")
-	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#VerifyTeamName(%v,%s)", id, name.String()), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#VerifyTeamName(%v,%s)", id, name.String()), &err)()
 	_, err = f.Load(m, keybase1.FastTeamLoadArg{
-		ID:             id,
-		Public:         id.IsPublic(),
-		AssertTeamName: &name,
-		ForceRefresh:   forceRefresh,
+		ID:                    id,
+		Public:                id.IsPublic(),
+		AssertTeamName:        &name,
+		ForceRefresh:          forceRefresh,
+		HiddenChainIsOptional: true,
 	})
 	return err
 }
@@ -195,8 +185,6 @@ func (f *FastTeamChainLoader) loadOneAttempt(m libkb.MetaContext, arg keybase1.F
 // verification via hash-comparison.
 func (f *FastTeamChainLoader) verifyTeamNameViaParentLoad(m libkb.MetaContext, id keybase1.TeamID, isPublic bool, unverifiedName keybase1.TeamName, parent *keybase1.UpPointer, bottomSubteam keybase1.TeamID, forceRefresh bool) (res keybase1.TeamName, err error) {
 
-	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#verifyTeamNameViaParentLoad(%s,%s)", id, unverifiedName), func() error { return err })()
-
 	if parent == nil {
 		if !unverifiedName.IsRootTeam() {
 			return res, NewBadNameError("expected a root team")
@@ -213,9 +201,10 @@ func (f *FastTeamChainLoader) verifyTeamNameViaParentLoad(m libkb.MetaContext, i
 
 	parentRes, err := f.load(m, fastLoadArg{
 		FastTeamLoadArg: keybase1.FastTeamLoadArg{
-			ID:           parent.ParentID,
-			Public:       isPublic,
-			ForceRefresh: forceRefresh,
+			ID:                    parent.ParentID,
+			Public:                isPublic,
+			ForceRefresh:          forceRefresh,
+			HiddenChainIsOptional: true, // we do not need to see the hidden chain for the parent
 		},
 		downPointersNeeded: []keybase1.Seqno{parent.ParentSeqno},
 		needLatestName:     true,
@@ -246,7 +235,7 @@ type fastLoadRes struct {
 	upPointer       *keybase1.UpPointer
 }
 
-// fastLoadRes is used internally to pass arguments to the #load() call. It is a small wrapper
+// fastLoadArg is used internally to pass arguments to the #load() call. It is a small wrapper
 // around the keybase1.FastTeamLoadArg that's passed through to the public #Load() call.
 type fastLoadArg struct {
 	keybase1.FastTeamLoadArg
@@ -265,14 +254,18 @@ func (a fastLoadArg) needChainTail() bool {
 
 // load acquires a lock by team ID, and the runs loadLockedWithRetries.
 func (f *FastTeamChainLoader) load(m libkb.MetaContext, arg fastLoadArg) (res *fastLoadRes, err error) {
-
-	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#load(%+v)", arg), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#load(%+v)", arg), &err)()
 
 	// Single-flight lock by team ID.
 	lock := f.locktab.AcquireOnName(m.Ctx(), m.G(), arg.ID.String())
 	defer lock.Release(m.Ctx())
 
-	return f.loadLockedWithRetries(m, arg)
+	res, err = f.loadLockedWithRetries(m, arg)
+	if hidden.ShouldClearSupportFlagOnError(err) {
+		m.Debug("Clearing support hidden chain flag for team %s because of error %v in FTL", arg.ID, err)
+		m.G().GetHiddenTeamChainManager().ClearSupportFlagIfFalse(m, arg.ID)
+	}
+	return res, err
 }
 
 // loadLockedWithRetries attempts two loads of the team. If the first iteration returns an FTLMissingSeedError,
@@ -473,10 +466,7 @@ func stateHasKeySeed(m libkb.MetaContext, gen keybase1.PerTeamKeyGeneration, sta
 		return false
 	}
 	_, foundPerTeamKey := state.Chain.PerTeamKeys[gen]
-	if !foundPerTeamKey {
-		return false
-	}
-	return true
+	return foundPerTeamKey
 }
 
 // stateHasKeys checks to see if the given state has the keys specified in the shopping list. If not, it will
@@ -595,11 +585,13 @@ type shoppingList struct {
 
 // groceries are what we get back from the server.
 type groceries struct {
-	newLinks       []*ChainLinkUnpacked
-	rkms           []keybase1.ReaderKeyMask
-	latestKeyGen   keybase1.PerTeamKeyGeneration
-	seeds          []keybase1.PerTeamKeySeed
-	newHiddenLinks []sig3.ExportJSON
+	newLinks          []*ChainLinkUnpacked
+	rkms              []keybase1.ReaderKeyMask
+	latestKeyGen      keybase1.PerTeamKeyGeneration
+	seeds             []keybase1.PerTeamKeySeed
+	newHiddenLinks    []sig3.ExportJSON
+	expMaxHiddenSeqno keybase1.Seqno
+	lastMerkleRoot    *libkb.MerkleRoot
 }
 
 // isEmpty returns true if our shopping list is empty. In this case, we have no need to go to the
@@ -700,7 +692,7 @@ func generationsToString(generations []keybase1.PerTeamKeyGeneration) string {
 // must be returned unstubbed, and might be in the sequence *before* `low`. We specify
 // key generations and applications, and need reader key masks for all applications
 // in the (apps X gens) cartesian product.
-func (a fastLoadArg) toHTTPArgs(m libkb.MetaContext, s shoppingList) libkb.HTTPArgs {
+func (a fastLoadArg) toHTTPArgs(m libkb.MetaContext, s shoppingList, hp *hidden.LoaderPackage) libkb.HTTPArgs {
 	ret := libkb.HTTPArgs{
 		"id":                  libkb.S{Val: a.ID.String()},
 		"public":              libkb.B{Val: a.Public},
@@ -720,7 +712,8 @@ func (a fastLoadArg) toHTTPArgs(m libkb.MetaContext, s shoppingList) libkb.HTTPA
 	if !a.readSubteamID.IsNil() {
 		ret["read_subteam_id"] = libkb.S{Val: a.readSubteamID.String()}
 	}
-	if tmp := hidden.CheckFeatureGateForSupport(m, a.ID, false /* isWrite */); tmp == nil {
+
+	if hp.HiddenChainDataEnabled() {
 		ret["ftl_hidden_low"] = libkb.I{Val: int(s.hiddenLinksSince)}
 	}
 	return ret
@@ -732,7 +725,7 @@ func (a fastLoadArg) toHTTPArgs(m libkb.MetaContext, s shoppingList) libkb.HTTPA
 // the given state was fresh already, then we'll return a nil groceries.
 func (f *FastTeamChainLoader) loadFromServerWithRetries(m libkb.MetaContext, arg fastLoadArg, state *keybase1.FastTeamData, shoppingList shoppingList, hp *hidden.LoaderPackage) (groceries *groceries, err error) {
 
-	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#loadFromServerWithRetries(%s,%v)", arg.ID, arg.Public), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#loadFromServerWithRetries(%s,%v)", arg.ID, arg.Public), &err)()
 
 	const nRetries = 3
 	for i := 0; i < nRetries; i++ {
@@ -766,6 +759,23 @@ func (f *FastTeamChainLoader) makeHTTPRequest(m libkb.MetaContext, args libkb.HT
 	return t, nil
 }
 
+func (f *FastTeamChainLoader) checkHiddenResp(m libkb.MetaContext, arg fastLoadArg, hiddenResp *libkb.MerkleHiddenResponse, hp *hidden.LoaderPackage) (hiddenIsFresh bool, err error) {
+	if !arg.HiddenChainIsOptional && hiddenResp.RespType == libkb.MerkleHiddenResponseTypeNONE {
+		return hiddenIsFresh, libkb.NewHiddenChainDataMissingError("the server did not return the necessary hidden chain data")
+	}
+
+	if hiddenResp.RespType != libkb.MerkleHiddenResponseTypeFLAGOFF && hiddenResp.RespType != libkb.MerkleHiddenResponseTypeNONE {
+		hiddenIsFresh, err = hp.CheckHiddenMerklePathResponseAndAddRatchets(m, hiddenResp)
+		if err != nil {
+			return hiddenIsFresh, err
+		}
+	} else {
+		hiddenIsFresh = true
+	}
+
+	return hiddenIsFresh, nil
+}
+
 // loadFromServerOnce turns the giving "shoppingList" into requests for the server, and then makes
 // an HTTP GET to fetch the corresponding "groceries." Once retrieved, we unpack links, and
 // check for "green" links --- those that might have been added to the team after the merkle update
@@ -774,24 +784,19 @@ func (f *FastTeamChainLoader) makeHTTPRequest(m libkb.MetaContext, args libkb.HT
 // decrypted.
 func (f *FastTeamChainLoader) loadFromServerOnce(m libkb.MetaContext, arg fastLoadArg, state *keybase1.FastTeamData, shoppingList shoppingList, hp *hidden.LoaderPackage) (ret *groceries, err error) {
 
-	defer m.Trace("FastTeamChainLoader#loadFromServerOnce", func() error { return err })()
+	defer m.Trace("FastTeamChainLoader#loadFromServerOnce", &err)()
 
-	var lastSeqno keybase1.Seqno
-	var lastLinkID keybase1.LinkID
 	var teamUpdate rawTeam
 	var links []*ChainLinkUnpacked
 	var lastSecretGen keybase1.PerTeamKeyGeneration
 	var seeds []keybase1.PerTeamKeySeed
-	var harg *libkb.LookupTeamHiddenArg
-	var hiddenIsFresh bool
 
-	harg, err = hp.MerkleLoadArg(m)
+	lastSeqno, lastLinkID, hiddenResp, lastMerkleRoot, err := f.world.merkleLookupWithHidden(m.Ctx(), arg.ID, arg.Public)
 	if err != nil {
 		return nil, err
 	}
 
-	lastSeqno, lastLinkID, hiddenIsFresh, err = f.world.merkleLookupWithHidden(m.Ctx(), arg.ID, arg.Public, harg)
-
+	hiddenIsFresh, err := f.checkHiddenResp(m, arg, hiddenResp, hp)
 	if err != nil {
 		return nil, err
 	}
@@ -805,16 +810,15 @@ func (f *FastTeamChainLoader) loadFromServerOnce(m libkb.MetaContext, arg fastLo
 		return nil, nil
 	}
 
-	teamUpdate, err = f.makeHTTPRequest(m, arg.toHTTPArgs(m, shoppingList), arg.Public)
+	teamUpdate, err = f.makeHTTPRequest(m, arg.toHTTPArgs(m, shoppingList, hp), arg.Public)
 	if err != nil {
-		f.featureFlagGate.DigestError(m, err)
 		return nil, err
 	}
 
 	if !teamUpdate.ID.Eq(arg.ID) {
 		return nil, NewFastLoadError("server returned wrong id: %v != %v", teamUpdate.ID, arg.ID)
 	}
-	links, err = teamUpdate.unpackLinks(m.Ctx())
+	links, err = teamUpdate.unpackLinks(m)
 	if err != nil {
 		return nil, err
 	}
@@ -847,11 +851,13 @@ func (f *FastTeamChainLoader) loadFromServerOnce(m libkb.MetaContext, arg fastLo
 	m.Debug("loadFromServerOnce: got back %d new links; %d stubbed; %d RKMs; %d prevs; box=%v; lastSecretGen=%d; %d hidden chainlinks", len(links), numStubbed, len(teamUpdate.ReaderKeyMasks), len(teamUpdate.Prevs), teamUpdate.Box != nil, lastSecretGen, len(teamUpdate.HiddenChain))
 
 	return &groceries{
-		newLinks:       links,
-		latestKeyGen:   lastSecretGen,
-		rkms:           teamUpdate.ReaderKeyMasks,
-		seeds:          seeds,
-		newHiddenLinks: teamUpdate.HiddenChain,
+		newLinks:          links,
+		latestKeyGen:      lastSecretGen,
+		rkms:              teamUpdate.ReaderKeyMasks,
+		seeds:             seeds,
+		newHiddenLinks:    teamUpdate.HiddenChain,
+		expMaxHiddenSeqno: hiddenResp.UncommittedSeqno,
+		lastMerkleRoot:    lastMerkleRoot,
 	}, nil
 }
 
@@ -987,7 +993,7 @@ func (f *FastTeamChainLoader) checkPrevs(m libkb.MetaContext, arg fastLoadArg, l
 
 // audit runs probabilistic merkle tree audit on the new links, to make sure that the server isn't
 // running odd-even-style attacks against members in a group.
-func (f *FastTeamChainLoader) audit(m libkb.MetaContext, arg fastLoadArg, state *keybase1.FastTeamData) (err error) {
+func (f *FastTeamChainLoader) audit(m libkb.MetaContext, arg fastLoadArg, state *keybase1.FastTeamData, hiddenChain *keybase1.HiddenTeamChain, lastMerkleRoot *libkb.MerkleRoot) (err error) {
 	head, ok := state.Chain.MerkleInfo[1]
 	if !ok {
 		return NewAuditError("cannot run audit without merkle info for head")
@@ -996,7 +1002,11 @@ func (f *FastTeamChainLoader) audit(m libkb.MetaContext, arg fastLoadArg, state 
 	if last == nil {
 		return NewAuditError("cannot run audit, no last chain data")
 	}
-	return m.G().GetTeamAuditor().AuditTeam(m, arg.ID, arg.Public, head.Seqno, state.Chain.LinkIDs, last.Seqno)
+	auditMode := keybase1.AuditMode_STANDARD
+	if arg.HiddenChainIsOptional {
+		auditMode = keybase1.AuditMode_STANDARD_NO_HIDDEN
+	}
+	return m.G().GetTeamAuditor().AuditTeam(m, arg.ID, arg.Public, head.Seqno, state.Chain.LinkIDs, hiddenChain.GetOuter(), last.Seqno, hiddenChain.GetLastCommittedSeqno(), lastMerkleRoot, auditMode)
 }
 
 // readDownPointer reads a down pointer out of a given link, if it's unstubbed. Down pointers
@@ -1288,19 +1298,34 @@ func makeState(arg fastLoadArg, s *keybase1.FastTeamData) *keybase1.FastTeamData
 }
 
 func (f *FastTeamChainLoader) hiddenPackage(m libkb.MetaContext, arg fastLoadArg, state *keybase1.FastTeamData) (hp *hidden.LoaderPackage, err error) {
-	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#hiddenPackage(%+v)", arg), func() error { return err })()
-	return hidden.NewLoaderPackage(m, arg.ID,
-		func() (encKID keybase1.KID, gen keybase1.PerTeamKeyGeneration, err error) {
+	hp, err = hidden.NewLoaderPackage(m, arg.ID,
+		func() (encKID keybase1.KID, gen keybase1.PerTeamKeyGeneration, role keybase1.TeamRole, err error) {
+			// Always return TeamRole_NONE since ftl does not have access to
+			// member roles. The hidden chain uses the role to skip checks bot
+			// members are not able to perform. Bot members should never FTL,
+			// however since they don't have key access.
 			if state == nil || len(state.Chain.PerTeamKeys) == 0 {
-				return encKID, gen, nil
+				return encKID, gen, keybase1.TeamRole_NONE, nil
 			}
 			var ptk keybase1.PerTeamKey
 			for _, tmp := range state.Chain.PerTeamKeys {
 				ptk = tmp
 				break
 			}
-			return ptk.EncKID, ptk.Gen, nil
+			return ptk.EncKID, ptk.Gen, keybase1.TeamRole_NONE, nil
 		})
+	if err != nil {
+		return nil, err
+	}
+	if !arg.readSubteamID.IsNil() {
+		m.Debug("hiddenPackage: disabling checks since we a subteam reader looking for parent chain")
+		hp.DisableHiddenChainData()
+	}
+	if tmp := hidden.CheckFeatureGateForSupport(m, arg.ID); tmp != nil {
+		m.Debug("hiddenPackage: disabling checks since we are feature-flagged off")
+		hp.DisableHiddenChainData()
+	}
+	return hp, nil
 }
 
 func (f *FastTeamChainLoader) consumeRatchets(m libkb.MetaContext, newLinks []*ChainLinkUnpacked, hp *hidden.LoaderPackage) (err error) {
@@ -1319,7 +1344,7 @@ func (f *FastTeamChainLoader) processHidden(m libkb.MetaContext, arg fastLoadArg
 		return err
 	}
 
-	err = hp.Update(m, groceries.newHiddenLinks)
+	err = hp.Update(m, groceries.newHiddenLinks, groceries.expMaxHiddenSeqno)
 	if err != nil {
 		return err
 	}
@@ -1333,6 +1358,11 @@ func (f *FastTeamChainLoader) processHidden(m libkb.MetaContext, arg fastLoadArg
 	if err != nil {
 		return err
 	}
+	err = hp.CheckParentPointersOnFastLoad(m, state)
+	if err != nil {
+		return err
+	}
+
 	err = hp.Commit(m)
 	if err != nil {
 		return err
@@ -1346,7 +1376,7 @@ func (f *FastTeamChainLoader) processHidden(m libkb.MetaContext, arg fastLoadArg
 // fresh, we will return (nil, nil) and short-circuit.
 func (f *FastTeamChainLoader) refresh(m libkb.MetaContext, arg fastLoadArg, state *keybase1.FastTeamData, shoppingList shoppingList, hp *hidden.LoaderPackage) (res *keybase1.FastTeamData, err error) {
 
-	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#refresh(%+v)", arg), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#refresh(%+v)", arg), &err)()
 
 	groceries, err := f.loadFromServerWithRetries(m, arg, state, shoppingList, hp)
 	if err != nil {
@@ -1355,6 +1385,19 @@ func (f *FastTeamChainLoader) refresh(m libkb.MetaContext, arg fastLoadArg, stat
 
 	if groceries == nil {
 		m.Debug("FastTeamChainLoader#refresh: our state was fresh according to the Merkle tree")
+
+		// Even if the state is fresh (no new chain links are necessary), we
+		// might still have learned about old hidden links being committed to
+		// the blind tree. This information needs to be persisted.
+		err = hp.Update(m, []sig3.ExportJSON{}, 0)
+		if err != nil {
+			return nil, err
+		}
+		err = hp.Commit(m)
+		if err != nil {
+			return nil, err
+		}
+
 		return nil, nil
 	}
 
@@ -1387,7 +1430,7 @@ func (f *FastTeamChainLoader) refresh(m libkb.MetaContext, arg fastLoadArg, stat
 	}
 
 	// peform a probabilistic audit on the new links
-	err = f.audit(m, arg, state)
+	err = f.audit(m, arg, state, hp.ChainData(), groceries.lastMerkleRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -1484,21 +1527,19 @@ func (f *FastTeamChainLoader) loadLocked(m libkb.MetaContext, arg fastLoadArg) (
 // OnLogout is called when the user logs out, which purges the LRU.
 func (f *FastTeamChainLoader) OnLogout(mctx libkb.MetaContext) error {
 	f.storage.ClearMem()
-	f.featureFlagGate.Clear()
 	return nil
 }
 
 // OnDbNuke is called when the disk cache is cleared, which purges the LRU.
 func (f *FastTeamChainLoader) OnDbNuke(mctx libkb.MetaContext) error {
 	f.storage.ClearMem()
-	f.featureFlagGate.Clear()
 	return nil
 }
 
 func (f *FastTeamChainLoader) HintLatestSeqno(m libkb.MetaContext, id keybase1.TeamID, seqno keybase1.Seqno) (err error) {
 	m = ftlLogTag(m)
 
-	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#HintLatestSeqno(%v->%d)", id, seqno), func() error { return err })()
+	defer m.Trace(fmt.Sprintf("FastTeamChainLoader#HintLatestSeqno(%v->%d)", id, seqno), &err)()
 
 	// Single-flight lock by team ID.
 	lock := f.locktab.AcquireOnName(m.Ctx(), m.G(), id.String())
@@ -1544,7 +1585,7 @@ func newFrozenFastChain(chain *keybase1.FastTeamSigChainState) keybase1.FastTeam
 }
 
 func (f *FastTeamChainLoader) Freeze(mctx libkb.MetaContext, teamID keybase1.TeamID) (err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("FastTeamChainLoader#Freeze(%s)", teamID), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("FastTeamChainLoader#Freeze(%s)", teamID), &err)()
 
 	// Single-flight lock by team ID.
 	lock := f.locktab.AcquireOnName(mctx.Ctx(), mctx.G(), teamID.String())
@@ -1564,7 +1605,7 @@ func (f *FastTeamChainLoader) Freeze(mctx libkb.MetaContext, teamID keybase1.Tea
 }
 
 func (f *FastTeamChainLoader) Tombstone(mctx libkb.MetaContext, teamID keybase1.TeamID) (err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("FastTeamChainLoader#Tombstone(%s)", teamID), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("FastTeamChainLoader#Tombstone(%s)", teamID), &err)()
 
 	// Single-flight lock by team ID.
 	lock := f.locktab.AcquireOnName(mctx.Ctx(), mctx.G(), teamID.String())

@@ -52,7 +52,7 @@ func (e *SaltpackSenderIdentify) SubConsumers() []libkb.UIConsumer {
 }
 
 func (e *SaltpackSenderIdentify) Run(m libkb.MetaContext) (err error) {
-	defer m.Trace("SaltpackSenderIdentify::Run", func() error { return err })()
+	defer m.Trace("SaltpackSenderIdentify::Run", &err)()
 
 	if e.arg.isAnon {
 		e.res.SenderType = keybase1.SaltpackSenderType_ANONYMOUS
@@ -109,6 +109,10 @@ func (e *SaltpackSenderIdentify) Run(m libkb.MetaContext) (err error) {
 	// as opposed to unexpected failures or corner case server lies.
 	e.res.Uid = user.GetUID()
 	e.res.Username = user.GetName()
+	e.res.Fullname, err = libkb.GetFullName(m, user.GetUID())
+	if err != nil {
+		return err
+	}
 	if maybeSenderType != nil {
 		e.res.SenderType = *maybeSenderType
 		return
@@ -122,7 +126,7 @@ func (e *SaltpackSenderIdentify) Run(m libkb.MetaContext) (err error) {
 }
 
 func (e *SaltpackSenderIdentify) identifySender(m libkb.MetaContext) (err error) {
-	defer m.Trace("SaltpackDecrypt::identifySender", func() error { return err })()
+	defer m.Trace("SaltpackDecrypt::identifySender", &err)()
 
 	var lin bool
 	var uid keybase1.UID
@@ -143,7 +147,7 @@ func (e *SaltpackSenderIdentify) identifySender(m libkb.MetaContext) (err error)
 		NoErrorOnTrackFailure: true,
 		Reason:                e.arg.reason,
 		UserAssertion:         e.arg.userAssertion,
-		IdentifyBehavior:      keybase1.TLFIdentifyBehavior_CLI,
+		IdentifyBehavior:      keybase1.TLFIdentifyBehavior_SALTPACK,
 	}
 	eng := NewIdentify2WithUID(e.G(), &iarg)
 	if err = RunEngine2(m, eng); err != nil {

@@ -3,7 +3,7 @@ import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
 
 type Props = {
-  error: Error | null
+  error?: Error
   isTeam: boolean
   onClose: () => void
   onCreate: (name: string, teamname: string | null, notifyTeam: boolean) => void
@@ -35,9 +35,9 @@ class NewRepo extends React.Component<Props, State> {
   _makeDropdownItem = (item: string | null) => {
     if (!item) {
       return (
-        <Kb.Box style={Styles.globalStyles.flexBoxCenter}>
+        <Kb.Box2 alignItems="center" direction="horizontal" fullWidth={true} style={styles.dropdownItem}>
           <Kb.Text type="BodyBig">Pick a team</Kb.Text>
-        </Kb.Box>
+        </Kb.Box2>
       )
     }
 
@@ -57,16 +57,7 @@ class NewRepo extends React.Component<Props, State> {
     }
 
     return (
-      <Kb.Box
-        key={item}
-        style={{
-          ...Styles.globalStyles.flexBoxRow,
-          alignItems: 'center',
-          paddingLeft: Styles.globalMargins.small,
-          paddingRight: Styles.globalMargins.small,
-          width: '100%',
-        }}
-      >
+      <Kb.Box key={item} style={styles.avatarBox}>
         <Kb.Avatar isTeam={true} teamname={item} size={16} style={{marginRight: Styles.globalMargins.tiny}} />
         <Kb.Text
           type="Header"
@@ -112,90 +103,116 @@ class NewRepo extends React.Component<Props, State> {
 
   render() {
     return (
-      <Kb.ScrollView>
-        <Kb.Box style={_containerStyle}>
-          {!!this.props.error && (
-            <Kb.Box
-              style={{
-                alignSelf: 'stretch',
-                backgroundColor: Styles.globalColors.red,
-                marginBottom: Styles.globalMargins.small,
-                padding: Styles.globalMargins.tiny,
-              }}
-            >
-              <Kb.Text type="Body" negative={true}>
-                {this.props.error.message}
-              </Kb.Text>
-            </Kb.Box>
-          )}
-          <Kb.Text type="Header" style={{marginBottom: 27}}>
-            New {this.props.isTeam ? 'team' : 'personal'} git repository
-          </Kb.Text>
-          <Kb.Icon
-            type={this.props.isTeam ? 'icon-repo-team-add-48' : 'icon-repo-personal-add-48'}
-            style={_addIconStyle}
-          />
-          <Kb.Text type="Body" style={{marginBottom: 27}}>
-            {this.props.isTeam
-              ? 'Your repository will be end-to-end encrypted and accessible by all members in the team.'
-              : 'Your repository will be encrypted and only accessible by you.'}
-          </Kb.Text>
-          {this.props.isTeam && (
-            <Kb.Dropdown
-              items={this._makeDropdownItems()}
-              selected={this._makeDropdownItem(this.state.selectedTeam)}
-              onChanged={this._dropdownChanged}
-              style={{marginBottom: Styles.globalMargins.small}}
+      <Kb.PopupWrapper onCancel={this.props.onClose}>
+        <Kb.ScrollView>
+          <Kb.Box style={styles.container}>
+            {!!this.props.error && (
+              <Kb.Box style={styles.error}>
+                <Kb.Text type="Body" negative={true}>
+                  {this.props.error.message}
+                </Kb.Text>
+              </Kb.Box>
+            )}
+            <Kb.Text type="Header" style={{marginBottom: 27}}>
+              New {this.props.isTeam ? 'team' : 'personal'} git repository
+            </Kb.Text>
+            <Kb.Icon
+              type={this.props.isTeam ? 'icon-repo-team-add-48' : 'icon-repo-personal-add-48'}
+              style={styles.addIcon}
             />
-          )}
-          <Kb.Input
-            value={this.state.name}
-            autoFocus={true}
-            onChangeText={name => this.setState({name})}
-            hintText="Name your repository"
-            onEnterKeyDown={this._onSubmit}
-          />
-          {this.props.isTeam && (
-            <Kb.Checkbox
-              label="Notify the team"
-              checked={this.state.notifyTeam}
-              onCheck={notifyTeam => this.setState({notifyTeam})}
-              style={{marginBottom: Styles.globalMargins.small, marginTop: Styles.globalMargins.small}}
+            <Kb.Text type="Body" style={{marginBottom: 27}}>
+              {this.props.isTeam
+                ? 'Your repository will be end-to-end encrypted and accessible by all members in the team.'
+                : 'Your repository will be encrypted and only accessible by you.'}
+            </Kb.Text>
+            {this.props.isTeam && (
+              <Kb.Dropdown
+                items={this._makeDropdownItems()}
+                selected={this._makeDropdownItem(this.state.selectedTeam)}
+                onChanged={this._dropdownChanged}
+                style={styles.dropdown}
+              />
+            )}
+            <Kb.LabeledInput
+              value={this.state.name}
+              autoFocus={true}
+              onChangeText={name => this.setState({name})}
+              placeholder="Name your repository"
+              onEnterKeyDown={this._onSubmit}
             />
-          )}
-          <Kb.Box style={{flex: 1}} />
-          <Kb.Box style={Styles.globalStyles.flexBoxRow}>
-            <Kb.WaitingButton
-              type="Dim"
-              onClick={this.props.onClose}
-              label="Cancel"
-              style={{marginRight: Styles.globalMargins.tiny}}
-              waitingKey={this.props.waitingKey}
-              onlyDisable={true}
-            />
-            <Kb.WaitingButton
-              onClick={this._onSubmit}
-              label="Create"
-              disabled={!this._canSubmit()}
-              waitingKey={this.props.waitingKey}
-            />
+            {this.props.isTeam && (
+              <Kb.Checkbox
+                label="Notify the team"
+                checked={this.state.notifyTeam}
+                onCheck={notifyTeam => this.setState({notifyTeam})}
+                style={styles.checkbox}
+              />
+            )}
+            <Kb.ButtonBar fullWidth={true} style={styles.buttonBar}>
+              <Kb.WaitingButton
+                type="Dim"
+                onClick={this.props.onClose}
+                label="Cancel"
+                waitingKey={this.props.waitingKey}
+                onlyDisable={true}
+              />
+              <Kb.WaitingButton
+                onClick={this._onSubmit}
+                label="Create"
+                disabled={!this._canSubmit()}
+                waitingKey={this.props.waitingKey}
+              />
+            </Kb.ButtonBar>
           </Kb.Box>
-        </Kb.Box>
-      </Kb.ScrollView>
+        </Kb.ScrollView>
+      </Kb.PopupWrapper>
     )
   }
 }
 
-const _containerStyle = {
-  ...Styles.globalStyles.flexBoxColumn,
-  alignItems: 'center',
-  flex: 1,
-  height: '100%',
-  padding: Styles.isMobile ? Styles.globalMargins.tiny : Styles.globalMargins.large,
-}
+const styles = Styles.styleSheetCreate(() => ({
+  addIcon: {marginBottom: 27},
+  avatarBox: {
+    ...Styles.globalStyles.flexBoxRow,
+    alignItems: 'center',
+    paddingLeft: Styles.globalMargins.xsmall,
+    paddingRight: Styles.globalMargins.small,
+    width: '100%',
+  },
+  buttonBar: {alignItems: 'center'},
+  checkbox: {
+    alignSelf: 'flex-start',
+    marginTop: Styles.globalMargins.tiny,
+  },
+  container: Styles.platformStyles({
+    common: {
+      ...Styles.globalStyles.flexBoxColumn,
+      alignItems: 'center',
+      flex: 1,
+      height: '100%',
+      padding: Styles.isMobile ? Styles.globalMargins.tiny : Styles.globalMargins.large,
+    },
+    isElectron: {maxWidth: 400},
+    isTablet: {
+      alignSelf: 'center',
+      marginTop: Styles.globalMargins.xsmall,
+      width: 500,
+    },
+  }),
+  dropdown: {
+    marginBottom: Styles.globalMargins.small,
+    width: '100%',
+  },
+  dropdownItem: {
+    justifyContent: 'flex-start',
+    paddingLeft: Styles.globalMargins.xsmall,
+  },
+  error: {
+    alignSelf: 'stretch',
+    backgroundColor: Styles.globalColors.red,
+    marginBottom: Styles.globalMargins.small,
+    padding: Styles.globalMargins.tiny,
+  },
+}))
 
-const _addIconStyle = {
-  marginBottom: 27,
-}
-
-export default Kb.HeaderOrPopup(NewRepo)
+export default NewRepo

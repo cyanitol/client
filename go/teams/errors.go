@@ -53,6 +53,10 @@ func (e AppendLinkError) Error() string {
 	return fmt.Sprintf("appending %v->%v: %v", e.prevSeqno, e.l.Seqno(), e.inner)
 }
 
+func (e AppendLinkError) Unwrap() error {
+	return e.inner
+}
+
 func NewAppendLinkError(l *ChainLinkUnpacked, prevSeqno keybase1.Seqno, inner error) AppendLinkError {
 	return AppendLinkError{prevSeqno, l, inner}
 }
@@ -157,15 +161,32 @@ func (e PrevError) Error() string {
 }
 
 type InviteError struct {
-	msg string
+	id  keybase1.TeamInviteID
+	err error
 }
 
-func NewInviteError(m string) InviteError {
-	return InviteError{m}
+func NewInviteError(id keybase1.TeamInviteID, err error) InviteError {
+	return InviteError{id: id, err: err}
 }
 
 func (i InviteError) Error() string {
-	return fmt.Sprintf("Invite error: %s", i.msg)
+	return fmt.Sprintf("Invite error: Invite ID %s: %s", i.id, i.err)
+}
+
+func (i InviteError) Unwrap() error {
+	return i.err
+}
+
+type InvitelinkBadRoleError struct {
+	role keybase1.TeamRole
+}
+
+func NewInvitelinkBadRoleError(role keybase1.TeamRole) InvitelinkBadRoleError {
+	return InvitelinkBadRoleError{role: role}
+}
+
+func (i InvitelinkBadRoleError) Error() string {
+	return fmt.Sprintf("Cannot create invitelink to add invitees as %s", i.role)
 }
 
 type ResolveError struct {
@@ -225,14 +246,8 @@ func NewExplicitTeamOperationError(m string) error {
 }
 
 func IsTeamReadError(err error) bool {
-	switch e := err.(type) {
-	case libkb.AppStatusError:
-		switch keybase1.StatusCode(e.Code) {
-		case keybase1.StatusCode_SCTeamReadError:
-			return true
-		}
-	}
-	return false
+	aerr, ok := err.(libkb.AppStatusError)
+	return ok && keybase1.StatusCode(aerr.Code) == keybase1.StatusCode_SCTeamReadError
 }
 
 func FixupTeamGetError(ctx context.Context, g *libkb.GlobalContext, e error, teamDescriptor string, publicTeam bool) error {
@@ -277,7 +292,7 @@ type AdminPermissionRequiredError struct{}
 
 func NewAdminPermissionRequiredError() error { return &AdminPermissionRequiredError{} }
 
-func (e AdminPermissionRequiredError) Error() string {
+func (e *AdminPermissionRequiredError) Error() string {
 	return "Only admins can perform this operation."
 }
 
@@ -363,6 +378,10 @@ func (e PrecheckAppendError) Error() string {
 	return fmt.Sprintf("Precheck append error: %v", e.Inner)
 }
 
+func (e PrecheckAppendError) Unwrap() error {
+	return e.Inner
+}
+
 type PrecheckStructuralError struct {
 	Inner error
 	Msg   string
@@ -401,16 +420,23 @@ func NewUserHasNotResetError(format string, args ...interface{}) error {
 func (e UserHasNotResetError) Error() string { return e.Msg }
 
 type AddMembersError struct {
-	Assertion string
+	Assertion libkb.AssertionExpression
 	Err       error
 }
 
-func NewAddMembersError(a string, e error) AddMembersError {
+func NewAddMembersError(a libkb.AssertionExpression, e error) AddMembersError {
 	return AddMembersError{a, e}
 }
 
 func (a AddMembersError) Error() string {
-	return fmt.Sprintf("Error adding user '%v': %v", a.Assertion, a.Err)
+	if a.Assertion == nil {
+		return fmt.Sprintf("Error adding members: %v", a.Err)
+	}
+	urls := a.Assertion.CollectUrls(nil)
+	if len(urls) == 1 && urls[0].IsEmail() {
+		return fmt.Sprintf("Error adding email %q: %v", urls[0].GetValue(), a.Err)
+	}
+	return fmt.Sprintf("Error adding %q: %v", a.Assertion.String(), a.Err)
 }
 
 type BadNameError struct {
@@ -537,4 +563,71 @@ type NeedHiddenChainRotationError struct{}
 
 func (e NeedHiddenChainRotationError) Error() string {
 	return "need hidden chain rotation"
+}
+
+type MissingReaderKeyMaskError struct {
+	gen keybase1.PerTeamKeyGeneration
+	app keybase1.TeamApplication
+}
+
+func NewMissingReaderKeyMaskError(gen keybase1.PerTeamKeyGeneration, app keybase1.TeamApplication) error {
+	return MissingReaderKeyMaskError{gen, app}
+}
+
+func (e MissingReaderKeyMaskError) Error() string {
+	return fmt.Sprintf("missing reader key mask for gen:%v app:%v", e.gen, e.app)
+}
+
+type MapAncestorsError struct {
+	err error
+
+	// failedLoadingAtAncestorIdx indicates the team the MapTeamAncestors load failed at.
+	// So if it failed loading the initial team passed in, failedLoadingAtAncestorIdx=0.
+	// Each successive parent team adds one to the index. So if the team tree were
+	// A.B.C.D.E and MapTeamAncestors was called on D, and the function failed at B,
+	// failed=2.
+	failedLoadingAtAncestorIdx int
+}
+
+func NewMapAncestorsError(err error, failedLoadingAtAncestorIdx int) error {
+	return &MapAncestorsError{err, failedLoadingAtAncestorIdx}
+}
+
+func (e *MapAncestorsError) Error() string {
+	return fmt.Sprintf("failed to load ancestor %d during load: %s",
+		e.failedLoadingAtAncestorIdx, e.err)
+}
+
+func (e *MapAncestorsError) Unwrap() error {
+	return e.err
+}
+
+// MemberNotFoundInChainError is an error that is returned when a member is not in a team, and this
+// fact is verified in the sigchain (i.e., not servertrust).
+type MemberNotFoundInChainError struct {
+	err error
+}
+
+func NewMemberNotFoundInChainError(err error) error {
+	return &MemberNotFoundInChainError{err}
+}
+
+func (e *MemberNotFoundInChainError) Error() string {
+	return fmt.Sprintf("could not find team member in team: %s", e.err)
+}
+
+func (e *MemberNotFoundInChainError) Unwrap() error {
+	return e.err
+}
+
+type InviteLinkAcceptanceError struct {
+	Cause error
+}
+
+func (e InviteLinkAcceptanceError) Error() string {
+	return fmt.Sprintf("InviteLinkAcceptanceError: %s", e.Cause)
+}
+
+func NewInviteLinkAcceptanceError(format string, args ...interface{}) InviteLinkAcceptanceError {
+	return InviteLinkAcceptanceError{fmt.Errorf(format, args...)}
 }

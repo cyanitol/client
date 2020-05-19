@@ -41,6 +41,8 @@ type KeybaseServiceMeasured struct {
 	notifyTimer                      metrics.Timer
 	notifyPathUpdatedTimer           metrics.Timer
 	putGitMetadataTimer              metrics.Timer
+	onPathChangeTimer                metrics.Timer
+	onChangeTimer                    metrics.Timer
 }
 
 var _ KeybaseService = KeybaseServiceMeasured{}
@@ -73,6 +75,10 @@ func NewKeybaseServiceMeasured(delegate KeybaseService, r metrics.Registry) Keyb
 	notifyPathUpdatedTimer := metrics.GetOrRegisterTimer("KeybaseService.NotifyPathUpdated", r)
 	putGitMetadataTimer := metrics.GetOrRegisterTimer(
 		"KeybaseService.PutGitMetadata", r)
+	onPathChangeTimer := metrics.GetOrRegisterTimer(
+		"KeybaseService.OnPathChangeTimer", r)
+	onChangeTimer := metrics.GetOrRegisterTimer(
+		"KeybaseService.OnChangeTimer", r)
 	return KeybaseServiceMeasured{
 		delegate:                         delegate,
 		resolveTimer:                     resolveTimer,
@@ -95,6 +101,8 @@ func NewKeybaseServiceMeasured(delegate KeybaseService, r metrics.Registry) Keyb
 		notifyTimer:                      notifyTimer,
 		notifyPathUpdatedTimer:           notifyPathUpdatedTimer,
 		putGitMetadataTimer:              putGitMetadataTimer,
+		onPathChangeTimer:                onPathChangeTimer,
+		onChangeTimer:                    onChangeTimer,
 	}
 }
 
@@ -365,6 +373,28 @@ func (k KeybaseServiceMeasured) PutGitMetadata(
 		err = k.delegate.PutGitMetadata(ctx, folder, repoID, metadata)
 	})
 	return err
+}
+
+// OnPathChange implements the SubscriptionNotifier interface.
+func (k KeybaseServiceMeasured) OnPathChange(clientID SubscriptionManagerClientID,
+	subscriptionIDs []SubscriptionID, path string, topics []keybase1.PathSubscriptionTopic) {
+	k.onPathChangeTimer.Time(func() {
+		k.delegate.OnPathChange(clientID, subscriptionIDs, path, topics)
+	})
+}
+
+// OnNonPathChange implements the SubscriptionNotifier interface.
+func (k KeybaseServiceMeasured) OnNonPathChange(
+	clientID SubscriptionManagerClientID,
+	subscriptionIDs []SubscriptionID, topic keybase1.SubscriptionTopic) {
+	k.onChangeTimer.Time(func() {
+		k.delegate.OnNonPathChange(clientID, subscriptionIDs, topic)
+	})
+}
+
+// GetKVStoreClient implements the KeybaseService interface.
+func (k KeybaseServiceMeasured) GetKVStoreClient() keybase1.KvstoreInterface {
+	return k.delegate.GetKVStoreClient()
 }
 
 // Shutdown implements the KeybaseService interface for

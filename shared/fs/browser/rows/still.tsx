@@ -5,22 +5,25 @@ import * as Flow from '../../../util/flow'
 import * as Styles from '../../../styles'
 import {rowStyles, StillCommon, StillCommonProps} from './common'
 import * as Kb from '../../../common-adapters'
-import {PathItemInfo, Filename} from '../../common'
+import {LastModifiedLine, Filename} from '../../common'
 
 type StillProps = StillCommonProps & {
+  dismissUploadError?: () => void
   intentIfDownloading?: Types.DownloadIntent | null
   isEmpty: boolean
   type: Types.PathType
+  uploading: boolean
+  writingToJournal: boolean
 }
 
 const getDownloadingText = (intent: Types.DownloadIntent) => {
   switch (intent) {
     case Types.DownloadIntent.None:
-      return 'Downloading ...'
+      return 'Downloading...'
     case Types.DownloadIntent.CameraRoll:
-      return 'Saving ...'
+      return 'Saving...'
     case Types.DownloadIntent.Share:
-      return 'Preparing to send to other app ...'
+      return 'Preparing...'
     default:
       Flow.ifFlowComplainsAboutThisFunctionYouHaventHandledAllCasesInASwitch(intent)
       return ''
@@ -29,15 +32,13 @@ const getDownloadingText = (intent: Types.DownloadIntent) => {
 
 const Still = (props: StillProps) => (
   <StillCommon
-    name={props.name}
     path={props.path}
     onOpen={props.onOpen}
     inDestinationPicker={props.inDestinationPicker}
-    badge={props.intentIfDownloading ? Types.PathItemBadgeType.Download : null}
-    routePath={props.routePath}
-  >
-    <Kb.Box style={rowStyles.itemBox}>
-      <Kb.Box2 direction="horizontal" fullWidth={true}>
+    writingToJournal={props.writingToJournal}
+    uploadErrored={!!props.dismissUploadError}
+    content={
+      <>
         <Filename
           path={props.path}
           type={Constants.pathTypeToTextType(props.type)}
@@ -50,14 +51,38 @@ const Still = (props: StillProps) => (
             style={{marginLeft: Styles.globalMargins.tiny, marginTop: Styles.globalMargins.xxtiny}}
           />
         )}
-      </Kb.Box2>
-      {props.intentIfDownloading ? (
+      </>
+    }
+    status={
+      props.dismissUploadError ? (
+        <Kb.Text type="BodySmallError">
+          Upload has failed.{' '}
+          <Kb.Text
+            type="BodySmallPrimaryLink"
+            style={styles.redDark}
+            onClick={e => {
+              e.stopPropagation()
+              props.dismissUploadError?.()
+            }}
+          >
+            Dismiss
+          </Kb.Text>
+        </Kb.Text>
+      ) : props.intentIfDownloading ? (
         <Kb.Text type="BodySmall">{getDownloadingText(props.intentIfDownloading)}</Kb.Text>
+      ) : props.writingToJournal ? (
+        <Kb.Meta title="Encrypting" backgroundColor={Styles.globalColors.blue} />
+      ) : props.uploading ? (
+        <Kb.Text type="BodySmall">Uploading ...</Kb.Text>
       ) : (
-        props.type !== Types.PathType.Folder && <PathItemInfo path={props.path} mode="row" />
-      )}
-    </Kb.Box>
-  </StillCommon>
+        props.type !== Types.PathType.Folder && <LastModifiedLine path={props.path} mode="row" />
+      )
+    }
+  />
 )
 
 export default Still
+
+const styles = Styles.styleSheetCreate(() => ({
+  redDark: {color: Styles.globalColors.redDark},
+}))

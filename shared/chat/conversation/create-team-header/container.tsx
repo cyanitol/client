@@ -1,38 +1,23 @@
 import * as Types from '../../../constants/types/chat2'
-import CreateTeamHeader from '.'
-import {connect} from '../../../util/container'
+import * as Container from '../../../util/container'
 import * as RouteTreeGen from '../../../actions/route-tree-gen'
+import CreateTeamHeader from '.'
 
-type OwnProps = {
-  conversationIDKey: Types.ConversationIDKey
-}
+type OwnProps = {conversationIDKey: Types.ConversationIDKey}
 
-const mapStateToProps = (state, {conversationIDKey}: OwnProps) => ({
-  conversationIDKey,
-})
-
-const mapDispatchToProps = dispatch => ({
-  _onShowNewTeamDialog: (conversationIDKey: Types.ConversationIDKey) => {
-    dispatch(
-      RouteTreeGen.createNavigateAppend({
-        path: [
-          {
-            props: {conversationIDKey},
-            selected: 'chatShowNewTeamDialog',
-          },
-        ],
-      })
-    )
-  },
-})
-
-const mergeProps = (stateProps, dispatchProps) => ({
-  onShowNewTeamDialog: () => dispatchProps._onShowNewTeamDialog(stateProps.conversationIDKey),
-})
-
-const Connected = connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  mergeProps
+const Connected = Container.connect(
+  (_, {conversationIDKey}: OwnProps) => ({conversationIDKey}),
+  dispatch => ({
+    _onShowNewTeamDialog: (conversationIDKey: Types.ConversationIDKey) => {
+      dispatch(
+        RouteTreeGen.createNavigateAppend({
+          path: [{props: {conversationIDKey}, selected: 'chatShowNewTeamDialog'}],
+        })
+      )
+    },
+  }),
+  (stateProps, dispatchProps) => ({
+    onShowNewTeamDialog: () => dispatchProps._onShowNewTeamDialog(stateProps.conversationIDKey),
+  })
 )(CreateTeamHeader)
 export default Connected

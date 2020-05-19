@@ -1,9 +1,10 @@
 import * as React from 'react'
 import * as Kb from '../common-adapters'
 import * as Styles from '../styles'
+import * as Container from '../util/container'
 import {Provider} from 'react-redux'
 import {createStore, applyMiddleware} from 'redux'
-import {GatewayProvider, GatewayDest} from 'react-gateway'
+import {GatewayProvider, GatewayDest} from '@chardskarth/react-gateway'
 import {action} from '@storybook/addon-actions'
 import Box from '../common-adapters/box'
 import Text from '../common-adapters/text'
@@ -59,50 +60,56 @@ const createPropProvider = (...maps: SelectorMap[]) => {
    * children to GatewayProvider which only takes one child
    */
   return (story: () => React.ReactNode) => (
-    // @ts-ignore complains about merged
     <Provider
       key={`provider:${uniqueProviderKey++}`}
       store={
         // @ts-ignore
         createStore(state => state, merged)
       }
+      // @ts-ignore
       merged={merged}
     >
       <GatewayProvider>
-        <React.Fragment>
+        <>
           <StorybookErrorBoundary children={story()} />
           <GatewayDest component={DestBox} name="popup-root" />
-        </React.Fragment>
+        </>
       </GatewayProvider>
     </Provider>
   )
 }
 
 // Plumb dispatches through storybook actions panel
-const actionLog = () => next => a => {
+const actionLog = () => (next: any) => (a: any) => {
   action('ReduxDispatch')(a)
   return next(a)
 }
 
 // Includes common old-style propProvider temporarily
-export const MockStore = ({store, children}): any => (
-  // @ts-ignore
+export const MockStore = ({store, children}: any): any => (
   <Provider
     key={`storyprovider:${uniqueProviderKey++}`}
     store={createStore(state => state, {...store, ...PP.Common()}, applyMiddleware(actionLog))}
+    // @ts-ignore
     merged={store}
   >
     <GatewayProvider>
-      <React.Fragment>
+      <>
         <StorybookErrorBoundary children={children} />
         <GatewayDest component={DestBox} name="popup-root" />
-      </React.Fragment>
+      </>
     </GatewayProvider>
   </Provider>
 )
-export const createNavigator = params => ({
+
+type updateFn = (draftState: Container.TypedState) => void
+export const updateStoreDecorator = (store: Container.TypedState, update: updateFn) => (story: any) => (
+  <MockStore store={Container.produce(store, update)}>{story()}</MockStore>
+)
+
+export const createNavigator = (params: any) => ({
   navigation: {
-    getParam: key => params[key],
+    getParam: (key: any) => params[key],
   },
 })
 
@@ -228,7 +235,14 @@ class PerfBox extends React.Component<
     console.log('PerfTiming: ', diff)
   }
 
-  _getTime = typeof performance !== 'undefined' ? () => performance.now() : () => Date.now() // eslint-disable-line
+  _getTime = () => {
+    const perf: any = window ? window.performance : undefined
+    if (typeof perf !== 'undefined') {
+      return perf.now()
+    } else {
+      return Date.now()
+    }
+  }
 
   render() {
     this._startTime = this._getTime()

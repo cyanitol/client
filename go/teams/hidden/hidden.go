@@ -1,8 +1,14 @@
 package hidden
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+
+	"github.com/keybase/client/go/blindtree"
 	"github.com/keybase/client/go/libkb"
+	"github.com/keybase/client/go/merkletree2"
+	"github.com/keybase/client/go/msgpack"
 	"github.com/keybase/client/go/protocol/keybase1"
 	"github.com/keybase/client/go/sig3"
 )
@@ -42,6 +48,13 @@ func populateLink(mctx libkb.MetaContext, ret *keybase1.HiddenTeamChain, link si
 	}
 	ret.Inner[q] = *rkex
 
+	// Because this link isn't stubbed, we can bump the `LastFull` field
+	// forward if it's one more than previous. ret.LastFull will start at 0
+	// so this should work for the first link.
+	if ret.LastFull+1 == q {
+		ret.LastFull = q
+	}
+
 	// For each PTK (right now we really only expect one - the Reader PTK),
 	// update our maximum PTK generation
 	for _, ptk := range rotateKey.PTKs() {
@@ -50,9 +63,14 @@ func populateLink(mctx libkb.MetaContext, ret *keybase1.HiddenTeamChain, link si
 			ret.LastPerTeamKeys[ptk.PTKType] = q
 		}
 		if ptk.PTKType == keybase1.PTKType_READER {
+			_, found := ret.ReaderPerTeamKeys[ptk.Generation]
+			if found {
+				return newRepeatPTKGenerationError(ptk.Generation, "clashes another hidden link")
+			}
 			ret.ReaderPerTeamKeys[ptk.Generation] = q
 		}
 	}
+	ret.MerkleRoots[q] = link.Inner().MerkleRoot.Export()
 
 	return nil
 }
@@ -163,12 +181,12 @@ func generateKeyRotationSig3(mctx libkb.MetaContext, p GenerateKeyRotationParams
 	}
 	rkb := sig3.RotateKeyBody{
 		PTKs: []sig3.PerTeamKey{
-			sig3.PerTeamKey{
+			{
 				AppkeyDerivationVersion: sig3.AppkeyDerivationXOR,
 				Generation:              p.Gen,
 				SeedCheck:               *checkPostImage,
-				EncryptionKID:           sig3.KID(p.NewEncryptionKey.GetBinaryKID()),
-				SigningKID:              sig3.KID(p.NewSigningKey.GetBinaryKID()),
+				EncryptionKID:           p.NewEncryptionKey.GetBinaryKID(),
+				SigningKID:              p.NewSigningKey.GetBinaryKID(),
 				PTKType:                 keybase1.PTKType_READER,
 			},
 		},
@@ -182,7 +200,7 @@ func generateKeyRotationSig3(mctx libkb.MetaContext, p GenerateKeyRotationParams
 		if signing.Private == nil {
 			return nil, NewGenerateError("bad key pair, got null private key")
 		}
-		return sig3.NewKeyPair(*signing.Private, sig3.KID(g.GetBinaryKID())), nil
+		return sig3.NewKeyPair(*signing.Private, g.GetBinaryKID()), nil
 	}
 
 	rk := sig3.NewRotateKey(outer, inner, rkb)
@@ -222,11 +240,11 @@ func generateKeyRotationSig3(mctx libkb.MetaContext, p GenerateKeyRotationParams
 	return &bun, ratchets, nil
 }
 
-func CheckFeatureGateForSupportWithRotationType(mctx libkb.MetaContext, teamID keybase1.TeamID, isWrite bool, rt keybase1.RotationType) (ret keybase1.RotationType, err error) {
+func CheckFeatureGateForSupportWithRotationType(mctx libkb.MetaContext, teamID keybase1.TeamID, rt keybase1.RotationType) (ret keybase1.RotationType, err error) {
 	if rt == keybase1.RotationType_VISIBLE {
 		return rt, nil
 	}
-	ok, err := checkFeatureGateForSupport(mctx, teamID, isWrite)
+	ok, err := checkFeatureGateForSupport(mctx, teamID)
 	if err != nil {
 		return rt, err
 	}
@@ -240,7 +258,7 @@ func CheckFeatureGateForSupportWithRotationType(mctx libkb.MetaContext, teamID k
 	case rt == keybase1.RotationType_HIDDEN && ok:
 		return keybase1.RotationType_HIDDEN, nil
 	case rt == keybase1.RotationType_HIDDEN && !ok:
-		return keybase1.RotationType_HIDDEN, NewHiddenRotationNotSupportedError(teamID)
+		return keybase1.RotationType_HIDDEN, NewHiddenChainNotSupportedError(teamID)
 
 	default:
 		return keybase1.RotationType_HIDDEN, fmt.Errorf("unhandled case")
@@ -256,7 +274,7 @@ func (r *rawSupport) GetAppStatus() *libkb.AppStatus {
 	return &r.Status
 }
 
-func featureGateForTeamFromServer(mctx libkb.MetaContext, teamID keybase1.TeamID, isWrite bool) (ok bool, err error) {
+func featureGateForTeamFromServer(mctx libkb.MetaContext, teamID keybase1.TeamID) (ok bool, err error) {
 	arg := libkb.NewAPIArg("team/supports_hidden_chain")
 	arg.SessionType = libkb.APISessionTypeREQUIRED
 	arg.Args = libkb.HTTPArgs{
@@ -270,25 +288,133 @@ func featureGateForTeamFromServer(mctx libkb.MetaContext, teamID keybase1.TeamID
 	return raw.Support, nil
 }
 
-func checkFeatureGateForSupport(mctx libkb.MetaContext, teamID keybase1.TeamID, isWrite bool) (ok bool, err error) {
-	admin := mctx.G().FeatureFlags.Enabled(mctx, libkb.FeatureCheckForHiddenChainSupport)
+func checkFeatureGateForSupport(mctx libkb.MetaContext, teamID keybase1.TeamID) (ok bool, err error) {
+	userFlagEnabled := mctx.G().FeatureFlags.Enabled(mctx, libkb.FeatureCheckForHiddenChainSupport)
 	runmode := mctx.G().Env.GetRunMode()
 	if runmode != libkb.ProductionRunMode {
 		return true, nil
 	}
-	if runmode == libkb.ProductionRunMode && !admin {
+	if runmode == libkb.ProductionRunMode && !userFlagEnabled {
 		return false, nil
 	}
-	return featureGateForTeamFromServer(mctx, teamID, isWrite)
+
+	return mctx.G().GetHiddenTeamChainManager().TeamSupportsHiddenChain(mctx, teamID)
 }
 
-func CheckFeatureGateForSupport(mctx libkb.MetaContext, teamID keybase1.TeamID, isWrite bool) (err error) {
-	ok, err := checkFeatureGateForSupport(mctx, teamID, isWrite)
+func CheckFeatureGateForSupport(mctx libkb.MetaContext, teamID keybase1.TeamID) (err error) {
+	ok, err := checkFeatureGateForSupport(mctx, teamID)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return NewHiddenRotationNotSupportedError(teamID)
+		return NewHiddenChainNotSupportedError(teamID)
 	}
 	return nil
+}
+
+func ProcessHiddenResponseFunc(m libkb.MetaContext, teamID keybase1.TeamID, apiRes *libkb.APIRes, blindRootHashStr string) (hiddenResp *libkb.MerkleHiddenResponse, err error) {
+	if CheckFeatureGateForSupport(m, teamID) != nil {
+		m.Debug("Skipped ProcessHiddenResponseFunc as the feature flag is off (%v)", err)
+		return &libkb.MerkleHiddenResponse{RespType: libkb.MerkleHiddenResponseTypeFLAGOFF}, nil
+	}
+
+	if blindRootHashStr == "" {
+		m.Debug("blind tree root not found in the main tree: %v", err)
+		// TODO: Y2K-770 Until the root of the blind tree starts getting
+		// included in the main tree, we can get such root from the server as an
+		// additional parameter and assume the server is honest.
+		blindRootHashStr, err = apiRes.Body.AtKey("last_blind_root_hash").GetString()
+		if err != nil {
+			return &libkb.MerkleHiddenResponse{RespType: libkb.MerkleHiddenResponseTypeNONE}, nil
+		}
+		m.Debug("the server is providing a blind tree root which is not included in the main tree. We trust the server on this as the blind tree is an experimental feature.")
+	}
+	blindRootHashBytes, err := hex.DecodeString(blindRootHashStr)
+	if err != nil {
+		return nil, err
+	}
+
+	return ParseAndVerifyCommittedHiddenLinkID(m, teamID, apiRes, merkletree2.Hash(blindRootHashBytes))
+}
+
+func ParseAndVerifyCommittedHiddenLinkID(m libkb.MetaContext, teamID keybase1.TeamID, apiRes *libkb.APIRes, blindHash merkletree2.Hash) (hiddenResp *libkb.MerkleHiddenResponse, err error) {
+	verif := merkletree2.NewMerkleProofVerifier(blindtree.GetCurrentBlindTreeConfig())
+
+	encValWithProofBase64, err := apiRes.Body.AtKey("enc_value_with_proof").GetString()
+	if err != nil {
+		m.Debug("Error decoding enc_value_with_proof (%v), assuming the server did not send it.", err.Error())
+		return &libkb.MerkleHiddenResponse{RespType: libkb.MerkleHiddenResponseTypeNONE}, nil
+	}
+	encValWithProofBytes, err := base64.StdEncoding.DecodeString(encValWithProofBase64)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding encValWithProof from b64: %v", err.Error())
+	}
+	var resp merkletree2.GetValueWithProofResponse
+	if err := msgpack.Decode(&resp, encValWithProofBytes); err != nil {
+		return nil, fmt.Errorf("error decoding encValWithProof: %v", err.Error())
+	}
+
+	lastHiddenSeqnoInt, err := apiRes.Body.AtKey("last_hidden_seqno").GetInt()
+	if err != nil {
+		return nil, err
+	}
+	lastHiddenSeqno := keybase1.Seqno(lastHiddenSeqnoInt)
+
+	proof := resp.Proof
+	eVal := resp.Value
+	key := merkletree2.Key(teamID.ToBytes())
+
+	// if the leaf is not in there, expect an exclusion proof.
+	if eVal == nil {
+		err := verif.VerifyExclusionProof(m, key, &proof, blindHash)
+		if err != nil {
+			return nil, err
+		}
+
+		return &libkb.MerkleHiddenResponse{
+			RespType:            libkb.MerkleHiddenResponseTypeABSENCEPROOF,
+			UncommittedSeqno:    lastHiddenSeqno,
+			CommittedHiddenTail: nil,
+		}, nil
+	}
+
+	var leaf blindtree.BlindMerkleValue
+	if err := msgpack.Decode(&leaf, eVal); err != nil {
+		return nil, err
+	}
+	if err := verif.VerifyInclusionProof(m, merkletree2.KeyValuePair{Key: key, Value: leaf}, &proof, blindHash); err != nil {
+		return nil, err
+	}
+	return makeHiddenRespFromTeamLeaf(m, leaf, lastHiddenSeqno)
+}
+
+func makeHiddenRespFromTeamLeaf(m libkb.MetaContext, leaf blindtree.BlindMerkleValue, lastHiddenSeqno keybase1.Seqno) (hiddenResp *libkb.MerkleHiddenResponse, err error) {
+	switch leaf.ValueType {
+	case blindtree.ValueTypeTeamV1:
+		leaf := leaf.InnerValue.(blindtree.TeamV1Value)
+		tail, found := leaf.Tails[keybase1.SeqType_TEAM_PRIVATE_HIDDEN]
+		if !found {
+			return nil, libkb.NewHiddenMerkleError(libkb.HiddenMerkleErrorNoHiddenChainInLeaf,
+				"The leaf contained in the apiRes does not contain a hidden chain tail: %+v", leaf)
+		}
+		if tail.ChainType != keybase1.SeqType_TEAM_PRIVATE_HIDDEN {
+			return nil, libkb.NewHiddenMerkleError(libkb.HiddenMerkleErrorInconsistentLeaf,
+				"The tail type is inconsistent among different parts of the leaf: %+v", leaf)
+		}
+		return &libkb.MerkleHiddenResponse{
+			RespType:            libkb.MerkleHiddenResponseTypeOK,
+			UncommittedSeqno:    lastHiddenSeqno,
+			CommittedHiddenTail: &tail,
+		}, nil
+	case blindtree.ValueTypeEmpty:
+		// We had an empty leaf but we verified its inclusion proof.
+		return &libkb.MerkleHiddenResponse{
+			RespType:            libkb.MerkleHiddenResponseTypeABSENCEPROOF,
+			UncommittedSeqno:    lastHiddenSeqno,
+			CommittedHiddenTail: nil,
+		}, nil
+	default:
+		return nil, libkb.NewHiddenMerkleError(libkb.HiddenMerkleErrorInvalidLeafType,
+			"Invalid leaf type: %+v", leaf)
+	}
 }

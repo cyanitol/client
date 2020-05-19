@@ -1,41 +1,25 @@
 import React from 'react'
-import {Box} from '../../common-adapters'
 import * as Sb from '../../stories/storybook'
-import * as Styles from '../../styles'
-
+import * as Container from '../../util/container'
+import {fakeTeamID, store} from '../stories'
 import EditTeamDescription from '.'
 
-const sharedProps = {
-  description: 'First description',
-  onChangeDescription: Sb.action('onChangeDescription'),
-  onClose: Sb.action('onClose'),
-  onSetDescription: Sb.action('onSetDescription'),
-  origDescription: 'First description',
-  teamname: 'testteam',
-  waitingKey: 'test',
-}
+const makeStore = (withErr: boolean) =>
+  Container.produce(store, draftState => {
+    draftState.teams.errorInEditDescription = withErr ? 'Something has gone horribly wrong!!!' : ''
+  })
 
-const load = () => {
+const load = () =>
   Sb.storiesOf('Teams/Edit team description', module)
-    .add('Description unchanged', () => (
-      <Box style={storyWrapStyle}>
-        <EditTeamDescription {...sharedProps} />
-      </Box>
+    .add('Normal', () => (
+      <Sb.MockStore store={makeStore(false)}>
+        <EditTeamDescription {...Sb.createNavigator({teamID: fakeTeamID})} />
+      </Sb.MockStore>
     ))
-    .add('Description changed', () => (
-      <Box style={storyWrapStyle}>
-        <EditTeamDescription {...sharedProps} description="Second description" />
-      </Box>
+    .add('Error', () => (
+      <Sb.MockStore store={makeStore(true)}>
+        <EditTeamDescription {...Sb.createNavigator({teamID: fakeTeamID})} />
+      </Sb.MockStore>
     ))
-}
-
-const storyWrapStyle = {
-  borderColor: 'black',
-  borderStyle: 'solid',
-  borderWidth: 1,
-  display: 'flex',
-  height: 400,
-  width: Styles.isMobile ? undefined : 500,
-}
 
 export default load

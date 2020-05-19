@@ -83,31 +83,35 @@
         },
         {
           "type": "string",
-          "name": "thumbnail"
-        },
-        {
-          "type": "int",
-          "name": "idVersion"
-        },
-        {
-          "type": "string",
           "name": "fullName"
         },
         {
-          "type": "string",
-          "name": "bio"
-        },
+          "type": [
+            null,
+            "LinkID"
+          ],
+          "name": "linkID"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UserSummarySet",
+      "fields": [
         {
-          "type": "Proofs",
-          "name": "proofs"
-        },
-        {
-          "type": "string",
-          "name": "sigIDDisplay"
+          "type": {
+            "type": "array",
+            "items": "UserSummary"
+          },
+          "name": "users"
         },
         {
           "type": "Time",
-          "name": "trackTime"
+          "name": "time"
+        },
+        {
+          "type": "int",
+          "name": "version"
         }
       ]
     },
@@ -136,6 +140,10 @@
         {
           "type": "IdentityVisibility",
           "name": "visibility"
+        },
+        {
+          "type": "UnixTime",
+          "name": "lastVerifyEmailDate"
         }
       ]
     },
@@ -161,57 +169,6 @@
     },
     {
       "type": "record",
-      "name": "UserSummary2",
-      "fields": [
-        {
-          "type": "UID",
-          "name": "uid"
-        },
-        {
-          "type": "string",
-          "name": "username"
-        },
-        {
-          "type": "string",
-          "name": "thumbnail"
-        },
-        {
-          "type": "string",
-          "name": "fullName"
-        },
-        {
-          "type": "boolean",
-          "name": "isFollower"
-        },
-        {
-          "type": "boolean",
-          "name": "isFollowee"
-        }
-      ]
-    },
-    {
-      "type": "record",
-      "name": "UserSummary2Set",
-      "fields": [
-        {
-          "type": {
-            "type": "array",
-            "items": "UserSummary2"
-          },
-          "name": "users"
-        },
-        {
-          "type": "Time",
-          "name": "time"
-        },
-        {
-          "type": "int",
-          "name": "version"
-        }
-      ]
-    },
-    {
-      "type": "record",
       "name": "InterestingPerson",
       "fields": [
         {
@@ -225,6 +182,14 @@
         {
           "type": "string",
           "name": "fullname"
+        },
+        {
+          "type": {
+            "type": "map",
+            "values": "string",
+            "keys": "string"
+          },
+          "name": "serviceMap"
         }
       ]
     },
@@ -269,6 +234,13 @@
           "name": "profileIcon"
         },
         {
+          "type": {
+            "type": "array",
+            "items": "SizedImage"
+          },
+          "name": "profileIconDarkmode"
+        },
+        {
           "type": "string",
           "name": "pickerText"
         },
@@ -282,6 +254,13 @@
             "items": "SizedImage"
           },
           "name": "pickerIcon"
+        },
+        {
+          "type": {
+            "type": "array",
+            "items": "SizedImage"
+          },
+          "name": "pickerIconDarkmode"
         },
         {
           "type": {
@@ -306,6 +285,15 @@
       ]
     },
     {
+      "type": "enum",
+      "name": "PassphraseState",
+      "symbols": [
+        "KNOWN_0",
+        "RANDOM_1"
+      ],
+      "doc": "PassphraseState values are used in .config.json, so should not be changed without a migration strategy"
+    },
+    {
       "type": "record",
       "name": "CanLogoutRes",
       "fields": [
@@ -318,32 +306,248 @@
           "name": "reason"
         },
         {
+          "type": "PassphraseState",
+          "name": "passphraseState"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UserPassphraseStateMsg",
+      "fields": [
+        {
+          "type": "PassphraseState",
+          "name": "passphraseState",
+          "jsonkey": "state"
+        }
+      ],
+      "lint": "ignore"
+    },
+    {
+      "type": "record",
+      "name": "UserBlockedRow",
+      "fields": [
+        {
+          "type": "UID",
+          "name": "uid",
+          "jsonkey": "block_uid"
+        },
+        {
+          "type": "string",
+          "name": "username",
+          "jsonkey": "block_username"
+        },
+        {
+          "type": [
+            null,
+            "boolean"
+          ],
+          "name": "chat",
+          "jsonkey": "chat"
+        },
+        {
+          "type": [
+            null,
+            "boolean"
+          ],
+          "name": "follow",
+          "jsonkey": "follow"
+        }
+      ]
+    },
+    {
+      "type": "enum",
+      "name": "UserBlockType",
+      "symbols": [
+        "CHAT_0",
+        "FOLLOW_1"
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UserBlockedBody",
+      "fields": [
+        {
+          "type": {
+            "type": "array",
+            "items": "UserBlockedRow"
+          },
+          "name": "blocks",
+          "jsonkey": "blocks"
+        },
+        {
+          "type": "UID",
+          "name": "uid",
+          "jsonkey": "blocker_uid"
+        },
+        {
+          "type": "string",
+          "name": "username",
+          "jsonkey": "blocker_username"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UserBlockState",
+      "fields": [
+        {
+          "type": "UserBlockType",
+          "name": "blockType"
+        },
+        {
           "type": "boolean",
-          "name": "setPassphrase"
+          "name": "blocked"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UserBlockedSummary",
+      "fields": [
+        {
+          "type": "string",
+          "name": "blocker"
+        },
+        {
+          "type": {
+            "type": "map",
+            "values": {
+              "type": "array",
+              "items": "UserBlockState"
+            },
+            "keys": "string"
+          },
+          "name": "blocks"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UserBlock",
+      "fields": [
+        {
+          "type": "string",
+          "name": "username"
+        },
+        {
+          "type": "boolean",
+          "name": "chatBlocked"
+        },
+        {
+          "type": "boolean",
+          "name": "followBlocked"
+        },
+        {
+          "type": [
+            null,
+            "Time"
+          ],
+          "name": "createTime"
+        },
+        {
+          "type": [
+            null,
+            "Time"
+          ],
+          "name": "modifyTime"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "UserBlockArg",
+      "fields": [
+        {
+          "type": "string",
+          "name": "username"
+        },
+        {
+          "type": [
+            null,
+            "boolean"
+          ],
+          "name": "setChatBlock"
+        },
+        {
+          "type": [
+            null,
+            "boolean"
+          ],
+          "name": "setFollowBlock"
+        }
+      ]
+    },
+    {
+      "type": "record",
+      "name": "TeamBlock",
+      "fields": [
+        {
+          "type": "string",
+          "name": "teamName",
+          "jsonkey": "fq_name"
+        },
+        {
+          "type": "Time",
+          "name": "createTime",
+          "jsonkey": "ctime"
         }
       ]
     }
   ],
   "messages": {
-    "loadUncheckedUserSummaries": {
+    "listTracking": {
       "request": [
         {
           "name": "sessionID",
           "type": "int"
         },
         {
-          "name": "uids",
-          "type": {
-            "type": "array",
-            "items": "UID"
-          }
+          "name": "filter",
+          "type": "string"
+        },
+        {
+          "name": "assertion",
+          "type": "string"
         }
       ],
-      "response": {
-        "type": "array",
-        "items": "UserSummary"
-      },
-      "doc": "Load user summaries for the supplied uids.\n    They are \"unchecked\" in that the client is not verifying the info from the server.\n    If len(uids) > 500, the first 500 will be returned."
+      "response": "UserSummarySet",
+      "doc": "listTracking gets verified data from the tracking statements in the user's\n    sigchain. However, it does not check to make sure the tracked users have\n    not reset since the track statement.\n\n    If assertion is empty, it will use the current logged in user."
+    },
+    "listTrackingJSON": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "filter",
+          "type": "string"
+        },
+        {
+          "name": "verbose",
+          "type": "boolean"
+        },
+        {
+          "name": "assertion",
+          "type": "string"
+        }
+      ],
+      "response": "string"
+    },
+    "listTrackersUnverified": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "assertion",
+          "type": "string"
+        }
+      ],
+      "response": "UserSummarySet",
+      "doc": "listTrackersUnverified returns the users following the given user, and is unverified\n    and server-trust."
     },
     "loadUser": {
       "request": [
@@ -451,48 +655,6 @@
       "response": "UserSettings",
       "doc": "Load user settings (for logged in user)."
     },
-    "listTracking": {
-      "request": [
-        {
-          "name": "sessionID",
-          "type": "int"
-        },
-        {
-          "name": "filter",
-          "type": "string"
-        },
-        {
-          "name": "assertion",
-          "type": "string"
-        }
-      ],
-      "response": {
-        "type": "array",
-        "items": "UserSummary"
-      },
-      "doc": "The list-tracking functions get verified data from the tracking statements\n    in the user's sigchain.\n\n    If assertion is empty, it will use the current logged in user."
-    },
-    "listTrackingJSON": {
-      "request": [
-        {
-          "name": "sessionID",
-          "type": "int"
-        },
-        {
-          "name": "filter",
-          "type": "string"
-        },
-        {
-          "name": "verbose",
-          "type": "boolean"
-        },
-        {
-          "name": "assertion",
-          "type": "string"
-        }
-      ],
-      "response": "string"
-    },
     "loadAllPublicKeysUnverified": {
       "request": [
         {
@@ -509,23 +671,6 @@
         "items": "PublicKey"
       },
       "doc": "Load all the user's public keys (even those in reset key families)\n    from the server with no verification"
-    },
-    "listTrackers2": {
-      "request": [
-        {
-          "name": "sessionID",
-          "type": "int"
-        },
-        {
-          "name": "assertion",
-          "type": "string"
-        },
-        {
-          "name": "reverse",
-          "type": "boolean"
-        }
-      ],
-      "response": "UserSummary2Set"
     },
     "profileEdit": {
       "request": [
@@ -553,6 +698,10 @@
         {
           "name": "maxUsers",
           "type": "int"
+        },
+        {
+          "name": "namespace",
+          "type": "string"
         }
       ],
       "response": {
@@ -578,6 +727,10 @@
         {
           "name": "uid",
           "type": "UID"
+        },
+        {
+          "name": "unstubbed",
+          "type": "boolean"
         }
       ],
       "response": "UPAKVersioned",
@@ -660,23 +813,6 @@
       "response": "NextMerkleRootRes",
       "doc": "FindNextMerkleRootAfterReset finds the first Merkle root that contains the UID reset\n   at resetSeqno. You should pass it prev, which was the last known Merkle root at the time of\n   the reset. Usually, we'll just turn up the next Merkle root, but not always."
     },
-    "loadHasRandomPw": {
-      "request": [
-        {
-          "name": "sessionID",
-          "type": "int"
-        },
-        {
-          "name": "forceRepoll",
-          "type": "boolean"
-        },
-        {
-          "name": "noShortTimeout",
-          "type": "boolean"
-        }
-      ],
-      "response": "boolean"
-    },
     "canLogout": {
       "request": [
         {
@@ -685,6 +821,15 @@
         }
       ],
       "response": "CanLogoutRes"
+    },
+    "loadPassphraseState": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        }
+      ],
+      "response": "PassphraseState"
     },
     "userCard": {
       "request": [
@@ -706,6 +851,82 @@
         "UserCard"
       ]
     },
+    "setUserBlocks": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "blocks",
+          "type": {
+            "type": "array",
+            "items": "UserBlockArg"
+          }
+        }
+      ],
+      "response": null
+    },
+    "getUserBlocks": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "usernames",
+          "type": {
+            "type": "array",
+            "items": "string"
+          }
+        }
+      ],
+      "response": {
+        "type": "array",
+        "items": "UserBlock"
+      }
+    },
+    "reportUser": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        },
+        {
+          "name": "username",
+          "type": "string"
+        },
+        {
+          "name": "reason",
+          "type": "string"
+        },
+        {
+          "name": "comment",
+          "type": "string"
+        },
+        {
+          "name": "includeTranscript",
+          "type": "boolean"
+        },
+        {
+          "name": "convID",
+          "type": [
+            null,
+            "string"
+          ]
+        }
+      ],
+      "response": null
+    },
+    "dismissBlockButtons": {
+      "request": [
+        {
+          "name": "tlfID",
+          "type": "TLFID"
+        }
+      ],
+      "response": null
+    },
     "blockUser": {
       "request": [
         {
@@ -723,6 +944,18 @@
         }
       ],
       "response": null
+    },
+    "getTeamBlocks": {
+      "request": [
+        {
+          "name": "sessionID",
+          "type": "int"
+        }
+      ],
+      "response": {
+        "type": "array",
+        "items": "TeamBlock"
+      }
     }
   },
   "namespace": "keybase.1"

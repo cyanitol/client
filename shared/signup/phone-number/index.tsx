@@ -1,24 +1,38 @@
 import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
+import * as Platform from '../../constants/platform'
+import * as Container from '../../util/container'
+import * as SettingsGen from '../../actions/settings-gen'
 import {SignupScreen, errorBanner} from '../common'
-import PhoneInput from './phone-input'
 import {ButtonType} from '../../common-adapters/button'
 
 export type Props = {
   error: string
-  onContinue: (phoneNumber: string, allowSearch: boolean) => void
+  defaultCountry?: string
+  onContinue: (phoneNumber: string, searchable: boolean) => void
   onSkip: () => void
   waiting: boolean
 }
 
 const EnterPhoneNumber = (props: Props) => {
+  // trigger a default phone number country rpc if it's not already loaded
+  const {defaultCountry} = props
+  const dispatch = Container.useDispatch()
+  React.useEffect(() => {
+    !defaultCountry && dispatch(SettingsGen.createLoadDefaultPhoneNumberCountry())
+  }, [defaultCountry, dispatch])
+
   const [phoneNumber, onChangePhoneNumber] = React.useState('')
   const [valid, onChangeValidity] = React.useState(false)
-  // const [allowSearch, onChangeAllowSearch] = React.useState(false)
+  // const [searchable, onChangeSearchable] = React.useState(true)
   const disabled = !valid
   const onContinue = () =>
-    disabled || props.waiting ? {} : props.onContinue(phoneNumber, true /* allowSearch */)
+    disabled || props.waiting ? {} : props.onContinue(phoneNumber, true /* searchable */)
+  const onChangeNumberCb = (phoneNumber: string, validity: boolean) => {
+    onChangePhoneNumber(phoneNumber)
+    onChangeValidity(validity)
+  }
   return (
     <SignupScreen
       buttons={[
@@ -29,16 +43,6 @@ const EnterPhoneNumber = (props: Props) => {
           type: 'Success' as ButtonType,
           waiting: props.waiting,
         },
-        ...(Styles.isMobile
-          ? []
-          : [
-              {
-                disabled: props.waiting,
-                label: 'Skip for now',
-                onClick: props.onSkip,
-                type: 'Dim' as ButtonType,
-              },
-            ]),
       ]}
       banners={errorBanner(props.error)}
       rightActionLabel="Skip"
@@ -47,61 +51,69 @@ const EnterPhoneNumber = (props: Props) => {
       showHeaderInfoicon={true}
     >
       <EnterPhoneNumberBody
-        onChangeNumber={onChangePhoneNumber}
-        onChangeValidity={onChangeValidity}
+        autoFocus={!Styles.isMobile}
+        defaultCountry={props.defaultCountry}
+        onChangeNumber={onChangeNumberCb}
         onContinue={onContinue}
-        icon={Styles.isMobile ? <Kb.Icon type="icon-phone-number-add-96" style={styles.icon} /> : null}
+        searchable={true}
+        iconType={Platform.isLargeScreen ? 'icon-phone-number-add-96' : 'icon-phone-number-add-64'}
       />
     </SignupScreen>
   )
 }
 
 type BodyProps = {
-  onChangeNumber: (phoneNumber: string) => void
-  onChangeValidity: (valid: boolean) => void
+  autoFocus: boolean
+  defaultCountry?: string
+  onChangeNumber: (phoneNumber: string, valid: boolean) => void
   onContinue: () => void
-  allowSearch?: boolean
-  onChangeAllowSearch?: (allow: boolean) => void
-  icon: React.ReactNode
+  searchable: boolean
+  onChangeSearchable?: (allow: boolean) => void
+  iconType: Kb.IconType
 }
 export const EnterPhoneNumberBody = (props: BodyProps) => {
-  const showCheckbox = props.onChangeAllowSearch && Object.prototype.hasOwnProperty.call(props, 'allowSearch')
+  const showCheckbox = !!props.onChangeSearchable
   return (
     <Kb.Box2
       alignItems="center"
       direction="vertical"
       gap={Styles.isMobile ? 'small' : 'medium'}
       fullWidth={true}
-      style={Styles.globalStyles.flexOne}
+      style={styles.container}
     >
-      {props.icon}
-      <Kb.Box2 direction="vertical" gap="tiny" gapStart={Styles.isMobile} style={styles.inputBox}>
-        <PhoneInput
+      <Kb.Icon type={props.iconType} />
+      <Kb.Box2 direction="vertical" gap="tiny" style={styles.inputBox}>
+        <Kb.PhoneInput
+          autoFocus={props.autoFocus}
+          defaultCountry={props.defaultCountry}
           style={styles.input}
           onChangeNumber={props.onChangeNumber}
-          onChangeValidity={props.onChangeValidity}
           onEnterKeyDown={props.onContinue}
         />
-        {!showCheckbox && <Kb.Text type="BodySmall">Allow your friends to find you.</Kb.Text>}
-        {showCheckbox && (
+        {showCheckbox ? (
           <Kb.Checkbox
             label="Allow friends to find you by this phone number"
-            checked={props.allowSearch || false}
-            onCheck={props.onChangeAllowSearch || null}
+            checked={props.searchable}
+            onCheck={props.onChangeSearchable || null}
             style={styles.checkbox}
           />
+        ) : (
+          <Kb.Text type="BodySmall">Allow your friends to find you.</Kb.Text>
         )}
       </Kb.Box2>
     </Kb.Box2>
   )
 }
+EnterPhoneNumberBody.defaultProps = {
+  autoFocus: true,
+}
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   checkbox: {width: '100%'},
-  icon: {
-    height: 96,
-    width: 96,
-  },
+  container: Styles.platformStyles({
+    common: Styles.globalStyles.flexOne,
+    isTablet: {maxWidth: 386},
+  }),
   input: Styles.platformStyles({
     isElectron: {
       height: 38,
@@ -118,6 +130,6 @@ const styles = Styles.styleSheetCreate({
       width: 368,
     },
   }),
-})
+}))
 
 export default EnterPhoneNumber

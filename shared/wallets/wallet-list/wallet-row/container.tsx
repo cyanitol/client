@@ -1,6 +1,6 @@
 import {WalletRow, Props} from '.'
-import {namedConnect, isMobile} from '../../../util/container'
-import {getAccount, getAirdropSelected, getSelectedAccount} from '../../../constants/wallets'
+import {namedConnect, isPhone} from '../../../util/container'
+import {getAccount, getSelectedAccount} from '../../../constants/wallets'
 import * as WalletsGen from '../../../actions/wallets-gen'
 import * as RouteTreeGen from '../../../actions/route-tree-gen'
 import {AccountID} from '../../../constants/types/wallets'
@@ -19,34 +19,31 @@ const mapStateToProps = (
 ) => {
   const account = getAccount(state, ownProps.accountID)
   const name = account.name
-  const me = state.config.username || ''
+  const me = state.config.username
   const keybaseUser = account.isDefault ? me : ''
   const selectedAccount = getSelectedAccount(state)
-  const airdropSelected = getAirdropSelected(state)
   return {
-    airdropSelected,
     contents: account.balanceDescription,
-    isSelected: !airdropSelected && selectedAccount === ownProps.accountID,
+    isSelected: selectedAccount === ownProps.accountID,
     keybaseUser,
     name,
     selectedAccount,
-    unreadPayments: state.wallets.unreadPaymentsMap.get(ownProps.accountID, 0),
+    unreadPayments: state.wallets.unreadPaymentsMap.get(ownProps.accountID) ?? 0,
   }
 }
 
 const mapDispatchToProps = dispatch => ({
   _onSelectAccount: (accountID: AccountID) => {
-    if (!isMobile) {
+    if (!isPhone) {
       dispatch(RouteTreeGen.createNavUpToScreen({routeName: 'wallet'}))
     }
     dispatch(WalletsGen.createSelectAccount({accountID, reason: 'user-selected', show: true}))
   },
 })
 
-const mergeProps = (stateProps, dispatchProps, ownProps): Props => ({
-  airdropSelected: stateProps.airdropSelected,
+const mergeProps = (stateProps, dispatchProps, ownProps: OwnProps): Props => ({
   contents: stateProps.contents,
-  isSelected: !isMobile && stateProps.isSelected,
+  isSelected: !isPhone && stateProps.isSelected,
   keybaseUser: stateProps.keybaseUser,
   name: stateProps.name,
   onSelect: () => {

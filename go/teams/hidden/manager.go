@@ -2,9 +2,16 @@ package hidden
 
 import (
 	"fmt"
+	"strings"
+	"time"
+
 	libkb "github.com/keybase/client/go/libkb"
 	keybase1 "github.com/keybase/client/go/protocol/keybase1"
 	storage "github.com/keybase/client/go/teams/storage"
+)
+
+const (
+	HiddenChainFlagCacheTime = 24 * time.Hour
 )
 
 // ChainManager manages a hidden team chain, and wraps put/gets to mem/disk storage.
@@ -12,7 +19,9 @@ import (
 // interface.
 type ChainManager struct {
 	// single-flight lock on TeamID
-	locktab libkb.LockTable
+	locktab *libkb.LockTable
+
+	hiddenSupportStorage *storage.SupportsHiddenFlagStorage
 
 	// Hold onto FastTeamLoad by-products as long as we have room, and store
 	// them persistently to disk.
@@ -24,6 +33,42 @@ var _ libkb.HiddenTeamChainManager = (*ChainManager)(nil)
 type loadArg struct {
 	id     keybase1.TeamID
 	mutate func(libkb.MetaContext, *keybase1.HiddenTeamChain) (bool, error)
+}
+
+func (m *ChainManager) TeamSupportsHiddenChain(mctx libkb.MetaContext, id keybase1.TeamID) (state bool, err error) {
+	supportsHiddenState := m.hiddenSupportStorage.Get(mctx, id)
+	// if we never checked before or the chain was not supported but the cache
+	// expired, check again. Once enabled, hidden support cannot be revoked
+	// regardless of the cache staleness.
+	if supportsHiddenState != nil {
+		mctx.Debug("ChainManager#TeamSupportsHiddenChain(%v): current state is %+v", id, *supportsHiddenState)
+	} else {
+		mctx.Debug("ChainManager#TeamSupportsHiddenChain(%v): current state is nil", id)
+	}
+	if supportsHiddenState == nil || (!supportsHiddenState.State && mctx.G().Clock().Now().After(supportsHiddenState.CacheUntil)) {
+		mctx.Debug("ChainManager#TeamSupportsHiddenChain(%v): querying the server", id)
+		state, err = featureGateForTeamFromServer(mctx, id)
+		if err != nil {
+			mctx.Debug("ChainManager#TeamSupportsHiddenChain(%v): got error %v", id)
+			return false, err
+		}
+		supportsHiddenState = &storage.HiddenChainSupportState{TeamID: id, State: state, CacheUntil: mctx.G().Clock().Now().Add(HiddenChainFlagCacheTime)}
+		m.hiddenSupportStorage.Put(mctx, supportsHiddenState)
+	}
+	mctx.Debug("ChainManager#TeamSupportsHiddenChain(%s): returning %v", id, supportsHiddenState.State)
+	return supportsHiddenState.State, nil
+}
+
+func ShouldClearSupportFlagOnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return !strings.Contains(err.Error(), "API network error")
+}
+
+func (m *ChainManager) ClearSupportFlagIfFalse(mctx libkb.MetaContext, teamID keybase1.TeamID) {
+	mctx.Debug("ChainManager#ClearSupportFlagIfFalse(%v)", teamID)
+	m.hiddenSupportStorage.ClearEntryIfFalse(mctx, teamID)
 }
 
 // Tail returns the furthest known tail of the hidden team chain, as known to our local cache.
@@ -43,7 +88,7 @@ func (m *ChainManager) Tail(mctx libkb.MetaContext, id keybase1.TeamID) (*keybas
 func (m *ChainManager) loadLocked(mctx libkb.MetaContext, arg loadArg) (ret *keybase1.HiddenTeamChain, frozen bool, err error) {
 	state, frozen, tombstoned := m.storage.Get(mctx, arg.id, arg.id.IsPublic())
 	if tombstoned {
-		return nil, false, NewManagerError("cannot load hidden chain for tombstoned team")
+		return nil, false, NewTombstonedError("cannot load hidden chain for tombstoned team")
 	}
 	return state, frozen, nil
 }
@@ -83,7 +128,7 @@ func (m *ChainManager) checkFrozen(mctx libkb.MetaContext, newState *keybase1.Hi
 // Load hidden team chain data from storage, either mem or disk. Will not hit the network.
 func (m *ChainManager) HintLatestSeqno(mctx libkb.MetaContext, id keybase1.TeamID, q keybase1.Seqno) (err error) {
 	mctx = withLogTag(mctx)
-	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#HintLatestSeqno(%d)", q), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#HintLatestSeqno(%d)", q), &err)()
 	_, err = m.loadAndMutate(mctx, loadArg{
 		id: id,
 		mutate: func(mctx libkb.MetaContext, state *keybase1.HiddenTeamChain) (bool, error) {
@@ -105,7 +150,7 @@ func (m *ChainManager) HintLatestSeqno(mctx libkb.MetaContext, id keybase1.TeamI
 }
 
 func (m *ChainManager) loadAndMutate(mctx libkb.MetaContext, arg loadArg) (state *keybase1.HiddenTeamChain, err error) {
-	defer mctx.TraceTimed(fmt.Sprintf("ChainManager#load(%+v)", arg), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("ChainManager#load(%+v)", arg), &err)()
 	lock := m.locktab.AcquireOnName(mctx.Ctx(), mctx.G(), arg.id.String())
 	defer lock.Release(mctx.Ctx())
 
@@ -160,7 +205,7 @@ func (m *ChainManager) ratchet(mctx libkb.MetaContext, state *keybase1.HiddenTea
 // data (and ratchets) that we have.
 func (m *ChainManager) Ratchet(mctx libkb.MetaContext, id keybase1.TeamID, ratchets keybase1.HiddenTeamChainRatchetSet) (err error) {
 	mctx = withLogTag(mctx)
-	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#Ratchet(%s, %+v)", id, ratchets), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#Ratchet(%s, %+v)", id, ratchets), &err)()
 	arg := loadArg{
 		id: id,
 		mutate: func(mctx libkb.MetaContext, state *keybase1.HiddenTeamChain) (bool, error) {
@@ -244,7 +289,7 @@ func (m *ChainManager) checkRatchetsOnAdvance(mctx libkb.MetaContext, ratchets k
 // See hidden.go for and the caller of this function for where that happens.
 func (m *ChainManager) Advance(mctx libkb.MetaContext, dat keybase1.HiddenTeamChain, expectedPrev *keybase1.LinkTriple) (err error) {
 	mctx = withLogTag(mctx)
-	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#Advance(%s)", dat.ID()), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#Advance(%s)", dat.ID()), &err)()
 	arg := loadArg{
 		id: dat.ID(),
 		mutate: func(mctx libkb.MetaContext, state *keybase1.HiddenTeamChain) (bool, error) {
@@ -260,7 +305,9 @@ func (m *ChainManager) Advance(mctx libkb.MetaContext, dat keybase1.HiddenTeamCh
 
 func NewChainManager(g *libkb.GlobalContext) *ChainManager {
 	return &ChainManager{
-		storage: storage.NewHiddenStorage(g),
+		storage:              storage.NewHiddenStorage(g),
+		hiddenSupportStorage: storage.NewSupportsHiddenFlagStorage(g),
+		locktab:              libkb.NewLockTable(),
 	}
 }
 
@@ -272,21 +319,28 @@ func NewChainManagerAndInstall(g *libkb.GlobalContext) *ChainManager {
 	return ret
 }
 
+func (m *ChainManager) Shutdown(mctx libkb.MetaContext) {
+	m.storage.Shutdown()
+	m.hiddenSupportStorage.Shutdown()
+}
+
 // OnLogout is called when the user logs out, which purges the LRU.
 func (m *ChainManager) OnLogout(mctx libkb.MetaContext) error {
 	m.storage.ClearMem()
+	m.hiddenSupportStorage.ClearMem()
 	return nil
 }
 
 // OnDbNuke is called when the disk cache is cleared, which purges the LRU.
 func (m *ChainManager) OnDbNuke(mctx libkb.MetaContext) error {
 	m.storage.ClearMem()
+	m.hiddenSupportStorage.ClearMem()
 	return nil
 }
 
 func (m *ChainManager) Tombstone(mctx libkb.MetaContext, id keybase1.TeamID) (err error) {
 	mctx = withLogTag(mctx)
-	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#Tombstone(%s)", id), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#Tombstone(%s)", id), &err)()
 	arg := loadArg{
 		id: id,
 		mutate: func(mctx libkb.MetaContext, state *keybase1.HiddenTeamChain) (bool, error) {
@@ -299,7 +353,7 @@ func (m *ChainManager) Tombstone(mctx libkb.MetaContext, id keybase1.TeamID) (er
 
 func (m *ChainManager) Freeze(mctx libkb.MetaContext, id keybase1.TeamID) (err error) {
 	mctx = withLogTag(mctx)
-	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#Freeze(%s)", id), func() error { return err })()
+	defer mctx.Trace(fmt.Sprintf("hidden.ChainManager#Freeze(%s)", id), &err)()
 	arg := loadArg{
 		id: id,
 		mutate: func(mctx libkb.MetaContext, state *keybase1.HiddenTeamChain) (bool, error) {

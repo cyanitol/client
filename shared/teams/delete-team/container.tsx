@@ -1,33 +1,40 @@
 import * as TeamsGen from '../../actions/teams-gen'
 import * as RouteTreeGen from '../../actions/route-tree-gen'
 import * as Container from '../../util/container'
+import * as Constants from '../../constants/teams'
+import * as Types from '../../constants/types/teams'
 import ReallyDeleteTeam from '.'
-import {deleteTeamWaitingKey} from '../../constants/teams'
 import {anyWaiting} from '../../constants/waiting'
 
-type OwnProps = Container.RouteProps<{teamname: string}>
+type OwnProps = Container.RouteProps<{teamID: Types.TeamID}>
 
-const mapStateToProps = (state, ownProps) => {
-  const teamname = Container.getRouteProps(ownProps, 'teamname')
-  return {
-    _deleting: anyWaiting(state, deleteTeamWaitingKey(teamname)),
-    teamname,
-  }
-}
-
-const mapDispatchToProps = (dispatch, ownProps) => ({
-  onBack: () => dispatch(RouteTreeGen.createNavigateUp()),
-  onDelete: teamname => dispatch(TeamsGen.createDeleteTeam({teamname})),
-})
-
-const mergeProps = (stateProps, dispatchProps, ownProps) => ({
-  _deleting: stateProps._deleting,
-  onBack: stateProps._deleting ? () => {} : dispatchProps.onBack,
-  onDelete: () => dispatchProps.onDelete(stateProps.teamname),
-  teamname: stateProps.teamname,
-})
-
-export default Container.compose(
-  Container.connect(mapStateToProps, mapDispatchToProps, mergeProps),
-  Container.safeSubmit(['onDelete'], ['_deleting'])
-)(ReallyDeleteTeam)
+export default Container.connect(
+  (state, ownProps: OwnProps) => {
+    const teamID = Container.getRouteProps(ownProps, 'teamID', Types.noTeamID)
+    const {teamname} = Constants.getTeamMeta(state, teamID)
+    const teamDetails = Constants.getTeamDetails(state, teamID)
+    return {
+      deleteWaiting: anyWaiting(state, Constants.deleteTeamWaitingKey(teamID)),
+      teamDetails,
+      teamID,
+      teamMetas: state.teams.teamMeta,
+      teamname,
+    }
+  },
+  dispatch => ({
+    onBack: () => dispatch(RouteTreeGen.createNavigateUp()),
+    onDelete: (teamID: string) => dispatch(TeamsGen.createDeleteTeam({teamID})),
+  }),
+  (stateProps, dispatchProps, _: OwnProps) => ({
+    deleteWaiting: stateProps.deleteWaiting,
+    onBack: stateProps.deleteWaiting ? () => {} : dispatchProps.onBack,
+    onDelete: () => dispatchProps.onDelete(stateProps.teamID),
+    subteamNames: stateProps.teamDetails.subteams.size
+      ? [...stateProps.teamDetails.subteams]
+          .map(subteamID => stateProps.teamMetas.get(subteamID)?.teamname ?? '')
+          .filter(name => !!name)
+      : undefined,
+    teamID: stateProps.teamID,
+    teamname: stateProps.teamname,
+  })
+)(Container.safeSubmit(['onDelete'], ['deleteWaiting'])(ReallyDeleteTeam))

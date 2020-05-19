@@ -10,6 +10,7 @@ import CoinFlipResult from './results'
 export type Props = {
   commitmentVis: string
   isSendError: boolean
+  measure?: () => void
   onFlipAgain: () => void
   revealVis: string
   resultText: string
@@ -86,6 +87,12 @@ class CoinFlip extends React.Component<Props, State> {
         )}
       </Kb.Box2>
     )
+
+  componentDidUpdate(prevProps: Props) {
+    if (this.props.phase != prevProps.phase) {
+      this.props.measure && this.props.measure()
+    }
+  }
   render() {
     const commitSrc = `data:image/png;base64, ${this.props.commitmentVis}`
     const revealSrc = `data:image/png;base64, ${this.props.revealVis}`
@@ -147,48 +154,51 @@ class CoinFlip extends React.Component<Props, State> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  container: {
-    alignSelf: 'flex-start',
-    borderColor: Styles.globalColors.greyLight,
-    borderLeftWidth: 4,
-    borderStyle: 'solid',
-    marginTop: Styles.globalMargins.xtiny,
-    paddingLeft: Styles.globalMargins.tiny,
-  },
-  error: {
-    color: Styles.globalColors.redDark,
-  },
-  flipAgainContainer: {
-    paddingTop: Styles.globalMargins.tiny,
-  },
-  placeholder: {
-    backgroundColor: Styles.globalColors.greyLight,
-  },
-  progress: Styles.platformStyles({
-    isElectron: {
-      cursor: 'text',
-      userSelect: 'text',
-      wordBreak: 'break-all',
-    },
-  }),
-  progressVis: {
-    height: 40,
-    width: 64,
-  },
-  result: Styles.platformStyles({
-    common: {
-      fontWeight: '600',
-    },
-    isElectron: {
-      cursor: 'text',
-      userSelect: 'text',
-      wordBreak: 'break-all',
-    },
-  }),
-  statusContainer: {
-    paddingTop: Styles.globalMargins.tiny,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: {
+        alignSelf: 'flex-start',
+        borderColor: Styles.globalColors.grey,
+        borderLeftWidth: 4,
+        borderStyle: 'solid',
+        marginTop: Styles.globalMargins.xtiny,
+        paddingLeft: Styles.globalMargins.tiny,
+      },
+      error: {
+        color: Styles.globalColors.redDark,
+      },
+      flipAgainContainer: {
+        paddingTop: Styles.globalMargins.tiny,
+      },
+      placeholder: {
+        backgroundColor: Styles.globalColors.grey,
+      },
+      progress: Styles.platformStyles({
+        isElectron: {
+          cursor: 'text',
+          userSelect: 'text',
+          wordBreak: 'break-all',
+        },
+      }),
+      progressVis: {
+        height: 40,
+        width: 64,
+      },
+      result: Styles.platformStyles({
+        common: {
+          fontWeight: '600',
+        },
+        isElectron: {
+          cursor: 'text',
+          userSelect: 'text',
+          wordBreak: 'break-all',
+        },
+      }),
+      statusContainer: {
+        paddingTop: Styles.globalMargins.tiny,
+      },
+    } as const)
+)
 
 export default CoinFlip

@@ -137,6 +137,10 @@ func (s *CmdSignup) SetNoInvitationCodeBypass() {
 	s.noInvitationCodeBypass = true
 }
 
+func (s *CmdSignup) SetNoEmail() {
+	s.noEmail = true
+}
+
 func (s *CmdSignup) ParseArgv(ctx *cli.Context) (err error) {
 	nargs := len(ctx.Args())
 
@@ -176,7 +180,7 @@ func (s *CmdSignup) ParseArgv(ctx *cli.Context) (err error) {
 
 		s.passphrase = s.defaultPassphrase
 		s.genPGP = ctx.Bool("pgp")
-		s.genPaper = true
+		s.genPaper = !ctx.Bool("skip-paperkey")
 		s.doPrompt = false
 		s.storeSecret = true
 		s.randomPassphrase = ctx.Bool("no-passphrase")
@@ -224,7 +228,7 @@ func (s *CmdSignup) Run() (err error) {
 
 	if s.code == "" && !s.noInvitationCodeBypass {
 		// Eat the error here - we prompt the user in that case
-		s.requestInvitationCode()
+		_ = s.requestInvitationCode()
 	}
 
 	if err = s.trySignup(); err != nil {
@@ -235,8 +239,7 @@ func (s *CmdSignup) Run() (err error) {
 		return err
 	}
 
-	s.successMessage()
-	return nil
+	return s.successMessage()
 }
 
 func (s *CmdSignup) checkRegistered() (err error) {
@@ -251,11 +254,6 @@ func (s *CmdSignup) checkRegistered() (err error) {
 	}
 	if !rres.Registered {
 		return
-	}
-
-	err = ensureSetPassphraseFromRemote(libkb.NewMetaContextTODO(s.G()))
-	if err != nil {
-		return err
 	}
 
 	if !s.doPrompt {
@@ -570,6 +568,7 @@ func (s *CmdSignup) handlePostError(inerr error) (retry bool, err error) {
 	}
 
 	if !s.doPrompt {
+		err = inerr
 		retry = false
 	}
 

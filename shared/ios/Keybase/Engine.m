@@ -21,6 +21,7 @@ static Engine * sharedEngine = nil;
 @property dispatch_queue_t readQueue;
 @property dispatch_queue_t writeQueue;
 @property (strong) KeybaseEngine * keybaseEngine;
+@property (strong) NSString * sharedHome;
 
 - (void)start:(KeybaseEngine*)emitter;
 - (void)startReadLoop;
@@ -41,6 +42,7 @@ static NSString *const metaEventEngineReset = @"engine-reset";
 - (instancetype)initWithSettings:(NSDictionary *)settings error:(NSError **)error {
   if ((self = [super init])) {
     sharedEngine = self;
+    self.sharedHome = settings[@"sharedHome"];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onRNReload) name:RCTJavaScriptWillStartLoadingNotification object:nil];
     [self setupQueues];
     [self setupKeybaseWithSettings:settings error:error];
@@ -56,7 +58,8 @@ static NSString *const metaEventEngineReset = @"engine-reset";
 
 - (void)setupKeybaseWithSettings:(NSDictionary *)settings error:(NSError **)error {
   NSString* systemVer = [[UIDevice currentDevice] systemVersion];
-  KeybaseInit(settings[@"homedir"], settings[@"sharedHome"], settings[@"logFile"], settings[@"runmode"], settings[@"SecurityAccessGroupOverride"], NULL, NULL, systemVer, error);
+  BOOL isIPad = [[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad;
+  KeybaseInit(settings[@"homedir"], settings[@"sharedHome"], settings[@"logFile"], settings[@"runmode"], settings[@"SecurityAccessGroupOverride"], NULL, NULL, systemVer, isIPad, NULL, error);
 }
 
 - (void)setupQueues {
@@ -118,6 +121,7 @@ static NSString *const metaEventEngineReset = @"engine-reset";
 
 @interface KeybaseEngine ()
 @property (strong) NSString * serverConfig;
+@property (strong) NSString * guiConfig;
 @end
 
 @implementation KeybaseEngine
@@ -155,8 +159,29 @@ RCT_EXPORT_METHOD(start) {
   self.serverConfig = [NSString stringWithContentsOfFile:filePath encoding:NSUTF8StringEncoding error:&err];
 }
 
+- (void) setupGuiConfig
+{
+  NSString *filePath = [[sharedEngine sharedHome] stringByAppendingPathComponent:@"/Library/Application Support/Keybase/gui_config.json"];
+  NSError * err;
+  self.guiConfig = [NSString stringWithContentsOfFile:filePath encoding:NSUTF8StringEncoding error:&err];
+}
+
+// from react-native-localize
+- (bool)uses24HourClockForLocale:(NSLocale * _Nonnull)locale {
+  NSDateFormatter* formatter = [NSDateFormatter new];
+
+  [formatter setLocale:locale];
+  [formatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
+  [formatter setDateStyle:NSDateFormatterNoStyle];
+  [formatter setTimeStyle:NSDateFormatterShortStyle];
+
+  NSDate *date = [NSDate dateWithTimeIntervalSince1970:72000];
+  return [[formatter stringFromDate:date] containsString:@"20"];
+}
+
 - (NSDictionary *)constantsToExport {
   [self setupServerConfig];
+  [self setupGuiConfig];
 #if TARGET_IPHONE_SIMULATOR
   NSString * simulatorVal = @"1";
 #else
@@ -165,7 +190,8 @@ RCT_EXPORT_METHOD(start) {
 
   NSString * appVersionString = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
   NSString * appBuildString = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
-
+  NSLocale *currentLocale = [NSLocale currentLocale];
+  
   return @{ @"eventName": eventName,
             @"metaEventName": metaEventName,
             @"metaEventEngineReset": metaEventEngineReset,
@@ -173,6 +199,8 @@ RCT_EXPORT_METHOD(start) {
             @"appVersionCode": appBuildString,
             @"usingSimulator": simulatorVal,
             @"serverConfig": self.serverConfig ? self.serverConfig : @"",
+            @"guiConfig": self.guiConfig ? self.guiConfig : @"",
+            @"uses24HourClock": @([self uses24HourClockForLocale:currentLocale]),
             @"version": KeybaseVersion()};
 }
 

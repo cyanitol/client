@@ -279,6 +279,19 @@ func TestTeamReInviteAfterReset(t *testing.T) {
 	// invitation should automatically cancel first invitation.
 	ann.addTeamMember(teamName.String(), bob.username, keybase1.TeamRole_ADMIN) // Invitation 2
 
+	// Load team, see if we really have just one invite.
+	teamObj := ann.loadTeamByID(teamID, true /* admin */)
+	invites := teamObj.GetActiveAndObsoleteInvites()
+	require.Len(t, invites, 1)
+	for _, invite := range invites {
+		require.Equal(t, keybase1.TeamRole_ADMIN, invite.Role)
+		require.EqualValues(t, bob.userVersion().PercentForm(), invite.Name)
+		typ, err := invite.Type.C()
+		require.NoError(t, err)
+		require.Equal(t, keybase1.TeamInviteCategory_KEYBASE, typ)
+		break // check the first (and only) invite
+	}
+
 	t.Logf("Trying to get a PUK")
 
 	bob.primaryDevice().tctx.Tp.DisableUpgradePerUserKey = false
@@ -300,8 +313,8 @@ func TestTeamReInviteAfterReset(t *testing.T) {
 	require.Equal(t, details.Members.Admins[0].Username, bob.username)
 }
 
-func testImpTeamWithRooterParametrized(t *testing.T, public bool) {
-	t.Logf("testImpTeamWithRooterParametrized(public=%t)", public)
+func testImpTeamWithRooterParameterized(t *testing.T, public bool) {
+	t.Logf("testImpTeamWithRooterParameterized(public=%t)", public)
 
 	tt := newTeamTester(t)
 	defer tt.cleanup()
@@ -355,8 +368,8 @@ func testImpTeamWithRooterParametrized(t *testing.T, public bool) {
 }
 
 func TestImpTeamWithRooter(t *testing.T) {
-	testImpTeamWithRooterParametrized(t, false /* public */)
-	testImpTeamWithRooterParametrized(t, true /* public */)
+	testImpTeamWithRooterParameterized(t, false /* public */)
+	testImpTeamWithRooterParameterized(t, true /* public */)
 }
 
 func TestImpTeamWithRooterConflict(t *testing.T) {
@@ -463,11 +476,10 @@ func TestClearSocialInvitesOnAdd(t *testing.T) {
 
 	// Disable gregor in this test so Ann does not immediately add Bob
 	// through SBS handler when bob proves Rooter.
-	ann := makeUserStandalone(t, "ann", standaloneUserArgs{
+	ann := makeUserStandalone(t, tt, "ann", standaloneUserArgs{
 		disableGregor:            true,
 		suppressTeamChatAnnounce: true,
 	})
-	tt.users = append(tt.users, ann)
 
 	tracer := ann.tc.G.CTimeTracer(context.Background(), "test-tracer", true)
 	defer tracer.Finish()
@@ -520,11 +532,10 @@ func TestSweepObsoleteKeybaseInvites(t *testing.T) {
 
 	// Disable gregor in this test so Ann does not immediately add Bob
 	// through SBS handler when bob gets PUK.
-	ann := makeUserStandalone(t, "ann", standaloneUserArgs{
+	ann := makeUserStandalone(t, tt, "ann", standaloneUserArgs{
 		disableGregor:            true,
 		suppressTeamChatAnnounce: true,
 	})
-	tt.users = append(tt.users, ann)
 
 	// Get UIDMapper caching out of the equation - assume in real
 	// life, tested actions are spread out in time and caching is not
@@ -583,7 +594,7 @@ func TestSweepObsoleteKeybaseInvites(t *testing.T) {
 		TeamID: teamObj.ID,
 		Score:  0,
 		Invitees: []keybase1.TeamInvitee{
-			keybase1.TeamInvitee{
+			{
 				InviteID:    invite.Id,
 				Uid:         bob.uid,
 				EldestSeqno: 1,
@@ -623,11 +634,9 @@ func teamInviteRemoveIfHigherRole(t *testing.T, waitForRekeyd bool) {
 	if waitForRekeyd {
 		own = tt.addUser("own")
 	} else {
-		own = makeUserStandalone(t, "own", userParams)
-		tt.users = append(tt.users, own)
+		own = makeUserStandalone(t, tt, "own", userParams)
 	}
-	roo := makeUserStandalone(t, "roo", userParams)
-	tt.users = append(tt.users, roo)
+	roo := makeUserStandalone(t, tt, "roo", userParams)
 	tt.logUserNames()
 
 	teamID, teamName := own.createTeam2()
@@ -661,7 +670,7 @@ func teamInviteRemoveIfHigherRole(t *testing.T, waitForRekeyd bool) {
 			TeamID: teamID,
 			Score:  0,
 			Invitees: []keybase1.TeamInvitee{
-				keybase1.TeamInvitee{
+				{
 					InviteID:    invite.Id,
 					Uid:         rooUv.Uid,
 					EldestSeqno: rooUv.EldestSeqno,
@@ -681,7 +690,7 @@ func teamInviteRemoveIfHigherRole(t *testing.T, waitForRekeyd bool) {
 }
 
 func TestTeamInviteRemoveIfHigherRole(t *testing.T) {
-	// This test is parametrized. waitForRekeyd=true will wait for
+	// This test is parameterized. waitForRekeyd=true will wait for
 	// real rekeyd notification, waitForRekeyd=false will call SBS
 	// handler manually.
 	teamInviteRemoveIfHigherRole(t, true /* waitForRekeyd */)
@@ -738,8 +747,78 @@ func testTeamInviteSweepOldMembers(t *testing.T, startPUKless bool) {
 }
 
 func TestTeamInviteSweepOldMembers(t *testing.T) {
-	testTeamInviteSweepOldMembers(t, false)
-	testTeamInviteSweepOldMembers(t, true)
+	testTeamInviteSweepOldMembers(t, false /* startPUKless */)
+	testTeamInviteSweepOldMembers(t, true /* startPUKless */)
+}
+
+func TestSBSInviteReuse(t *testing.T) {
+	// Test if server can reuse TOFU invites.
+	tt := newTeamTester(t)
+	defer tt.cleanup()
+
+	makeUser := func(name string) *userPlusDevice {
+		user := makeUserStandalone(t, tt, name, standaloneUserArgs{
+			disableGregor:            true,
+			suppressTeamChatAnnounce: true,
+		})
+		return user
+	}
+
+	ann := makeUser("ann")
+	bob := makeUser("bob")
+	joe := makeUser("joe")
+
+	teamID, teamName := ann.createTeam2()
+	t.Logf("Team created (%s)", teamID)
+
+	// Use sbs_test.go code to verify email.
+	sbsEmail := &userSBSEmail{}
+	sbsEmail.SetUser(bob)
+
+	email := bob.userInfo.email
+	ann.addTeamMemberEmail(teamName.String(), email, keybase1.TeamRole_WRITER)
+
+	sbsEmail.Verify()
+
+	// Get first invite ID, will be the one we've just added.
+	teamObj := ann.loadTeamByID(teamID, true /* admin */)
+	allInvites := teamObj.GetActiveAndObsoleteInvites()
+	require.Len(t, allInvites, 1)
+	var inviteID keybase1.TeamInviteID
+	for _, invite := range allInvites {
+		inviteID = invite.Id
+		require.True(t, invite.Type.Eq(keybase1.NewTeamInviteTypeDefault(keybase1.TeamInviteCategory_EMAIL)))
+	}
+
+	// Create a SBS message payload that we will be using to give directly to
+	// the SBS handler function for given user. So it will appear as if it
+	// comes from gregor.
+	sbsMsg := keybase1.TeamSBSMsg{
+		TeamID: teamID,
+		Invitees: []keybase1.TeamInvitee{
+			{
+				InviteID:    inviteID,
+				Uid:         bob.uid,
+				EldestSeqno: 1,
+				// Role can be whatever - client should not trust it.
+				Role: keybase1.TeamRole_ADMIN,
+			},
+		},
+	}
+
+	err := teams.HandleSBSRequest(context.Background(), ann.tc.G, sbsMsg)
+	require.NoError(t, err)
+
+	// Invite should have been completed.
+	teamObj = ann.loadTeamByID(teamID, true /* admin */)
+	require.Len(t, teamObj.GetActiveAndObsoleteInvites(), 0)
+
+	// Try to send the same message but with different UID.
+	sbsMsg.Invitees[0].Uid = joe.uid
+	err = teams.HandleSBSRequest(context.Background(), ann.tc.G, sbsMsg)
+	require.Error(t, err)
+	require.IsType(t, libkb.NotFoundError{}, err)
+	require.Contains(t, err.Error(), "Invite not found")
 }
 
 func proveGubbleUniverse(tc *libkb.TestContext, serviceName, endpoint string, username string, secretUI libkb.SecretUI) keybase1.SigID {
@@ -784,11 +863,11 @@ func proveGubbleUniverse(tc *libkb.TestContext, serviceName, endpoint string, us
 		res, err := g.GetAPI().Get(mctx, apiArg)
 		require.NoError(tc.T, err)
 		objects, err := jsonhelpers.AtSelectorPath(res.Body, []keybase1.SelectorEntry{
-			keybase1.SelectorEntry{
+			{
 				IsKey: true,
 				Key:   "res",
 			},
-			keybase1.SelectorEntry{
+			{
 				IsKey: true,
 				Key:   "keybase_proofs",
 			},
@@ -801,7 +880,7 @@ func proveGubbleUniverse(tc *libkb.TestContext, serviceName, endpoint string, us
 		require.NoError(tc.T, err)
 		require.True(tc.T, len(proofs) >= 1)
 		for _, proof := range proofs {
-			if proof.KbUsername == username && sigID.Equal(proof.SigHash) {
+			if proof.KbUsername == username && sigID.Eq(proof.SigHash) {
 				return nil
 			}
 		}

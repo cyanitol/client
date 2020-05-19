@@ -6,10 +6,14 @@ const provider = Sb.createPropProviderWithCommon()
 
 const props = {
   error: '',
+  onBack: Sb.action('onBack'),
   onClose: Sb.action('onClose'),
   onSave: Sb.action('onSave'),
+  onSkip: Sb.action('onSkip'),
   submitting: false,
+  type: 'profile' as const,
   waitingKey: 'dummyWaitingKey',
+  wizard: false as const,
 }
 
 const load = () => {

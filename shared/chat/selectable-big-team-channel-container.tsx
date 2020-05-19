@@ -7,32 +7,43 @@ type OwnProps = {
   conversationIDKey: Types.ConversationIDKey
   isSelected: boolean
   maxSearchHits?: number
+  name: string
   numSearchHits?: number
   onSelectConversation: () => void
 }
 
-const mapStateToProps = (state, {conversationIDKey}) => {
-  const showBold = Constants.getHasUnread(state, conversationIDKey)
-  const showBadge = Constants.getHasBadge(state, conversationIDKey)
-  const {channelname, teamname} = Constants.getMeta(state, conversationIDKey)
-  return {channelname, showBadge, showBold, teamname}
-}
-
-const mapDispatchToProps = () => ({})
-
-const mergeProps = (stateProps, dispatchProps, ownProps: OwnProps) => {
-  return {
-    channelname: stateProps.channelname,
-    isSelected: ownProps.isSelected,
-    maxSearchHits: ownProps.maxSearchHits,
-    numSearchHits: ownProps.numSearchHits,
-    onSelectConversation: ownProps.onSelectConversation,
-    showBadge: stateProps.showBadge,
-    showBold: stateProps.showBold && !ownProps.isSelected,
-    teamname: stateProps.teamname,
-  }
-}
-
-export default namedConnect(mapStateToProps, mapDispatchToProps, mergeProps, 'SelectableBigTeamChannel')(
-  SelectableBigTeamChannel
-)
+export default namedConnect(
+  (state, {conversationIDKey}: OwnProps) => {
+    const showBold = Constants.getHasUnread(state, conversationIDKey)
+    const showBadge = Constants.getHasBadge(state, conversationIDKey)
+    const _meta = Constants.getMeta(state, conversationIDKey)
+    return {_meta, showBadge, showBold}
+  },
+  () => ({}),
+  (stateProps, _, ownProps: OwnProps) => {
+    const {_meta, showBadge, showBold} = stateProps
+    const {isSelected, maxSearchHits, numSearchHits, onSelectConversation, name} = ownProps
+    let teamname = _meta.teamname
+    let channelname = _meta.channelname
+    if (!teamname) {
+      const parts = name.split('#')
+      if (parts.length >= 2) {
+        teamname = parts[0]
+        channelname = parts[1]
+      }
+    }
+    return {
+      channelname,
+      isSelected,
+      maxSearchHits,
+      numSearchHits,
+      onSelectConversation,
+      showBadge,
+      showBold: showBold && !isSelected,
+      snippet: _meta.snippet,
+      snippetDecoration: _meta.snippetDecoration,
+      teamname,
+    }
+  },
+  'SelectableBigTeamChannel'
+)(SelectableBigTeamChannel)

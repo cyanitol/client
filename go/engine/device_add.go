@@ -99,7 +99,7 @@ func (e *DeviceAdd) promptLoop(m libkb.MetaContext, provisioner *Kex2Provisioner
 
 // Run starts the engine.
 func (e *DeviceAdd) Run(m libkb.MetaContext) (err error) {
-	defer m.Trace("DeviceAdd#Run", func() error { return err })()
+	defer m.Trace("DeviceAdd#Run", &err)()
 
 	m.G().LocalSigchainGuard().Set(m.Ctx(), "DeviceAdd")
 	defer m.G().LocalSigchainGuard().Clear(m.Ctx(), "DeviceAdd")
@@ -113,7 +113,7 @@ func (e *DeviceAdd) Run(m libkb.MetaContext) (err error) {
 
 	// make a new secret; continue to generate legacy Kex2 secrets for now.
 	kex2SecretTyp := libkb.Kex2SecretTypeV1Desktop
-	if provisioneeType == keybase1.DeviceType_MOBILE || m.G().GetAppType() == libkb.DeviceTypeMobile {
+	if provisioneeType == keybase1.DeviceType_MOBILE || m.G().IsMobileAppType() {
 		kex2SecretTyp = libkb.Kex2SecretTypeV1Mobile
 	}
 	m.Debug("provisionee device type: %v; uid: %s; secret type: %d", provisioneeType, uid, kex2SecretTyp)

@@ -24,21 +24,24 @@ type Source struct {
 
 	allCmds  map[int]types.ConversationCommand
 	builtins map[chat1.ConversationBuiltinCommandTyp][]types.ConversationCommand
+	botCmd   *Bot
 	clock    clockwork.Clock
 }
 
 func NewSource(g *globals.Context) *Source {
 	s := &Source{
 		Contextified: globals.NewContextified(g),
-		DebugLabeler: utils.NewDebugLabeler(g.GetLog(), "Commands.Source", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "Commands.Source", false),
 		clock:        clockwork.NewRealClock(),
+		botCmd:       NewBot(g),
 	}
 	s.makeBuiltins()
 	return s
 }
 
 const (
-	cmdCollapse int = iota
+	cmdAddEmoji int = iota
+	cmdCollapse
 	cmdExpand
 	cmdFlip
 	cmdGiphy
@@ -56,6 +59,7 @@ const (
 
 func (s *Source) allCommands() (res map[int]types.ConversationCommand) {
 	res = make(map[int]types.ConversationCommand)
+	res[cmdAddEmoji] = NewAddEmoji(s.G())
 	res[cmdCollapse] = NewCollapse(s.G())
 	res[cmdExpand] = NewExpand(s.G())
 	res[cmdFlip] = NewFlip(s.G())
@@ -88,6 +92,7 @@ func (s *Source) makeBuiltins() {
 		cmds[cmdMute],
 		cmds[cmdShrug],
 		cmds[cmdUnhide],
+		cmds[cmdAddEmoji],
 	}
 	if s.G().IsMobileAppType() || s.G().GetRunMode() == libkb.DevelRunMode {
 		common = append(common, cmds[cmdLocation])
@@ -151,13 +156,13 @@ func (s *Source) GetBuiltinCommandType(ctx context.Context, c types.Conversation
 }
 
 func (s *Source) ListCommands(ctx context.Context, uid gregor1.UID, conv types.ConversationCommandsSpec) (res chat1.ConversationCommandGroups, err error) {
-	defer s.Trace(ctx, func() error { return err }, "ListCommands")()
+	defer s.Trace(ctx, &err, "ListCommands")()
 	return chat1.NewConversationCommandGroupsWithBuiltin(s.GetBuiltinCommandType(ctx, conv)), nil
 }
 
 func (s *Source) AttemptBuiltinCommand(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	tlfName string, body chat1.MessageBody, replyTo *chat1.MessageID) (handled bool, err error) {
-	defer s.Trace(ctx, func() error { return err }, "AttemptBuiltinCommand")()
+	defer s.Trace(ctx, &err, "AttemptBuiltinCommand")()
 	if !body.IsType(chat1.MessageType_TEXT) {
 		return false, nil
 	}
@@ -181,7 +186,13 @@ func (s *Source) AttemptBuiltinCommand(ctx context.Context, uid gregor1.UID, con
 
 func (s *Source) PreviewBuiltinCommand(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	tlfName, text string) {
-	defer s.Trace(ctx, func() error { return nil }, "PreviewBuiltinCommand")()
+	defer s.Trace(ctx, nil, "PreviewBuiltinCommand")()
+
+	// always try bot command, it might do something and is mutually exclusive with the rest of this
+	// function
+	s.botCmd.Preview(ctx, uid, convID, tlfName, text)
+
+	// we let all strings through at this point, since we might need to clear a preview in a command
 	conv, err := getConvByID(ctx, s.G(), uid, convID)
 	if err != nil {
 		return
@@ -193,12 +204,12 @@ func (s *Source) PreviewBuiltinCommand(ctx context.Context, uid gregor1.UID, con
 	}
 }
 
-func (s *Source) isAdmin() bool {
+func (s *Source) isAdmin() bool { //nolint
 	username := s.G().GetEnv().GetUsername().String()
 	return admins[username]
 }
 
-var admins = map[string]bool{
+var admins = map[string]bool{ //nolint
 	"mikem":         true,
 	"max":           true,
 	"candrencil64":  true,

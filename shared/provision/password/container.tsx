@@ -1,84 +1,32 @@
 import * as ProvisionGen from '../../actions/provision-gen'
-import * as LoginGen from '../../actions/login-gen'
+import * as RouteTreeGen from '../../actions/route-tree-gen'
 import * as Constants from '../../constants/provision'
+import * as RecoverPasswordGen from '../../actions/recover-password-gen'
 import HiddenString from '../../util/hidden-string'
 import Password from '.'
-import * as React from 'react'
-import {connect} from '../../util/container'
-import {RouteProps} from '../../route-tree/render-route'
-import * as WaitingConstants from '../../constants/waiting'
+import * as Container from '../../util/container'
 
-type OwnProps = {
-  prompt: string
-  username?: string
-  waitingForResponse: boolean
-} & RouteProps
+type OwnProps = {}
 
-type State = {
-  showTyping: boolean
-  password: string | null
-}
-
-type Props = {
-  prompt: string
-  onSubmit: (password: string) => void
-  onBack: () => void
-  onForgotPassword: () => void
-  waitingForResponse: boolean
-  error?: string | null
-  username?: string
-}
-
-// TODO remove this class
-class _Password extends React.Component<Props, State> {
-  state: State
-
-  constructor(props: Props) {
-    super(props)
-    this.state = {password: null, showTyping: false}
-  }
-
-  onChange(password: string) {
-    this.setState({password})
-  }
-
-  render() {
-    return (
-      <Password
-        error={this.props.error}
-        onBack={this.props.onBack}
-        prompt={this.props.prompt}
-        username={this.props.username}
-        waitingForResponse={this.props.waitingForResponse}
-        onForgotPassword={() => {
-          this.props.onForgotPassword()
-          this.props.onBack()
-        }}
-        password={this.state.password}
-        onSubmit={() => this.props.onSubmit(this.state.password || '')}
-        onChange={p => this.onChange(p)}
-        showTyping={this.state.showTyping}
-        toggleShowTyping={showTyping => this.setState({showTyping})}
-      />
-    )
-  }
-}
-
-const mapStateToProps = state => ({
-  error: state.provision.error.stringValue(),
-  waitingForResponse: WaitingConstants.anyWaiting(state, Constants.waitingKey),
-})
-
-const mapDispatchToProps = (dispatch, ownProps: OwnProps) => ({
-  // TODO remove
-  onBack: () => {},
-  onForgotPassword: () => dispatch(LoginGen.createLaunchForgotPasswordWebPage()),
-  onSubmit: (password: string) =>
-    dispatch(ProvisionGen.createSubmitPassword({password: new HiddenString(password)})),
-})
-
-export default connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  (s, d, o) => ({...o, ...s, ...d})
-)(_Password)
+export default Container.connect(
+  state => ({
+    error: state.provision.error.stringValue(),
+    resetEmailSent: state.recoverPassword.resetEmailSent,
+    username: state.provision.username,
+    waiting: Container.anyWaiting(state, Constants.waitingKey),
+  }),
+  dispatch => ({
+    _onForgotPassword: (username: string) =>
+      dispatch(RecoverPasswordGen.createStartRecoverPassword({abortProvisioning: true, username})),
+    onBack: () => dispatch(RouteTreeGen.createNavigateUp()),
+    onSubmit: (password: string) =>
+      dispatch(ProvisionGen.createSubmitPassword({password: new HiddenString(password)})),
+  }),
+  (s, d, o: OwnProps) => ({
+    ...o,
+    ...s,
+    ...d,
+    onForgotPassword: () => d._onForgotPassword(s.username),
+    onSubmit: (password: string) => !s.waiting && d.onSubmit(password),
+  })
+)(Password)

@@ -11,6 +11,7 @@ protocol config {
     boolean loggedIn;
     boolean sessionIsValid;
     union { null, User } user;
+    string deviceName;
   }
 
   CurrentStatus getCurrentStatus(int sessionID);
@@ -102,6 +103,7 @@ protocol config {
     string pid;
     string log;
     string ekLog;
+    string perfLog;
   }
 
   record KBFSStatus {
@@ -110,6 +112,7 @@ protocol config {
     boolean running;
     string pid;
     string log;
+    string perfLog;
     string mount;
   }
 
@@ -129,6 +132,7 @@ protocol config {
 
   record GitStatus {
     string log;
+    string perfLog;
   }
 
   record FullStatus {
@@ -152,6 +156,12 @@ protocol config {
   // FullStatus encapsulates everything required for the status and log send
   // commands
   union { null, FullStatus } getFullStatus(int sessionID);
+
+  boolean isServiceRunning(int sessionID);
+
+  boolean isKBFSRunning(int sessionID);
+
+  array<InstrumentationStat> getNetworkStats(int sessionID, NetworkSource networkSrc);
 
   @typedef("string")  record LogSendID {}
   LogSendID logSend(int sessionID, string statusJSON, string feedback,
@@ -195,6 +205,7 @@ protocol config {
     boolean isNull;
     union { null, boolean } b;
     union { null, int } i;
+    union { null, double } f; // f for "float", optimized for Go code usage.
     union { null, string } s;
     union { null, string } o;
   }
@@ -216,6 +227,10 @@ protocol config {
   void setValue(string path, ConfigValue value);
   void clearValue(string path);
   ConfigValue getValue(string path);
+
+  void guiSetValue(string path, ConfigValue value);
+  void guiClearValue(string path);
+  ConfigValue guiGetValue(string path);
 
   record OutOfDateInfo {
     string upgradeTo;
@@ -258,9 +273,11 @@ protocol config {
     string deviceName;      // current logged in user's device name
     FullName fullname;        // current user's fullname
     UserReacjis userReacjis;    // reacjis preferences for current logged in user
+    union { null, HttpSrvInfo } httpSrvInfo; // info about the service http server
   }
+
   BootstrapStatus getBootstrapStatus(int sessionID);
-  void requestFollowerInfo(UID uid);
+  void requestFollowingAndUnverifiedFollowers(int sessionID);
 
   boolean getRememberPassphrase(int sessionID);
   void setRememberPassphrase(int sessionID, boolean remember);
@@ -305,4 +322,10 @@ protocol config {
 
   // Runtime Stats
   void toggleRuntimeStats();
+
+  void appendGUILogs(string content);
+
+  string generateWebAuthToken();
+
+  void updateLastLoggedInAndServerConfig(string serverConfigPath);
 }

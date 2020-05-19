@@ -1,139 +1,79 @@
 import * as React from 'react'
 import * as Constants from '../../constants/chat2'
-import * as Chat2Gen from '../../actions/chat2-gen'
 import * as Types from '../../constants/types/chat2'
-import * as Kb from '../../common-adapters'
-import {isMobile, isIOS} from '../../constants/platform'
-import {connect, getRouteProps} from '../../util/container'
+import * as Container from '../../util/container'
 import Normal from './normal/container'
 import NoConversation from './no-conversation'
 import Error from './error/container'
 import YouAreReset from './you-are-reset'
 import Rekey from './rekey/container'
+import HeaderArea from './header-area/container'
+// @ts-ignore
+import {withNavigationFocus} from '@react-navigation/core'
 
-type OwnProps = {
-  navigation?: any
-}
+type ConvoType = 'error' | 'noConvo' | 'rekey' | 'youAreReset' | 'normal' | 'rekey'
 
-type SwitchProps = {
-  conversationIDKey: Types.ConversationIDKey
-  isFocused?: boolean
-  selectConversation: () => void
-  deselectConversation: () => void
-  type: 'error' | 'noConvo' | 'rekey' | 'youAreReset' | 'normal' | 'rekey'
-}
+type SwitchProps = Container.RouteProps<{conversationIDKey: Types.ConversationIDKey}>
 
-class Conversation extends React.PureComponent<SwitchProps> {
-  _onDidFocus = () => {
-    this.props.selectConversation()
-  }
-  _onWillBlur = () => {
-    this.props.deselectConversation()
-  }
-  componentWillUnmount() {
-    // Workaround
-    // https://github.com/react-navigation/react-navigation/issues/5669
-    // Covers the case of swiping back on iOS
-    if (isIOS) {
-      this.props.deselectConversation()
-    }
-  }
+let Conversation = (p: SwitchProps) => {
+  const conversationIDKey = Container.getRouteProps(p, 'conversationIDKey', Constants.noConversationIDKey)
+  const meta = Container.useSelector(state => Constants.getMeta(state, conversationIDKey))
 
-  render() {
-    switch (this.props.type) {
-      case 'error':
-        return <Error conversationIDKey={this.props.conversationIDKey} />
-      case 'noConvo':
-        // When navigating back to the inbox on mobile, we delelect
-        // conversationIDKey by called mobileChangeSelection. This results in
-        // the conversation view rendering "NoConversation" as it is
-        // transitioning back the the inbox.
-        // On android this is very noticable because transitions fade between
-        // screens, so "NoConversation" will appear on top of the inbox for
-        // approximately 150ms.
-        // On iOS it is less noticable because screen transitions slide away to
-        // the right, though it is visible for a small amount of time.
-        // To solve this we render a blank screen on mobile conversation views with "noConvo"
-        return isMobile ? null : <NoConversation />
-      case 'normal':
-        return (
-          <>
-            {isMobile && <Kb.NavigationEvents onDidFocus={this._onDidFocus} onWillBlur={this._onWillBlur} />}
-            <Normal conversationIDKey={this.props.conversationIDKey} />
-          </>
-        )
-      case 'youAreReset':
-        return <YouAreReset />
-      case 'rekey':
-        return <Rekey conversationIDKey={this.props.conversationIDKey} />
-      default:
-        return <NoConversation />
-    }
-  }
-}
-
-const mapStateToProps = (state, ownProps) => {
-  let _storeConvoIDKey = Constants.getSelectedConversation(state)
-  const conversationIDKey = isMobile ? getRouteProps(ownProps, 'conversationIDKey') : _storeConvoIDKey
-  let _meta = Constants.getMeta(state, conversationIDKey)
-
-  return {
-    _meta,
-    _storeConvoIDKey,
-    conversationIDKey,
-  }
-}
-
-const mapDispatchToProps = dispatch => ({
-  _deselectConversation: ifConversationIDKey =>
-    dispatch(
-      Chat2Gen.createDeselectConversation({
-        ifConversationIDKey,
-      })
-    ),
-  _selectConversation: conversationIDKey =>
-    dispatch(
-      Chat2Gen.createSelectConversation({
-        conversationIDKey,
-        reason: 'focused',
-      })
-    ),
-})
-
-const mergeProps = (stateProps, dispatchProps) => {
-  let type
-  switch (stateProps.conversationIDKey) {
+  let type: ConvoType
+  switch (conversationIDKey) {
     case Constants.noConversationIDKey:
       type = 'noConvo'
       break
     default:
-      if (stateProps._meta.membershipType === 'youAreReset') {
+      if (meta.membershipType === 'youAreReset') {
         type = 'youAreReset'
-      } else if (stateProps._meta.rekeyers.size > 0) {
+      } else if (meta.rekeyers.size > 0) {
         type = 'rekey'
-      } else if (stateProps._meta.trustedState === 'error') {
+      } else if (meta.trustedState === 'error') {
         type = 'error'
       } else {
         type = 'normal'
       }
   }
 
-  return {
-    conversationIDKey: stateProps.conversationIDKey, // we pass down conversationIDKey so this can be calculated once and also this lets us have chat things in other contexts so we can theoretically show multiple chats at the same time (like in a modal)
-    deselectConversation:
-      stateProps._storeConvoIDKey !== stateProps.conversationIDKey
-        ? () => {}
-        : () => dispatchProps._deselectConversation(stateProps.conversationIDKey),
-    selectConversation:
-      stateProps._storeConvoIDKey === stateProps.conversationIDKey
-        ? () => {} // ignore if already selected or pending
-        : () => dispatchProps._selectConversation(stateProps.conversationIDKey),
-    type,
+  switch (type) {
+    case 'error':
+      return <Error conversationIDKey={conversationIDKey} />
+    case 'noConvo':
+      // When navigating back to the inbox on mobile, we deselect
+      // conversationIDKey by called mobileChangeSelection. This results in
+      // the conversation view rendering "NoConversation" as it is
+      // transitioning back the the inbox.
+      // On android this is very noticeable because transitions fade between
+      // screens, so "NoConversation" will appear on top of the inbox for
+      // approximately 150ms.
+      // On iOS it is less noticeable because screen transitions slide away to
+      // the right, though it is visible for a small amount of time.
+      // To solve this we render a blank screen on mobile conversation views with "noConvo"
+      return Container.isPhone ? null : <NoConversation />
+    case 'normal':
+      return <Normal conversationIDKey={conversationIDKey} />
+    case 'youAreReset':
+      return <YouAreReset />
+    case 'rekey':
+      return <Rekey conversationIDKey={conversationIDKey} />
+    default:
+      return <NoConversation />
   }
 }
 
-export default connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  mergeProps
-)(Conversation)
+if (Container.isMobile) {
+  Conversation = withNavigationFocus(Conversation)
+}
+
+// @ts-ignore
+Conversation.navigationOptions = {
+  header: undefined,
+  headerLeft: null,
+  headerTitle: () => <HeaderArea />,
+}
+
+const ConversationMemoed = React.memo(Conversation)
+Container.hoistNonReactStatic(ConversationMemoed, Conversation)
+
+export default ConversationMemoed

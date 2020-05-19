@@ -2,9 +2,9 @@ import * as React from 'react'
 import * as Shared from './icon.shared'
 import * as Styles from '../styles'
 import logger from '../logger'
-import {IconType, Props, DisallowedStyles, SizeType} from './icon'
+import {IconType, Props, SizeType} from './icon'
 import {NativeImage, NativeText, NativeTouchableOpacity} from './native-wrappers.native'
-import {iconMeta} from './icon.constants'
+import {iconMeta} from './icon.constants-gen'
 
 const Kb = {
   NativeImage,
@@ -16,15 +16,15 @@ type TextProps = {
   children: React.ReactNode
   color?: Styles.Color
   fontSize?: number
-  onClick?: ((event: React.SyntheticEvent) => void) | null
+  onClick?: ((event: React.BaseSyntheticEvent) => void) | null
   opacity?: boolean
   sizeType: SizeType
-  style?: Styles.StylesCrossPlatformWithSomeDisallowed<DisallowedStyles>
+  style?: Props['style']
   type: IconType
 }
-
-const _Text = (p: TextProps, ref) => {
-  const style: Styles.StylesCrossPlatform = {}
+type Writeable<T> = {-readonly [P in keyof T]: T[P]}
+const Text = React.forwardRef<NativeText, TextProps>((p, ref) => {
+  const style: Writeable<Styles.StylesCrossPlatform> = {}
 
   // we really should disallow reaching into style like this but this is what the old code does.
   // TODO change this
@@ -72,30 +72,26 @@ const _Text = (p: TextProps, ref) => {
     <Kb.NativeText
       style={[styles.text, style, fontSizeStyle, p.style]}
       allowFontScaling={false}
-      type={p.type}
       ref={ref}
-      onPress={p.onClick}
+      onPress={p.onClick || undefined}
       suppressHighlighting={true}
     >
       {p.children}
     </Kb.NativeText>
   )
-}
-
-const Text = React.forwardRef(_Text)
+})
 Text.displayName = 'IconText'
 
 type ImageProps = {
-  style?: Styles.StylesCrossPlatformWithSomeDisallowed<DisallowedStyles>
+  style?: Props['style']
   source: any
 }
 
-const _Image = (p: ImageProps, ref) => {
-  let style
+const Image = React.forwardRef<NativeImage, ImageProps>((p, ref) => {
+  let style: any
 
   // we really should disallow reaching into style like this but this is what the old code does.
   // TODO change this
-  // $FlowIssue
   const pStyle: any = p.style
 
   if (pStyle) {
@@ -111,83 +107,81 @@ const _Image = (p: ImageProps, ref) => {
     }
   }
 
-  return <Kb.NativeImage ref={ref} style={[style, pStyle]} source={p.source} resizeMode="contain" />
-}
-const Image = React.forwardRef(_Image)
+  return <Kb.NativeImage ref={ref} style={[style, pStyle]} source={p.source} />
+})
 Image.displayName = 'IconImage'
 
-const _Icon = (p: Props, ref: any) => {
-  // let Icon = React.memo<Props>((p, forwardedRef: ?React.Ref<any>) => {
-  const sizeType = p.sizeType || 'Default'
-  // Only apply props.style to icon if there is no onClick
-  const hasContainer = p.onClick && p.style
-  let iconType = Shared.typeToIconMapper(p.type)
+const Icon = React.memo<Props>(
+  // TODO this type is a mess
+  // @ts-ignore
+  React.forwardRef<any, Props>((p: Props, ref: any) => {
+    const sizeType = p.sizeType || 'Default'
+    // Only apply props.style to icon if there is no onClick
+    const hasContainer = p.onClick && p.style
+    const iconType = Shared.typeToIconMapper(p.type)
 
-  if (!iconType) {
-    logger.warn('Null iconType passed')
-    return null
-  }
-  if (!iconMeta[iconType]) {
-    logger.warn(`Invalid icon type passed in: ${iconType}`)
-    return null
-  }
-
-  const wrap = !p.noContainer && p.onClick
-  let icon
-
-  if (iconMeta[iconType].isFont) {
-    const code = String.fromCharCode(iconMeta[iconType].charCode || 0)
-    let color
-    if (p.colorOverride || p.color) {
-      color = p.colorOverride || p.color
+    if (!iconType) {
+      logger.warn('Null iconType passed')
+      return null
+    }
+    if (!Shared.isValidIconType(iconType)) {
+      logger.warn(`Invalid icon type passed in: ${iconType}`)
+      return null
     }
 
-    icon = (
-      <Text
-        style={hasContainer ? null : p.style}
-        color={color}
-        type={p.type}
-        ref={wrap ? undefined : ref}
-        fontSize={p.fontSize}
-        sizeType={sizeType}
-        onClick={p.onClick}
+    const wrap = !p.noContainer && p.onClick
+    let icon: React.ReactNode
+
+    if (iconMeta[iconType].isFont) {
+      const code = String.fromCharCode(iconMeta[iconType].charCode || 0)
+      let color: undefined | string | null
+      if (p.colorOverride || p.color) {
+        color = p.colorOverride || p.color
+      }
+
+      icon = (
+        <Text
+          style={hasContainer ? null : p.style}
+          color={color}
+          type={p.type}
+          ref={wrap ? undefined : ref}
+          fontSize={p.fontSize}
+          sizeType={sizeType}
+          onClick={p.onClick}
+        >
+          {code}
+        </Text>
+      )
+    } else {
+      icon = (
+        <Image
+          source={(Styles.isDarkMode() && iconMeta[iconType].requireDark) || iconMeta[iconType].require}
+          style={hasContainer ? null : p.style}
+          ref={wrap ? undefined : ref}
+        />
+      )
+    }
+
+    return wrap ? (
+      <Kb.NativeTouchableOpacity
+        onPress={p.onClick || undefined}
+        activeOpacity={0.8}
+        ref={ref}
+        style={Styles.collapseStyles([p.style, p.padding && Shared.paddingStyles[p.padding]])}
       >
-        {code}
-      </Text>
+        {icon}
+      </Kb.NativeTouchableOpacity>
+    ) : (
+      icon
     )
-  } else {
-    icon = (
-      <Image
-        source={iconMeta[iconType].require}
-        style={hasContainer ? null : p.style}
-        ref={wrap ? undefined : ref}
-      />
-    )
-  }
-
-  return wrap ? (
-    <Kb.NativeTouchableOpacity
-      onPress={p.onClick}
-      activeOpacity={0.8}
-      underlayColor={p.underlayColor || Styles.globalColors.white}
-      ref={ref}
-      style={Styles.collapseStyles([p.style, p.padding && Shared.paddingStyles[p.padding]])}
-    >
-      {icon}
-    </Kb.NativeTouchableOpacity>
-  ) : (
-    icon
-  )
-}
-
-// $FlowIssue we use a js.flow file anyways but the typing of this is confusing. TODO fix this
-const Icon = React.memo<Props>(React.forwardRef(_Icon))
+  })
+)
 Icon.displayName = 'Icon'
 
 export function iconTypeToImgSet(imgMap: {[size: string]: IconType}, targetSize: number): any {
   const multsMap = Shared.getMultsMap(imgMap, targetSize)
   const idealMults = [2, 3, 1]
-  for (let mult of idealMults) {
+  for (const mult of idealMults) {
     if (multsMap[mult]) {
       return iconMeta[imgMap[multsMap[mult]]].require
     }
@@ -224,12 +218,12 @@ export function castPlatformStyles(styles: any) {
   return Shared.castPlatformStyles(styles)
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   text: {
     color: Styles.globalColors.black_50, // MUST set this or it can be inherited from outside text
     fontFamily: 'kb',
     fontWeight: 'normal', // MUST set this or it can be inherited from outside text
   },
-})
+}))
 
 export default Icon

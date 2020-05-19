@@ -4,19 +4,24 @@ import logger from '../logger'
 import Avatar, {OwnProps as AvatarProps, AvatarSize} from './avatar'
 import Box from './box'
 import * as React from 'react'
-import {globalStyles, StylesCrossPlatform, collapseStyles} from '../styles'
+import * as Styles from '../styles'
+
+const Kb = {
+  Avatar,
+  Box,
+}
 
 export type Props = {
   avatarProps: Array<AvatarProps>
   singleSize: AvatarSize
   multiSize: AvatarSize
-  style?: StylesCrossPlatform
+  style?: Styles.StylesCrossPlatform
   multiPadding?: number
 }
 
 class MultiAvatar extends React.Component<Props> {
   shouldComponentUpdate(nextProps: Props) {
-    return !shallowEqual(this.props, nextProps, (obj, oth, key) => {
+    return !shallowEqual(this.props, nextProps, (_, __, key) => {
       if (key === 'avatarProps') {
         return shallowEqual(this.props.avatarProps, nextProps.avatarProps)
       }
@@ -46,22 +51,21 @@ class MultiAvatar extends React.Component<Props> {
     }
 
     return (
-      <Box style={collapseStyles([{height: '100%', position: 'relative', width: '100%'}, style])}>
-        <Avatar {...leftProps} style={leftAvatar(multiPadding, leftProps.style)} size={multiSize} />
-        <Avatar {...rightProps} style={rightAvatar(multiPadding, rightProps.style)} size={multiSize} />
-      </Box>
+      <Kb.Box style={Styles.collapseStyles([{position: 'relative', width: '100%'}, style])}>
+        <Kb.Avatar {...leftProps} style={leftAvatar(multiPadding, leftProps.style)} size={multiSize} />
+        <Kb.Avatar {...rightProps} style={rightAvatar(multiPadding, rightProps.style)} size={multiSize} />
+      </Kb.Box>
     )
   }
 }
 
 const singleStyle = {
-  ...globalStyles.flexBoxCenter,
-  height: '100%',
+  ...Styles.globalStyles.flexBoxCenter,
   width: '100%',
 }
 
-const leftAvatar = (offset = 0, style) =>
-  collapseStyles([
+const leftAvatar = (offset: number = 0, style: Styles.StylesCrossPlatform) =>
+  Styles.collapseStyles([
     {
       left: 0,
       position: 'absolute',
@@ -70,8 +74,8 @@ const leftAvatar = (offset = 0, style) =>
     style,
   ])
 
-const rightAvatar = (offset = 0, style) =>
-  collapseStyles([
+const rightAvatar = (offset: number = 0, style: Styles.StylesCrossPlatform) =>
+  Styles.collapseStyles([
     {
       bottom: offset,
       position: 'absolute',

@@ -14,19 +14,14 @@ type Props = {
 
 export const FolderViewFilterIcon = (props: Props) =>
   Constants.isFolder(props.path, props.pathItem) && Types.getPathLevel(props.path) > 1 ? (
-    <Kb.Icon
-      type="iconfont-filter"
-      onClick={props.onClick}
-      padding="tiny"
-      style={props.style && Kb.iconCastPlatformStyles(props.style)}
-    />
+    <Kb.Icon type="iconfont-filter" onClick={props.onClick} padding="tiny" style={props.style} />
   ) : null
 
 type OwnProps = Omit<Props, 'pathItem'>
 
 export default namedConnect(
   (state, {path}: OwnProps) => ({
-    pathItem: state.fs.pathItems.get(path, Constants.unknownPathItem),
+    pathItem: Constants.getPathItem(state.fs.pathItems, path),
   }),
   () => ({}),
   (s, _, o: OwnProps) => ({

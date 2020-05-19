@@ -100,22 +100,36 @@ type TestContext struct {
 	T         TestingTB
 	eg        *errgroup.Group
 	cleanupCh chan struct{}
+	origLog   logger.Logger
 }
 
 func (tc *TestContext) Cleanup() {
 	// stop the background logger
 	close(tc.cleanupCh)
-	tc.eg.Wait()
+	err := tc.eg.Wait()
+	require.NoError(tc.T, err)
 
 	tc.G.Log.Debug("global context shutdown:")
-	tc.G.Shutdown()
+	mctx := NewMetaContextForTest(*tc)
+	err = tc.G.Shutdown(mctx) // could error due to missing pid file
+	if err != nil {
+		tc.G.Log.Warning("tc.G.Shutdown failed: %s", err)
+	}
 	if len(tc.Tp.Home) > 0 {
+		tc.G.Log.Debug("clearing stored secrets:")
+		err := tc.ClearAllStoredSecrets()
 		tc.G.Log.Debug("cleaning up %s", tc.Tp.Home)
 		os.RemoveAll(tc.Tp.Home)
-		tc.G.Log.Debug("clearing stored secrets:")
-		tc.ClearAllStoredSecrets()
+		require.NoError(tc.T, err)
 	}
 	tc.G.Log.Debug("cleanup complete")
+
+	// Don't use the test logger anymore, since it's now out of scope
+	tc.G.Log = tc.origLog
+}
+
+func (tc *TestContext) Logout() error {
+	return NewMetaContextForTest(*tc).LogoutKillSecrets()
 }
 
 func (tc TestContext) MoveGpgKeyringTo(dst TestContext) error {
@@ -169,8 +183,14 @@ func (tc *TestContext) MakePGPKey(id string) (*PGPKeyBundle, error) {
 		SubkeyBits:  1024,
 		PGPUids:     []string{id},
 	}
-	arg.Init()
-	arg.CreatePGPIDs()
+	err := arg.Init()
+	if err != nil {
+		return nil, err
+	}
+	err = arg.CreatePGPIDs()
+	if err != nil {
+		return nil, err
+	}
 	return GeneratePGPKeyBundle(tc.G, arg, tc.G.UI.GetLogUI())
 }
 
@@ -212,6 +232,7 @@ func setupTestContext(tb TestingTB, name string, tcPrev *TestContext) (tc TestCo
 
 	// In debugging mode, dump all log, don't use the test logger.
 	// We only use the environment variable to discover debug mode
+	tc.origLog = g.Log
 	if val, _ := getEnvBool("KEYBASE_DEBUG"); !val {
 		g.Log = logger.NewTestLogger(tb)
 	}
@@ -251,7 +272,10 @@ func setupTestContext(tb TestingTB, name string, tcPrev *TestContext) (tc TestCo
 	g.secretStore = NewSecretStoreLocked(m)
 	g.secretStoreMu.Unlock()
 
-	g.ConfigureLogging()
+	err = g.ConfigureLogging(nil)
+	if err != nil {
+		return TestContext{}, err
+	}
 
 	if err = g.ConfigureAPI(); err != nil {
 		return
@@ -339,6 +363,9 @@ func SetupTest(tb TestingTB, name string, depth int) (tc TestContext) {
 	}
 
 	AddEnvironmentFeatureForTest(tc, EnvironmentFeatureAllowHighSkips)
+	// If journeycards are disabled, this may be helpful to get tests to pass:
+	// AddEnvironmentFeatureForTest(tc, FeatureJourneycard)
+	// AddEnvironmentFeatureForTest(tc, FeatureJourneycard)
 
 	return tc
 }
@@ -461,9 +488,11 @@ type TestLoginUI struct {
 	Username                 string
 	RevokeBackup             bool
 	CalledGetEmailOrUsername int
-	ResetAccount             bool
+	ResetAccount             keybase1.ResetPromptResponse
 	PassphraseRecovery       bool
 }
+
+var _ LoginUI = (*TestLoginUI)(nil)
 
 func (t *TestLoginUI) GetEmailOrUsername(_ context.Context, _ int) (string, error) {
 	t.CalledGetEmailOrUsername++
@@ -482,7 +511,7 @@ func (t *TestLoginUI) DisplayPrimaryPaperKey(_ context.Context, arg keybase1.Dis
 	return nil
 }
 
-func (t *TestLoginUI) PromptResetAccount(_ context.Context, arg keybase1.PromptResetAccountArg) (bool, error) {
+func (t *TestLoginUI) PromptResetAccount(_ context.Context, arg keybase1.PromptResetAccountArg) (keybase1.ResetPromptResponse, error) {
 	return t.ResetAccount, nil
 }
 
@@ -496,6 +525,14 @@ func (t *TestLoginUI) ExplainDeviceRecovery(_ context.Context, arg keybase1.Expl
 
 func (t *TestLoginUI) PromptPassphraseRecovery(_ context.Context, arg keybase1.PromptPassphraseRecoveryArg) (bool, error) {
 	return t.PassphraseRecovery, nil
+}
+
+func (t *TestLoginUI) ChooseDeviceToRecoverWith(_ context.Context, arg keybase1.ChooseDeviceToRecoverWithArg) (keybase1.DeviceID, error) {
+	return "", nil
+}
+
+func (t *TestLoginUI) DisplayResetMessage(_ context.Context, arg keybase1.DisplayResetMessageArg) error {
+	return nil
 }
 
 type TestLoginCancelUI struct {
@@ -538,6 +575,10 @@ func (f *FakeGregorState) PeekDismissedIDs() []gregor.MsgID {
 	return f.dismissedIDs
 }
 
+func (f *FakeGregorState) DismissCategory(ctx context.Context, cat gregor1.Category) error {
+	return nil
+}
+
 type TestUIDMapper struct {
 	ul UPAKLoader
 }
@@ -546,6 +587,10 @@ func NewTestUIDMapper(ul UPAKLoader) TestUIDMapper {
 	return TestUIDMapper{
 		ul: ul,
 	}
+}
+
+func (t TestUIDMapper) ClearUIDFullName(_ context.Context, _ UIDMapperContext, _ keybase1.UID) error {
+	return nil
 }
 
 func (t TestUIDMapper) ClearUIDAtEldestSeqno(_ context.Context, _ UIDMapperContext, _ keybase1.UID, _ keybase1.Seqno) error {
@@ -618,14 +663,18 @@ func CreateClonedDevice(tc TestContext, m MetaContext) {
 	require.True(tc.T, d.IsClone())
 }
 
-func ModifyFeatureForTest(m MetaContext, feature Feature, on bool, cacheSec int) {
-	slot := m.G().FeatureFlags.getOrMakeSlot(feature)
-	rawFeature := rawFeatureSlot{on, cacheSec}
-	slot.readFrom(m, rawFeature)
-}
-
 func AddEnvironmentFeatureForTest(tc TestContext, feature Feature) {
 	tc.Tp.EnvironmentFeatureFlags = append(tc.Tp.EnvironmentFeatureFlags, feature)
+}
+
+func RemoveEnvironmentFeatureForTest(tp *TestParameters, feature Feature) {
+	var flags FeatureFlags
+	for _, flag := range tp.EnvironmentFeatureFlags {
+		if flag != feature {
+			flags = append(flags, flag)
+		}
+	}
+	tp.EnvironmentFeatureFlags = flags
 }
 
 // newSecretStoreLockedForTests is a simple function to create
@@ -663,10 +712,10 @@ func CreateReadOnlySecretStoreDir(tc TestContext) (string, func()) {
 	fi, err := os.Stat(td)
 	require.NoError(tc.T, err)
 	oldMode := fi.Mode()
-	os.Chmod(td, 0400)
+	_ = os.Chmod(td, 0400)
 
 	cleanup := func() {
-		os.Chmod(td, oldMode)
+		_ = os.Chmod(td, oldMode)
 		if err := os.RemoveAll(td); err != nil {
 			tc.T.Log(err)
 		}

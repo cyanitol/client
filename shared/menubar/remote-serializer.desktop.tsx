@@ -1,109 +1,158 @@
-import * as Avatar from '../desktop/remote/sync-avatar-props.desktop'
-import {
-  serialize as conversationSerialize,
-  changeAffectsWidget as conversationChangeAffectsWidget,
-} from '../chat/inbox/container/remote'
-import GetRowsFromTlfUpdate from '../fs/remote-container'
+import * as ChatTypes from '../constants/types/chat2'
+import * as FSTypes from '../constants/types/fs'
+import {State as ConfigState} from '../constants/types/config'
+import {State as NotificationsState} from '../constants/types/notifications'
+import {State as UsersState, UserInfo} from '../constants/types/users'
+import {Tab} from '../constants/tabs'
 
-export const serialize: any = {
-  ...Avatar.serialize,
-  badgeKeys: v => v.keySeq().toArray(),
-  badgeMap: (v, o) =>
-    v
-      .keySeq()
-      .toArray()
-      .reduce((map, k) => {
-        if (!o || v.get(k) !== o.get(k)) {
-          map[k] = v.get(k)
-        }
-        return map
-      }, {}),
-  clearCacheTrigger: v => undefined,
-  conversationIDs: v => v.map(v => v.conversation.conversationIDKey),
-  conversationMap: (v, o) =>
-    v.reduce((map, toSend) => {
-      const oldConv =
-        o &&
-        o.find(oldElem => oldElem.conversation.conversationIDKey === toSend.conversation.conversationIDKey)
-      return oldConv &&
-        oldConv.hasBadge === toSend.hasBadge &&
-        oldConv.hasUnread === toSend.hasUnread &&
-        !conversationChangeAffectsWidget(oldConv.conversation, toSend.conversation)
-        ? map
-        : {
-            ...map,
-            [toSend.conversation.conversationIDKey]: conversationSerialize(toSend),
-          }
-    }, {}),
-  daemonHandshakeState: v => v,
-  diskSpaceStatus: v => v,
-  endEstimate: v => v,
-  externalRemoteWindow: v => v,
-  fileName: v => v,
-  fileRows: (v, o) =>
-    o && v._tlfUpdates === o._tlfUpdates && v._uploads === o._uploads
-      ? null
-      : v._tlfUpdates.map(t => GetRowsFromTlfUpdate(t, v._uploads)).toArray(),
-  files: v => v,
-  kbfsDaemonStatus: v => v,
-  kbfsEnabled: v => v,
-  loggedIn: v => v,
-  outOfDate: v => v,
-  showingDiskSpaceBanner: v => v,
-  totalSyncingBytes: v => v,
-  // Just send broken over, if its the same send null
-  userInfo: (v, o) => {
-    const toSend = v.filter(u => u.broken)
-    const old = o && o.filter(u => u.broken)
-    return toSend.equals(old) ? undefined : toSend
+export type RemoteTlfUpdates = {
+  timestamp: number
+  tlf: FSTypes.Path
+  updates: Array<{path: FSTypes.Path; uploading: boolean}>
+  writer: string
+}
+
+// for convenience we flatten the props we send over the wire
+type ConfigHoistedProps =
+  | 'avatarRefreshCounter'
+  | 'daemonHandshakeState'
+  | 'outOfDate'
+  | 'followers'
+  | 'following'
+  | 'httpSrvAddress'
+  | 'httpSrvToken'
+  | 'loggedIn'
+  | 'username'
+
+type UsersHoistedProps = 'infoMap'
+
+type Conversation = {
+  conversation: ChatTypes.ConversationMeta
+  hasBadge: boolean
+  hasUnread: boolean
+  participantInfo: ChatTypes.ParticipantInfo
+}
+
+type KbfsDaemonStatus = {
+  readonly rpcStatus: FSTypes.KbfsDaemonRpcStatus
+  readonly onlineStatus: FSTypes.KbfsDaemonOnlineStatus
+}
+
+export type ProxyProps = {
+  conversationsToSend: Array<Conversation>
+  darkMode: boolean
+  diskSpaceStatus: FSTypes.DiskSpaceStatus
+  endEstimate: number
+  files: number
+  fileName: string | null
+  kbfsDaemonStatus: KbfsDaemonStatus
+  kbfsEnabled: boolean
+  remoteTlfUpdates: Array<RemoteTlfUpdates>
+  showingDiskSpaceBanner: boolean
+  totalSyncingBytes: number
+} & Pick<ConfigState, ConfigHoistedProps> &
+  Pick<NotificationsState, 'navBadges'> &
+  Pick<UsersState, UsersHoistedProps>
+
+type SerializeProps = Omit<
+  ProxyProps,
+  'avatarRefreshCounter' | 'followers' | 'following' | 'infoMap' | 'navBadges' | 'conversationsToSend'
+> & {
+  avatarRefreshCounter: Array<[string, number]>
+  conversationsToSend: Array<Conversation>
+  followers: Array<string>
+  following: Array<string>
+  infoMap: Array<[string, UserInfo]>
+  navBadges: Array<[Tab, number]>
+}
+
+export type DeserializeProps = Omit<ProxyProps, ConfigHoistedProps | UsersHoistedProps> & {
+  config: Pick<ConfigState, ConfigHoistedProps>
+  users: Pick<UsersState, UsersHoistedProps>
+}
+
+const initialState: DeserializeProps = {
+  config: {
+    avatarRefreshCounter: new Map(),
+    daemonHandshakeState: 'starting',
+    followers: new Set(),
+    following: new Set(),
+    httpSrvAddress: '',
+    httpSrvToken: '',
+    loggedIn: false,
+    outOfDate: undefined,
+    username: '',
   },
-  username: v => v,
-  widgetBadge: v => v,
-  windowComponent: v => v,
-  windowOpts: v => v,
-  windowParam: v => v,
-  windowTitle: v => v,
+  conversationsToSend: [],
+  darkMode: false,
+  diskSpaceStatus: FSTypes.DiskSpaceStatus.Ok,
+  endEstimate: 0,
+  fileName: null,
+  files: 0,
+  kbfsDaemonStatus: {
+    onlineStatus: FSTypes.KbfsDaemonOnlineStatus.Unknown,
+    rpcStatus: FSTypes.KbfsDaemonRpcStatus.Connected,
+  },
+  kbfsEnabled: false,
+  navBadges: new Map(),
+  remoteTlfUpdates: [],
+  showingDiskSpaceBanner: false,
+  totalSyncingBytes: 0,
+  users: {infoMap: new Map()},
 }
 
-const initialState = {
-  badgeInfo: {},
-  badgeKeys: [],
-  badgeMap: {},
-  config: {},
-  conversationIDs: [],
-  conversationMap: {},
-  fileRows: [],
+export const serialize = (p: ProxyProps): Partial<SerializeProps> => {
+  const {avatarRefreshCounter, conversationsToSend, followers, following, infoMap, ...toSend} = p
+  return {
+    ...toSend,
+    avatarRefreshCounter: [...avatarRefreshCounter.entries()],
+    conversationsToSend,
+    followers: [...followers],
+    following: [...following],
+    infoMap: [...infoMap.entries()],
+    navBadges: [...p.navBadges.entries()],
+  }
 }
-export const deserialize = (state: any = initialState, props: any) => {
+
+export const deserialize = (
+  state: DeserializeProps = initialState,
+  props: SerializeProps
+): DeserializeProps => {
   if (!props) return state
-  // We always add to the map
-  const badgeMap = {
-    ...state.badgeMap,
-    ...(props.badgeMap || {}),
-  }
 
-  const badgeInfo = (props.badgeKeys || state.badgeKeys).reduce((map, k) => {
-    map[k] = badgeMap[k]
-    return map
-  }, {})
+  const {
+    avatarRefreshCounter,
+    daemonHandshakeState,
+    followers,
+    following,
+    httpSrvAddress,
+    httpSrvToken,
+    infoMap,
+    loggedIn,
+    navBadges,
+    outOfDate,
+    username,
+    ...rest
+  } = props
 
-  const conversationMap = {
-    ...state.conversationMap,
-    ...props.conversationMap,
-  }
-
-  // if we send null keep the old value
-  const userInfo = props.userInfo || state.userInfo
-
-  const newState = {
+  return {
     ...state,
-    ...props,
-    badgeInfo,
-    badgeMap,
-    conversationMap,
-    conversations: (props.conversationIDs || state.conversationIDs).map(id => conversationMap[id]),
-    fileRows: props.fileRows || state.fileRows,
-    userInfo,
+    ...rest,
+    config: {
+      ...state.config,
+      avatarRefreshCounter: avatarRefreshCounter
+        ? new Map(avatarRefreshCounter)
+        : state.config.avatarRefreshCounter,
+      daemonHandshakeState: daemonHandshakeState ?? state.config.daemonHandshakeState,
+      followers: followers ? new Set(followers) : state.config.followers,
+      following: following ? new Set(following) : state.config.following,
+      httpSrvAddress: httpSrvAddress ?? state.config.httpSrvAddress,
+      httpSrvToken: httpSrvToken ?? state.config.httpSrvToken,
+      loggedIn: loggedIn ?? state.config.loggedIn,
+      outOfDate: outOfDate ?? state.config.outOfDate,
+      username: username ?? state.config.username,
+    },
+    navBadges: navBadges ? new Map(navBadges) : state.navBadges,
+    users: {infoMap: infoMap ? new Map(infoMap) : state.users.infoMap},
   }
-  return Avatar.deserialize(newState, props)
 }

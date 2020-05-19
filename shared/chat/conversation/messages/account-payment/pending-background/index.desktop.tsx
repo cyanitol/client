@@ -9,8 +9,7 @@ const bgScroll = Styles.styledKeyframes({
   to: {transform: 'translateY(-80px)'},
 })
 
-// @ts-ignore
-const BackgroundBox = Styles.styled.div({
+const BackgroundBox = Styles.styled.div(() => ({
   animation: `${bgScroll} 2s linear infinite`,
   backgroundImage: patternImage,
   backgroundRepeat: 'repeat',
@@ -22,7 +21,7 @@ const BackgroundBox = Styles.styled.div({
   top: 0,
   willChange: 'transform',
   zIndex: -1,
-})
+}))
 
 const PendingBackground = (props: Props) => (
   <>

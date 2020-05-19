@@ -6,7 +6,8 @@ import FloatingMenu from '../floating-menu'
 import Icon from '../icon'
 import SafeAreaView, {SafeAreaViewTop} from '../safe-area-view'
 import * as Styles from '../../styles'
-import {Action, Props, LeftActionProps} from './types'
+import {Action, Props, LeftActionProps} from '.'
+import {hoistNonReactStatic} from '../../util/container'
 
 const MAX_RIGHT_ACTIONS = 3
 
@@ -106,10 +107,7 @@ export class HeaderHocHeader extends React.Component<Props, State> {
       </Box>
     )
 
-    if (Styles.isAndroid) {
-      return header
-    }
-    return !this.props.underNotch ? <SafeAreaViewTop>{header}</SafeAreaViewTop> : header
+    return header
   }
 }
 
@@ -126,12 +124,12 @@ export const LeftAction = ({
   customIconColor,
 }: LeftActionProps): React.ReactElement => (
   <Box style={Styles.collapseStyles([styles.leftAction, hasTextTitle && styles.grow])}>
-    {onLeftAction &&
-      (leftAction === 'cancel' ? (
-        <Text type="BodyBigLink" style={styles.action} onClick={onLeftAction}>
-          {leftActionText || customCancelText || 'Cancel'}
-        </Text>
-      ) : (
+    {onLeftAction && leftAction === 'cancel' ? (
+      <Text type="BodyBigLink" style={styles.action} onClick={onLeftAction}>
+        {leftActionText || customCancelText || 'Cancel'}
+      </Text>
+    ) : (
+      (onLeftAction || leftAction === 'back') && (
         <BackButton
           badgeNumber={badgeNumber}
           hideBackLabel={hideBackLabel}
@@ -144,9 +142,10 @@ export const LeftAction = ({
               : Styles.globalColors.black_50)
           }
           style={styles.action}
-          onClick={onLeftAction}
+          onClick={onLeftAction ?? undefined}
         />
-      ))}
+      )
+    )}
   </Box>
 )
 
@@ -181,10 +180,10 @@ const RightActions = ({
 const RightActionsOverflow = ({floatingMenuVisible, hideFloatingMenu, rightActions, showFloatingMenu}) =>
   rightActions && rightActions.length > MAX_RIGHT_ACTIONS ? (
     <>
-      <Icon fontSize={22} onClick={showFloatingMenu} style={styles.action} type="iconfont-ellipsis" />
+      <Icon onClick={showFloatingMenu} style={styles.action} type="iconfont-ellipsis" />
       <FloatingMenu
         visible={floatingMenuVisible}
-        items={rightActions.slice(MAX_RIGHT_ACTIONS - 1).map((action, item) => ({
+        items={rightActions.slice(MAX_RIGHT_ACTIONS - 1).map(action => ({
           onClick: action.onPress,
           title: action.label || 'You need to specify a label', // TODO: remove this after updates are fully integrated
         }))}
@@ -204,17 +203,37 @@ const renderAction = (action: Action, index: number): React.ReactNode =>
     <Icon
       color={action.iconColor || undefined}
       key={action.label || index}
-      fontSize={22}
       onClick={action.onPress}
       style={styles.action}
       type={action.icon}
     />
   ) : (
-    <Text key={action.label} type="BodyBigLink" style={styles.action} onClick={action.onPress}>
+    <Text
+      key={action.label}
+      type="BodyBigLink"
+      style={Styles.collapseStyles([styles.action, action.color && {color: action.color}])}
+      onClick={action.onPress}
+    >
       {action.label}
     </Text>
   )
 
+/** TODO likely deprecate this **/
+export const HeaderHocWrapper = (props: Props & {children: React.ReactNode; skipHeader?: boolean}) => {
+  const {customSafeAreaTopStyle, children, customSafeAreaBottomStyle, skipHeader} = props
+  return (
+    <Box style={styles.container}>
+      {!!customSafeAreaTopStyle && <SafeAreaViewTop style={customSafeAreaTopStyle} />}
+      {!skipHeader && <HeaderHocHeader {...props} />}
+      <Box style={styles.grow}>
+        <Box style={styles.innerWrapper}>{children}</Box>
+      </Box>
+      {!!customSafeAreaBottomStyle && <SafeAreaView style={customSafeAreaBottomStyle} />}
+    </Box>
+  )
+}
+
+/** TODO deprecate **/
 function HeaderHoc<P extends {}>(WrappedComponent: React.ComponentType<P>) {
   const HeaderHocWrapper = (props: P & Props) => (
     <Box style={styles.container}>
@@ -222,20 +241,21 @@ function HeaderHoc<P extends {}>(WrappedComponent: React.ComponentType<P>) {
       <HeaderHocHeader {...props} />
       <Box style={styles.grow}>
         <Box style={styles.innerWrapper}>
-          <WrappedComponent {...props as P} />
+          <WrappedComponent {...(props as P)} />
         </Box>
       </Box>
       {!!props.customSafeAreaBottomStyle && <SafeAreaView style={props.customSafeAreaBottomStyle} />}
     </Box>
   )
 
+  hoistNonReactStatic(HeaderHocWrapper, WrappedComponent)
   return HeaderHocWrapper
 }
 
 // If layout is changed here, please make sure the Files header is updated as
 // well to match this. fs/nav-header/mobile-header.js
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   action: Styles.platformStyles({
     common: {
       opacity: 1,
@@ -270,6 +290,7 @@ const styles = Styles.styleSheetCreate({
       alignItems: 'center',
       borderBottomColor: Styles.globalColors.black_10,
       borderBottomWidth: 1,
+      borderStyle: 'solid',
       justifyContent: 'flex-start',
       width: '100%',
     },
@@ -279,6 +300,9 @@ const styles = Styles.styleSheetCreate({
     },
     isIOS: {
       height: 44,
+    },
+    isTablet: {
+      height: 40 + Styles.headerExtraHeight,
     },
   }),
   innerWrapper: {
@@ -317,6 +341,7 @@ const styles = Styles.styleSheetCreate({
       ...Styles.globalStyles.flexBoxColumn,
       alignItems: 'center',
       flexGrow: 1,
+      flexShrink: 2,
       justifyContent: 'center',
     },
     isAndroid: {
@@ -340,6 +365,26 @@ const styles = Styles.styleSheetCreate({
   titleTextContainer: {
     ...Styles.globalStyles.fillAbsolute,
   },
-})
+}))
+
+export const HeaderLeftArrow = hp =>
+  hp.scene.index === 0 ? null : (
+    <LeftAction
+      badgeNumber={0}
+      leftAction="back"
+      onLeftAction={hp.onPress} // react navigation makes sure this onPress can only happen once
+      customIconColor={hp.tintColor}
+    />
+  )
+
+export const HeaderLeftCancel = hp =>
+  hp.scene.index === 0 ? null : (
+    <LeftAction
+      badgeNumber={0}
+      leftAction="cancel"
+      onLeftAction={hp.onPress} // react navigation makes sure this onPress can only happen once
+      customIconColor={hp.tintColor}
+    />
+  )
 
 export default HeaderHoc

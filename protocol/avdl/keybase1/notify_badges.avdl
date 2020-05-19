@@ -1,11 +1,12 @@
 @namespace("keybase.1")
 protocol NotifyBadges {
   import idl "common.avdl";
-  import idl "github.com/keybase/client/go/protocol/gregor1" as gregor1;
+  import idl "../gregor1" as gregor1;
 
   @typedef("bytes")  record ChatConversationID {}
 
   record TeamMemberOutReset {
+    TeamID teamID;
     string teamname;
     string username;
     UID uid;
@@ -29,6 +30,12 @@ protocol NotifyBadges {
     boolean active;
   }
 
+  record WotUpdate {
+    string voucher;  // username
+    string vouchee;  // username
+    WotStatusType status;
+  }
+
   record BadgeState {
     @lint("ignore")
     int newTlfs;
@@ -38,22 +45,25 @@ protocol NotifyBadges {
     int homeTodoItems;
     int unverifiedEmails;
     int unverifiedPhones;
+    int smallTeamBadgeCount;
+    int bigTeamBadgeCount;
+    int newTeamAccessRequestCount;
 
     array<DeviceID> newDevices;
     array<DeviceID> revokedDevices;
     array<BadgeConversationInfo> conversations;
     array<string> newGitRepoGlobalUniqueIDs;
-    array<string> newTeamNames;
+    array<TeamID> newTeams;
     array<DeletedTeamInfo> deletedTeams;
-    array<string> newTeamAccessRequests;
     array<TeamMemberOutReset> teamsWithResetUsers;
     array<WalletAccountInfo> unreadWalletAccounts;
+    map<string, WotUpdate> wotUpdates;
     ResetState resetState;
   }
 
   record BadgeConversationInfo {
     ChatConversationID convID;
-    map<DeviceType, int> badgeCounts;
+    int badgeCount;
     int unreadMessages;
   }
 

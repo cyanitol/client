@@ -7,9 +7,9 @@ import (
 
 	"github.com/keybase/xurls"
 
+	"github.com/keybase/client/go/chat/globals"
 	"github.com/keybase/client/go/chat/types"
 	"github.com/keybase/client/go/chat/utils"
-	"github.com/keybase/client/go/logger"
 	"github.com/keybase/client/go/protocol/chat1"
 	"github.com/keybase/client/go/protocol/gregor1"
 )
@@ -36,9 +36,9 @@ type Extractor struct {
 	exemptions     map[string]*WhitelistExemptionList
 }
 
-func NewExtractor(log logger.Logger) *Extractor {
+func NewExtractor(g *globals.Context) *Extractor {
 	return &Extractor{
-		DebugLabeler: utils.NewDebugLabeler(log, "Extractor", false),
+		DebugLabeler: utils.NewDebugLabeler(g.ExternalG(), "Extractor", false),
 		urlRegexp:    xurls.Strict(),
 		quoteRegexp:  regexp.MustCompile("`[^`]*`"),
 		exemptions:   make(map[string]*WhitelistExemptionList),
@@ -95,7 +95,7 @@ func (e *Extractor) isWhitelistHit(ctx context.Context, convID chat1.Conversatio
 
 func (e *Extractor) Extract(ctx context.Context, uid gregor1.UID, convID chat1.ConversationID,
 	msgID chat1.MessageID, body string, userSettings *Settings) (res []ExtractorHit, err error) {
-	defer e.Trace(ctx, func() error { return err }, "Extract")()
+	defer e.Trace(ctx, &err, "Extract")()
 	body = e.quoteRegexp.ReplaceAllString(body, "")
 	hits := e.urlRegexp.FindAllString(body, -1)
 	if len(hits) == 0 {
@@ -135,6 +135,6 @@ func (e *Extractor) Extract(ctx context.Context, uid gregor1.UID, convID chat1.C
 
 func (e *Extractor) AddWhitelistExemption(ctx context.Context, uid gregor1.UID,
 	exemption types.WhitelistExemption) {
-	defer e.Trace(ctx, func() error { return nil }, "AddWhitelistExemption")()
+	defer e.Trace(ctx, nil, "AddWhitelistExemption")()
 	e.getExemptionList(uid).Add(exemption)
 }

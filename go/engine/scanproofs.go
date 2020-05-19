@@ -78,7 +78,10 @@ func (c *ScanProofsCache) Save(filepath string) error {
 		return err
 	}
 	f.Close()
-	os.Rename(temppath, filepath)
+	err = os.Rename(temppath, filepath)
+	if err != nil {
+		return err
+	}
 	c.dirty = false
 	return nil
 }
@@ -128,7 +131,7 @@ func (e *ScanProofsEngine) SubConsumers() []libkb.UIConsumer {
 }
 
 func (e *ScanProofsEngine) Run(m libkb.MetaContext) (err error) {
-	defer m.Trace("ScanProofsEngine#Run", func() error { return err })()
+	defer m.Trace("ScanProofsEngine#Run", &err)()
 
 	var cache *ScanProofsCache
 	saveevery := 10

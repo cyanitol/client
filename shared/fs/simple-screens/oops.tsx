@@ -15,8 +15,6 @@ type Props = OwnProps & {
   openParent: () => void
 }
 
-type OwnPropsWithSafeNavigation = Container.PropsWithSafeNavigation<OwnProps>
-
 const Explain = (props: Props) => {
   const elems = Types.getPathElements(props.path)
   if (elems.length < 3) {
@@ -53,7 +51,7 @@ const Explain = (props: Props) => {
 }
 
 const NoAccess = (props: Props) => (
-  <Kb.Box2 direction="vertical" style={styles.container} fullWidth={true}>
+  <Kb.Box2 direction="vertical" style={styles.container} fullWidth={true} fullHeight={true}>
     <Kb.Box2 direction="vertical" style={styles.main} fullWidth={true} centerChildren={true}>
       <Kb.Icon
         type={isMobile ? 'icon-fancy-no-access-mobile-128-125' : 'icon-fancy-no-access-desktop-96-94'}
@@ -74,7 +72,7 @@ const NoAccess = (props: Props) => (
 )
 
 const NonExistent = (props: Props) => (
-  <Kb.Box2 direction="vertical" style={styles.container} fullWidth={true}>
+  <Kb.Box2 direction="vertical" style={styles.container} fullWidth={true} fullHeight={true}>
     <Kb.Box2 direction="vertical" style={styles.main} fullWidth={true} centerChildren={true}>
       <Kb.Icon
         type={
@@ -102,78 +100,72 @@ const NonExistent = (props: Props) => (
   </Kb.Box2>
 )
 
-const Oops = (props: Props) => {
+const Oops = (props: OwnProps) => {
+  const dispatch = Container.useDispatch()
+  const nav = Container.useSafeNavigation()
+  const openParent = () =>
+    dispatch(
+      nav.safeNavigateAppendPayload({
+        path: [{props: {path: Types.getPathParent(props.path)}, selected: 'fsRoot'}],
+      })
+    )
   switch (props.reason) {
     case Types.SoftError.NoAccess:
-      return <NoAccess {...props} />
+      return <NoAccess {...props} openParent={openParent} />
     case Types.SoftError.Nonexistent:
-      return <NonExistent {...props} />
+      return <NonExistent {...props} openParent={openParent} />
     default:
       Flow.ifFlowComplainsAboutThisFunctionYouHaventHandledAllCasesInASwitch(props.reason)
       return null
   }
 }
 
-const mapDispatchToProps = (dispatch, props: OwnPropsWithSafeNavigation) => ({
-  openParent: () =>
-    dispatch(
-      props.navigateAppend({
-        path: [{props: {path: Types.getPathParent(props.path)}, selected: 'main'}],
-      })
-    ),
-})
+export default Oops
 
-export default Container.withSafeNavigation(
-  Container.namedConnect(
-    () => ({}),
-    mapDispatchToProps,
-    (s, d, o: OwnPropsWithSafeNavigation) => ({...o, ...s, ...d}),
-    'Oops'
-  )(Oops)
-) as any
-
-const styles = Styles.styleSheetCreate({
-  button: {
-    marginTop: Styles.globalMargins.small,
-  },
-  container: Styles.platformStyles({
-    common: {
-      ...Styles.globalStyles.flexGrow,
-      backgroundColor: Styles.globalColors.white,
-    },
-    isMobile: {
-      padding: Styles.globalMargins.large,
-    },
-  }),
-  explainBox: Styles.platformStyles({
-    isElectron: {
-      marginTop: Styles.globalMargins.small,
-    },
-    isMobile: {
-      marginTop: Styles.globalMargins.medium,
-    },
-  }),
-  explainTextTeam: {
-    marginLeft: Styles.globalMargins.xtiny,
-    marginRight: Styles.globalMargins.xtiny,
-  },
-  footer: {
-    paddingBottom: Styles.globalMargins.large,
-  },
-  header: {
-    backgroundColor: Styles.globalColors.red,
-    height: 40,
-  },
-  main: {
-    ...Styles.globalStyles.flexGrow,
-  },
-  textYouDontHave: Styles.platformStyles({
-    isElectron: {
-      marginTop: Styles.globalMargins.medium,
-    },
-    isMobile: {
-      marginTop: Styles.globalMargins.xlarge,
-      textAlign: 'center',
-    },
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      button: {
+        marginTop: Styles.globalMargins.small,
+      },
+      container: Styles.platformStyles({
+        common: {
+          backgroundColor: Styles.globalColors.white,
+        },
+        isMobile: {
+          padding: Styles.globalMargins.large,
+        },
+      }),
+      explainBox: Styles.platformStyles({
+        isElectron: {
+          marginTop: Styles.globalMargins.small,
+        },
+        isMobile: {
+          marginTop: Styles.globalMargins.medium,
+        },
+      }),
+      explainTextTeam: {
+        marginLeft: Styles.globalMargins.xtiny,
+        marginRight: Styles.globalMargins.xtiny,
+      },
+      footer: {
+        paddingBottom: Styles.globalMargins.large,
+      },
+      header: {
+        backgroundColor: Styles.globalColors.red,
+        height: 40,
+      },
+      main: {
+        ...Styles.globalStyles.flexGrow,
+      },
+      textYouDontHave: Styles.platformStyles({
+        isElectron: {
+          marginTop: Styles.globalMargins.medium,
+        },
+        isMobile: {
+          marginTop: Styles.globalMargins.xlarge,
+          textAlign: 'center',
+        },
+      }),
+    } as const)
+)

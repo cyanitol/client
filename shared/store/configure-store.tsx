@@ -8,9 +8,9 @@ import {createStore, applyMiddleware, Store} from 'redux'
 import {enableStoreLogging, enableActionLogging, filterActionLogs} from '../local-debug'
 import * as DevGen from '../actions/dev-gen'
 import * as ConfigGen from '../actions/config-gen'
-import {isMobile} from '../constants/platform'
+import {isMobile, isRemoteDebuggerAttached} from '../constants/platform'
 import * as LocalConsole from '../util/local-console'
-import {TypedState, TypedDispatch, TypedActions} from '../util/container'
+import {hookMiddleware} from './hook-middleware'
 
 let theStore: Store<any, any>
 
@@ -39,7 +39,9 @@ if (enableStoreLogging) {
       if (filterActionLogs) {
         args[0].type.match(filterActionLogs) && logger.info('Action:', ...args)
       } else if (args[0] && args[0].type) {
-        LocalConsole.gray('Action:', args[0].type, '', args[0])
+        if (!isMobile || isRemoteDebuggerAttached) {
+          LocalConsole.gray('Action:', args[0].type, '', args[0])
+        }
       }
       return null
     },
@@ -56,7 +58,9 @@ if (enableStoreLogging) {
     stateTransformer: (...args) => {
       if (logStateOk) {
         // This is noisy, so let's not show it while filtering action logs
-        !filterActionLogs && LocalConsole.purpleObject('State:', ...args) // DON'T use the logger here, we never want this in the logs
+        !filterActionLogs &&
+          (!isMobile || isRemoteDebuggerAttached) &&
+          LocalConsole.purpleObject('State:', ...args) // DON'T use the logger here, we never want this in the logs
         logStateOk = false
       } else {
         logStateOk = true
@@ -69,7 +73,7 @@ if (enableStoreLogging) {
 
 let lastError = new Error('')
 
-const errorCatching = store => next => action => {
+const errorCatching = () => next => action => {
   try {
     return next(action)
   } catch (error) {
@@ -93,11 +97,15 @@ if (__DEV__) {
   global.DEBUGSagaMiddleware = sagaMiddleware
 }
 
+const freezeMiddleware = _store => next => action => next(Object.freeze(action))
+
 const middlewares = [
   errorCatching,
   sagaMiddleware,
+  ...(__DEV__ ? [freezeMiddleware] : []),
   ...(enableStoreLogging && loggerMiddleware ? [loggerMiddleware] : []),
   ...(enableActionLogging ? [actionLogger] : []),
+  hookMiddleware,
 ]
 
 if (__DEV__ && typeof window !== 'undefined') {

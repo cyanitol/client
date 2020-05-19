@@ -28,7 +28,7 @@ const AccountEntry = (props: AccountEntryProps) => (
       <Kb.Icon
         type={Styles.isMobile ? 'icon-wallet-32' : 'icon-wallet-64'}
         color={Styles.globalColors.black}
-        style={Kb.iconCastPlatformStyles(styles.icon)}
+        style={styles.icon}
       />
     )}
     <Kb.Box2 direction="vertical" style={styles.rightColumn}>
@@ -38,11 +38,7 @@ const AccountEntry = (props: AccountEntryProps) => (
         style={Styles.collapseStyles([styles.user, props.center && styles.userCenter])}
       >
         {props.keybaseUser && props.isDefault && (
-          <Kb.Avatar
-            size={16}
-            style={Kb.avatarCastPlatformStyles(styles.avatar)}
-            username={props.keybaseUser}
-          />
+          <Kb.Avatar size={16} style={styles.avatar} username={props.keybaseUser} />
         )}
         <Kb.Text type="BodySemibold" style={styles.title}>
           {props.name}
@@ -71,33 +67,36 @@ const rightColumnStyle = Styles.platformStyles({
   },
 })
 
-const styles = Styles.styleSheetCreate({
-  amount: {
-    ...rightColumnStyle,
-    color: Styles.globalColors.black_50,
-  },
-  amountCenter: {
-    textAlign: 'center',
-  },
-  avatar: {marginRight: Styles.globalMargins.xtiny},
-  containerBox: {
-    overflow: 'hidden',
-  },
-  icon: {
-    alignSelf: 'center',
-    height: 32,
-  },
-  rightColumn: rightColumnStyle,
-  title: {
-    ...rightColumnStyle,
-    color: Styles.globalColors.black,
-  },
-  user: {
-    alignItems: 'center',
-  },
-  userCenter: {
-    justifyContent: 'center',
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      amount: {
+        ...rightColumnStyle,
+        color: Styles.globalColors.black_50,
+      },
+      amountCenter: {
+        textAlign: 'center',
+      },
+      avatar: {marginRight: Styles.globalMargins.xtiny},
+      containerBox: {
+        overflow: 'hidden',
+      },
+      icon: {
+        alignSelf: 'center',
+        height: 32,
+      },
+      rightColumn: rightColumnStyle,
+      title: {
+        ...rightColumnStyle,
+        color: Styles.globalColors.black,
+      },
+      user: {
+        alignItems: 'center',
+      },
+      userCenter: {
+        justifyContent: 'center',
+      },
+    } as const)
+)
 
 export default AccountEntry

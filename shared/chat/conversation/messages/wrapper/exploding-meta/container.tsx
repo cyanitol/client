@@ -3,7 +3,7 @@ import * as Container from '../../../../../util/container'
 import * as Types from '../../../../../constants/types/chat2'
 import * as Constants from '../../../../../constants/chat2'
 import {StylesCrossPlatform} from '../../../../../styles'
-import ExplodingMeta, {_Props as ViewProps} from '.'
+import ExplodingMeta, {Props as ViewProps} from '.'
 
 const emptyProps = {
   exploded: true,
@@ -15,6 +15,7 @@ const emptyProps = {
 
 export type OwnProps = {
   conversationIDKey: Types.ConversationIDKey
+  isParentHighlighted: boolean
   onClick?: () => void
   ordinal: Types.Ordinal
   style?: StylesCrossPlatform
@@ -40,6 +41,7 @@ const Wrapper = (props: WrapperProps) =>
     <ExplodingMeta
       exploded={props.exploded}
       explodesAt={props.explodesAt}
+      isParentHighlighted={props.isParentHighlighted}
       messageKey={props.messageKey}
       onClick={props.onClick}
       pending={props.pending}
@@ -54,6 +56,7 @@ const Connected = Container.namedConnect(
     exploded: stateProps.exploded,
     explodesAt: stateProps.explodesAt,
     exploding: stateProps.exploding,
+    isParentHighlighted: ownProps.isParentHighlighted,
     messageKey: stateProps.messageKey,
     onClick: ownProps.onClick,
     pending: stateProps.pending,

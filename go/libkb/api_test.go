@@ -5,10 +5,11 @@ package libkb
 
 import (
 	"crypto/x509"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/url"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	keybase1 "github.com/keybase/client/go/protocol/keybase1"
 )
@@ -50,7 +51,8 @@ func TestProductionCA(t *testing.T) {
 		t.Fatalf("production server uri: %s, expected %s", serverURI, uriExpected)
 	}
 
-	tc.G.ConfigureAPI()
+	err = tc.G.ConfigureAPI()
+	require.NoError(t, err)
 
 	// make sure endpoint is correct:
 	arg := APIArg{Endpoint: "ping"}
@@ -58,7 +60,7 @@ func TestProductionCA(t *testing.T) {
 	if !ok {
 		t.Fatal("failed to cast API to internal api engine")
 	}
-	url := internal.getURL(arg)
+	url := internal.getURL(arg, false)
 	if url.String() != pingExpected {
 		t.Fatalf("api url: %s, expected %s", url.String(), pingExpected)
 	}
@@ -95,7 +97,8 @@ func TestProductionBadCA(t *testing.T) {
 		apiCAOverrideForTest = ""
 	}()
 
-	tc.G.ConfigureAPI()
+	err = tc.G.ConfigureAPI()
+	require.NoError(t, err)
 
 	// make sure endpoint is correct:
 	arg := APIArg{Endpoint: "ping"}
@@ -103,7 +106,7 @@ func TestProductionBadCA(t *testing.T) {
 	if !ok {
 		t.Fatal("failed to cast API to internal api engine")
 	}
-	iurl := internal.getURL(arg)
+	iurl := internal.getURL(arg, false)
 	if iurl.String() != pingExpected {
 		t.Fatalf("api url: %s, expected %s", iurl.String(), pingExpected)
 	}
@@ -214,7 +217,7 @@ func TestInstallIDHeaders(t *testing.T) {
 	}
 	res, err := api.Get(mctx, APIArg{
 		Endpoint:    "pkg/show",
-		SessionType: APISessionTypeNONE,
+		SessionType: APISessionTypeOPTIONAL,
 		Args:        HTTPArgs{},
 	})
 	if err != nil {
@@ -235,5 +238,37 @@ func TestInstallIDHeaders(t *testing.T) {
 	}
 	if installID != "dummy-install-id" {
 		t.Fatalf("expected install ID to be reflected back, got %s", res.Body.MarshalPretty())
+	}
+}
+func TestInstallIDHeadersAnon(t *testing.T) {
+	tc := SetupTest(t, "test", 1)
+	defer tc.Cleanup()
+	mctx := NewMetaContextForTest(tc)
+
+	// Hack in the device ID and install ID with dummy readers.
+	tc.G.Env.config = &DummyConfigReader{}
+	tc.G.Env.updaterConfig = &DummyUpdaterConfigReader{}
+
+	api, err := NewInternalAPIEngine(tc.G)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := api.Get(mctx, APIArg{
+		Endpoint:    "pkg/show",
+		SessionType: APISessionTypeNONE,
+		Args:        HTTPArgs{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = res.Body.AtKey("device_id").GetString()
+	if err == nil {
+		t.Fatal("Device ID should not be here")
+	}
+
+	_, err = res.Body.AtKey("install_id").GetString()
+	if err == nil {
+		t.Fatal("Install ID should not be here")
 	}
 }

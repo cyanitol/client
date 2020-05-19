@@ -10,11 +10,13 @@ export const closeTracker = 'tracker2:closeTracker'
 export const getProofSuggestions = 'tracker2:getProofSuggestions'
 export const ignore = 'tracker2:ignore'
 export const load = 'tracker2:load'
+export const loadNonUserProfile = 'tracker2:loadNonUserProfile'
+export const loadedNonUserProfile = 'tracker2:loadedNonUserProfile'
 export const proofSuggestionsUpdated = 'tracker2:proofSuggestionsUpdated'
 export const showUser = 'tracker2:showUser'
-export const updateAssertion = 'tracker2:updateAssertion'
-export const updateFollowers = 'tracker2:updateFollowers'
+export const updateFollows = 'tracker2:updateFollows'
 export const updateResult = 'tracker2:updateResult'
+export const updateWotEntries = 'tracker2:updateWotEntries'
 export const updatedDetails = 'tracker2:updatedDetails'
 
 // Payload Types
@@ -22,6 +24,7 @@ type _ChangeFollowPayload = {readonly guiID: string; readonly follow: boolean}
 type _CloseTrackerPayload = {readonly guiID: string}
 type _GetProofSuggestionsPayload = void
 type _IgnorePayload = {readonly guiID: string}
+type _LoadNonUserProfilePayload = {readonly assertion: string}
 type _LoadPayload = {
   readonly assertion: string
   readonly forceDisplay?: boolean
@@ -31,32 +34,49 @@ type _LoadPayload = {
   readonly reason: string
   readonly inTracker: boolean
 }
+type _LoadedNonUserProfilePayload = {
+  readonly assertion: string
+  readonly assertionKey: string
+  readonly assertionValue: string
+  readonly formattedName?: string
+  readonly bio?: string
+  readonly description: string
+  readonly fullName?: string
+  readonly location?: string
+  readonly pictureUrl?: string
+  readonly siteIcon: Array<Types.SiteIcon>
+  readonly siteIconDarkmode: Array<Types.SiteIcon>
+  readonly siteIconFull: Array<Types.SiteIcon>
+  readonly siteIconFullDarkmode: Array<Types.SiteIcon>
+}
 type _ProofSuggestionsUpdatedPayload = {readonly suggestions: ReadonlyArray<Types.Assertion>}
 type _ShowUserPayload = {readonly asTracker: boolean; readonly username: string; readonly skipNav?: boolean}
-type _UpdateAssertionPayload = {readonly assertion: Types.Assertion; readonly guiID: string}
-type _UpdateFollowersPayload = {
+type _UpdateFollowsPayload = {
   readonly username: string
-  readonly following: Array<{following: boolean; followsYou: boolean; fullname: string; username: string}>
-  readonly followers: Array<{following: boolean; followsYou: boolean; fullname: string; username: string}>
+  readonly following?: Array<{fullname: string; username: string}>
+  readonly followers?: Array<{fullname: string; username: string}>
 }
 type _UpdateResultPayload = {
   readonly guiID: string
   readonly result: Types.DetailsState
-  readonly reason: string | null
+  readonly reason?: string
+}
+type _UpdateWotEntriesPayload = {
+  readonly voucheeUsername: string
+  readonly entries: Array<Types.WebOfTrustEntry>
 }
 type _UpdatedDetailsPayload = {
   readonly guiID: string
   readonly bio: string
-  readonly followThem: boolean
-  readonly followersCount: number
-  readonly followingCount: number
-  readonly followsYou: boolean
   readonly fullname: string
   readonly location: string
-  readonly registeredForAirdrop: boolean
+  readonly unverifiedFollowersCount: number
+  readonly unverifiedFollowingCount: number
+  readonly stellarHidden: boolean
   readonly username: string
-  readonly teamShowcase: Array<Types._TeamShowcase>
+  readonly teamShowcase: Array<Types.TeamShowcase>
   readonly blocked: boolean
+  readonly hidFromFollowers: boolean
 }
 
 // Action Creators
@@ -77,20 +97,27 @@ export const createGetProofSuggestions = (
 ): GetProofSuggestionsPayload => ({payload, type: getProofSuggestions})
 export const createIgnore = (payload: _IgnorePayload): IgnorePayload => ({payload, type: ignore})
 export const createLoad = (payload: _LoadPayload): LoadPayload => ({payload, type: load})
+export const createLoadNonUserProfile = (payload: _LoadNonUserProfilePayload): LoadNonUserProfilePayload => ({
+  payload,
+  type: loadNonUserProfile,
+})
+export const createLoadedNonUserProfile = (
+  payload: _LoadedNonUserProfilePayload
+): LoadedNonUserProfilePayload => ({payload, type: loadedNonUserProfile})
 export const createProofSuggestionsUpdated = (
   payload: _ProofSuggestionsUpdatedPayload
 ): ProofSuggestionsUpdatedPayload => ({payload, type: proofSuggestionsUpdated})
-export const createUpdateAssertion = (payload: _UpdateAssertionPayload): UpdateAssertionPayload => ({
+export const createUpdateFollows = (payload: _UpdateFollowsPayload): UpdateFollowsPayload => ({
   payload,
-  type: updateAssertion,
-})
-export const createUpdateFollowers = (payload: _UpdateFollowersPayload): UpdateFollowersPayload => ({
-  payload,
-  type: updateFollowers,
+  type: updateFollows,
 })
 export const createUpdateResult = (payload: _UpdateResultPayload): UpdateResultPayload => ({
   payload,
   type: updateResult,
+})
+export const createUpdateWotEntries = (payload: _UpdateWotEntriesPayload): UpdateWotEntriesPayload => ({
+  payload,
+  type: updateWotEntries,
 })
 export const createUpdatedDetails = (payload: _UpdatedDetailsPayload): UpdatedDetailsPayload => ({
   payload,
@@ -105,21 +132,29 @@ export type GetProofSuggestionsPayload = {
   readonly type: typeof getProofSuggestions
 }
 export type IgnorePayload = {readonly payload: _IgnorePayload; readonly type: typeof ignore}
+export type LoadNonUserProfilePayload = {
+  readonly payload: _LoadNonUserProfilePayload
+  readonly type: typeof loadNonUserProfile
+}
 export type LoadPayload = {readonly payload: _LoadPayload; readonly type: typeof load}
+export type LoadedNonUserProfilePayload = {
+  readonly payload: _LoadedNonUserProfilePayload
+  readonly type: typeof loadedNonUserProfile
+}
 export type ProofSuggestionsUpdatedPayload = {
   readonly payload: _ProofSuggestionsUpdatedPayload
   readonly type: typeof proofSuggestionsUpdated
 }
 export type ShowUserPayload = {readonly payload: _ShowUserPayload; readonly type: typeof showUser}
-export type UpdateAssertionPayload = {
-  readonly payload: _UpdateAssertionPayload
-  readonly type: typeof updateAssertion
-}
-export type UpdateFollowersPayload = {
-  readonly payload: _UpdateFollowersPayload
-  readonly type: typeof updateFollowers
+export type UpdateFollowsPayload = {
+  readonly payload: _UpdateFollowsPayload
+  readonly type: typeof updateFollows
 }
 export type UpdateResultPayload = {readonly payload: _UpdateResultPayload; readonly type: typeof updateResult}
+export type UpdateWotEntriesPayload = {
+  readonly payload: _UpdateWotEntriesPayload
+  readonly type: typeof updateWotEntries
+}
 export type UpdatedDetailsPayload = {
   readonly payload: _UpdatedDetailsPayload
   readonly type: typeof updatedDetails
@@ -132,11 +167,13 @@ export type Actions =
   | CloseTrackerPayload
   | GetProofSuggestionsPayload
   | IgnorePayload
+  | LoadNonUserProfilePayload
   | LoadPayload
+  | LoadedNonUserProfilePayload
   | ProofSuggestionsUpdatedPayload
   | ShowUserPayload
-  | UpdateAssertionPayload
-  | UpdateFollowersPayload
+  | UpdateFollowsPayload
   | UpdateResultPayload
+  | UpdateWotEntriesPayload
   | UpdatedDetailsPayload
   | {type: 'common:resetStore', payload: {}}

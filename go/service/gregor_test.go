@@ -56,11 +56,11 @@ func TestGregorHandler(t *testing.T) {
 	user, err := kbtest.CreateAndSignupFakeUser("gregr", tc.G)
 	require.NoError(t, err)
 
-	var h *gregorHandler
-	h = newGregorHandler(g)
+	h := newGregorHandler(g)
 	h.Init()
 	h.testingEvents = newTestingEvents()
-	h.resetGregorClient(context.TODO(), gregor1.UID(user.User.GetUID().ToBytes()), gregor1.DeviceID{})
+	_, err = h.resetGregorClient(context.TODO(), gregor1.UID(user.User.GetUID().ToBytes()), gregor1.DeviceID{})
+	require.NoError(t, err)
 	require.Equal(t, "gregor", h.HandlerName(), "wrong name")
 
 	kbUID := user.User.GetUID()
@@ -83,7 +83,8 @@ func TestGregorHandler(t *testing.T) {
 		},
 	}
 
-	broadcastMessageTesting(t, h, m)
+	err = broadcastMessageTesting(t, h, m)
+	require.NoError(t, err)
 	require.Equal(t, 1, len(listener.favoritesChanged), "num faves failure")
 	require.Equal(t, kbUID, listener.favoritesChanged[0], "wrong uid")
 }
@@ -188,11 +189,11 @@ func TestShowTrackerPopupMessage(t *testing.T) {
 	tracker, err := kbtest.CreateAndSignupFakeUser("gregr", tc.G)
 	require.NoError(t, err)
 
-	var h *gregorHandler
-	h = newGregorHandler(g)
+	h := newGregorHandler(g)
 	h.Init()
 	h.testingEvents = newTestingEvents()
-	h.resetGregorClient(context.TODO(), gregor1.UID(tracker.User.GetUID().ToBytes()), gregor1.DeviceID{})
+	_, err = h.resetGregorClient(context.TODO(), gregor1.UID(tracker.User.GetUID().ToBytes()), gregor1.DeviceID{})
+	require.NoError(t, err)
 
 	h.PushHandler(idhandler)
 
@@ -212,7 +213,8 @@ func TestShowTrackerPopupMessage(t *testing.T) {
 		},
 	}
 
-	broadcastMessageTesting(t, h, m)
+	err = broadcastMessageTesting(t, h, m)
+	require.NoError(t, err)
 	select {
 	case name := <-identifyUI.startCh:
 		require.Equal(t, trackee.Username, name, "wrong username")
@@ -239,7 +241,8 @@ func TestShowTrackerPopupMessage(t *testing.T) {
 			},
 		},
 	}
-	broadcastMessageTesting(t, h, dismissal)
+	err = broadcastMessageTesting(t, h, dismissal)
+	require.NoError(t, err)
 	select {
 	case name := <-identifyUI.dismissCh:
 		require.Equal(t, trackee.User.GetName(), name, "wrong dismiss")
@@ -250,7 +253,7 @@ func TestShowTrackerPopupMessage(t *testing.T) {
 
 func newMsgID() gregor1.MsgID {
 	ret := make([]byte, 16)
-	rand.Read(ret)
+	_, _ = rand.Read(ret)
 	return ret
 }
 
@@ -314,7 +317,7 @@ func (m mockGregord) ConsumePublishMessage(_ context.Context, _ gregor1.Message)
 	return errors.New("unimplemented")
 }
 func (m mockGregord) Ping(_ context.Context) (string, error) {
-	return "pong", nil
+	return "", nil
 }
 func (m mockGregord) State(ctx context.Context, arg gregor1.StateArg) (gregor1.State, error) {
 	state, err := m.sm.State(ctx, arg.Uid, arg.Deviceid, arg.TimeOrOffset)
@@ -408,11 +411,11 @@ func setupSyncTests(t *testing.T, g *globals.Context) (*gregorHandler, mockGrego
 	uid := gregor1.UID(user.User.GetUID().ToBytes())
 	deviceID := gregor1.DeviceID{}
 
-	var h *gregorHandler
-	h = newGregorHandler(g)
+	h := newGregorHandler(g)
 	h.Init()
 	h.testingEvents = newTestingEvents()
-	h.resetGregorClient(context.TODO(), uid, deviceID)
+	_, err = h.resetGregorClient(context.TODO(), uid, deviceID)
+	require.NoError(t, err)
 
 	server := newGregordMock(g.ExternalG().Log)
 
@@ -472,7 +475,8 @@ func TestSyncFresh(t *testing.T) {
 	for i := 0; i < numMsgs; i++ {
 		msg := server.newIbm(uid)
 		refMsgs = append(refMsgs, msg.ToInBandMessage())
-		server.ConsumeMessage(context.TODO(), msg)
+		err := server.ConsumeMessage(context.TODO(), msg)
+		require.NoError(t, err)
 	}
 
 	// Sync messages down and see if we get 20
@@ -496,9 +500,11 @@ func TestSyncNonFresh(t *testing.T) {
 	var refMsgs []gregor.InBandMessage
 	for i := 0; i < numMsgs; i++ {
 		msg := server.newIbm(uid)
-		server.ConsumeMessage(context.TODO(), msg)
+		err := server.ConsumeMessage(context.TODO(), msg)
+		require.NoError(t, err)
 		if i < msgLimit {
-			broadcastMessageTesting(t, h, msg)
+			err := broadcastMessageTesting(t, h, msg)
+			require.NoError(t, err)
 			// We end up picking up the last one in the sync, since its
 			// CTime is equal to when we start the sync, so just add it
 			if i == msgLimit-1 {
@@ -533,9 +539,11 @@ func TestSyncSaveRestoreFresh(t *testing.T) {
 	var refReplayMsgs, refConsumeMsgs []gregor.InBandMessage
 	for i := 0; i < numMsgs; i++ {
 		msg := server.newIbm(uid)
-		server.ConsumeMessage(context.TODO(), msg)
+		err := server.ConsumeMessage(context.TODO(), msg)
+		require.NoError(t, err)
 		if i < msgLimit {
-			broadcastMessageTesting(t, h, msg)
+			err := broadcastMessageTesting(t, h, msg)
+			require.NoError(t, err)
 			// We end up picking up the last one in the sync, since its
 			// CTime is equal to when we start the sync, so just add it
 			if i == msgLimit-1 {
@@ -557,7 +565,8 @@ func TestSyncSaveRestoreFresh(t *testing.T) {
 	h = newGregorHandler(g)
 	h.testingEvents = newTestingEvents()
 	h.Init()
-	h.resetGregorClient(context.TODO(), uid, gregor1.DeviceID{})
+	_, err = h.resetGregorClient(context.TODO(), uid, gregor1.DeviceID{})
+	require.NoError(t, err)
 
 	// Sync from the server
 	replayedMessages, consumedMessages := doServerSync(t, h, server)
@@ -580,9 +589,11 @@ func TestSyncSaveRestoreNonFresh(t *testing.T) {
 	var refReplayMsgs, refConsumeMsgs []gregor.InBandMessage
 	for i := 0; i < numMsgs; i++ {
 		msg := server.newIbm(uid)
-		server.ConsumeMessage(context.TODO(), msg)
+		err := server.ConsumeMessage(context.TODO(), msg)
+		require.NoError(t, err)
 		if i < msgLimit {
-			broadcastMessageTesting(t, h, msg)
+			err := broadcastMessageTesting(t, h, msg)
+			require.NoError(t, err)
 			// We end up picking up the last one in the sync, since its
 			// CTime is equal to when we start the sync, so just add it
 			if i == msgLimit-1 {
@@ -605,7 +616,8 @@ func TestSyncSaveRestoreNonFresh(t *testing.T) {
 	h = newGregorHandler(g)
 	h.testingEvents = newTestingEvents()
 	h.Init()
-	h.resetGregorClient(context.TODO(), uid, gregor1.DeviceID{})
+	_, err = h.resetGregorClient(context.TODO(), uid, gregor1.DeviceID{})
+	require.NoError(t, err)
 
 	// Turn off fresh replay
 	h.firstConnect = false
@@ -627,11 +639,13 @@ func TestSyncDismissal(t *testing.T) {
 
 	// Consume msg
 	msg := server.newIbm(uid)
-	server.ConsumeMessage(context.TODO(), msg)
+	err := server.ConsumeMessage(context.TODO(), msg)
+	require.NoError(t, err)
 
 	// Dismiss message
 	dismissal := server.newDismissal(uid, msg)
-	server.ConsumeMessage(context.TODO(), dismissal.(gregor1.Message))
+	err = server.ConsumeMessage(context.TODO(), dismissal.(gregor1.Message))
+	require.NoError(t, err)
 
 	// Sync from the server
 	replayedMessages, consumedMessages := doServerSync(t, h, server)
@@ -661,13 +675,15 @@ func TestMessagesAddedDuringProcessing(t *testing.T) {
 	// fire off some of them asynchronously
 	go func() {
 		for i := 0; i < numberToDoAsync; i++ {
-			server.ConsumeMessage(context.TODO(), msgs[i])
+			err := server.ConsumeMessage(context.TODO(), msgs[i])
+			require.NoError(t, err)
 		}
 		blockUntilDone <- struct{}{}
 	}()
 	// do the rest synchronously
 	for i := numberToDoAsync; i < totalNumberOfMessages; i++ {
-		server.ConsumeMessage(context.TODO(), msgs[i])
+		err := server.ConsumeMessage(context.TODO(), msgs[i])
+		require.NoError(t, err)
 	}
 
 	// block until everything has had a chance to get called
@@ -759,7 +775,7 @@ func TestGregorTeamBadges(t *testing.T) {
 	fakeUID := keybase1.MakeTestUID(1)
 	msg := server.newIbm2(uid, gregor1.Category("team.newly_added_to_team"), gregor1.Body([]byte(`[{"id": "`+teamID+`","name": "teamname"}]`)))
 	require.NoError(t, server.ConsumeMessage(context.TODO(), msg))
-	msg = server.newIbm2(uid, gregor1.Category("team.request_access"), gregor1.Body([]byte(`[{"id": "`+teamID+`","name": "teamname"}]`)))
+	msg = server.newIbm2(uid, gregor1.Category("team.request_access:"+teamID), gregor1.Body([]byte(`{"id": "`+teamID+`","username": "username"}`)))
 	require.NoError(t, server.ConsumeMessage(context.TODO(), msg))
 	msg = server.newIbm2(uid, gregor1.Category("team.member_out_from_reset"), gregor1.Body([]byte(`{"reset_user": {"uid":"`+fakeUID.String()+`","username":"alice"},"team_name": "teamname"}`)))
 	require.NoError(t, server.ConsumeMessage(context.TODO(), msg))
@@ -777,10 +793,9 @@ func TestGregorTeamBadges(t *testing.T) {
 
 	listener.getBadgeState(t) // skip one since resync sends 2
 	bs := listener.getBadgeState(t)
-	require.Equal(t, 1, len(bs.NewTeamNames), "one new team name")
-	require.Equal(t, "teamname", bs.NewTeamNames[0])
-	require.Equal(t, 1, len(bs.NewTeamAccessRequests), "one team access request")
-	require.Equal(t, "teamname", bs.NewTeamAccessRequests[0])
+	require.Equal(t, 1, len(bs.NewTeams), "one new team name")
+	require.Equal(t, teamID, bs.NewTeams[0])
+	require.Equal(t, 1, bs.NewTeamAccessRequestCount, "one team access request")
 	require.Equal(t, 1, len(bs.TeamsWithResetUsers), "one team member out due to reset")
 	require.Equal(t, "teamname", bs.TeamsWithResetUsers[0].Teamname)
 	require.Equal(t, "alice", bs.TeamsWithResetUsers[0].Username)
@@ -828,8 +843,9 @@ func TestGregorBadgesOOBM(t *testing.T) {
 			{ConvID: chat1.ConversationID(`c`), UnreadMessages: 3},
 		},
 		InboxSyncStatus: chat1.SyncInboxResType_CLEAR,
-	})
-	h.badger.Send(context.TODO())
+	}, false)
+	err := h.badger.Send(context.TODO())
+	require.NoError(t, err)
 	bs = listener.getBadgeState(t)
 	require.Equal(t, 1, badgeStateStats(bs).UnreadChatConversations, "unread chat convs")
 	require.Equal(t, 3, badgeStateStats(bs).UnreadChatMessages, "unread chat messages")
@@ -854,20 +870,24 @@ func TestSyncDismissalExistingState(t *testing.T) {
 
 	// Consume msg
 	msg := server.newIbm(uid)
-	server.ConsumeMessage(context.TODO(), msg)
+	err := server.ConsumeMessage(context.TODO(), msg)
+	require.NoError(t, err)
 
 	// Broadcast msg
-	broadcastMessageTesting(t, h, msg)
+	err = broadcastMessageTesting(t, h, msg)
+	require.NoError(t, err)
 
 	// Consume another message but don't broadcast
 	msg2 := server.newIbm(uid)
-	server.ConsumeMessage(context.TODO(), msg2)
+	err = server.ConsumeMessage(context.TODO(), msg2)
+	require.NoError(t, err)
 	refConsumeMsgs = append(refConsumeMsgs, msg2.ToInBandMessage())
 	refReplayMsgs = append(refReplayMsgs, msg2.ToInBandMessage())
 
 	// Dismiss message
 	dismissal := server.newDismissal(uid, msg)
-	server.ConsumeMessage(context.TODO(), dismissal.(gregor1.Message))
+	err = server.ConsumeMessage(context.TODO(), dismissal.(gregor1.Message))
+	require.NoError(t, err)
 	refReplayMsgs = append(refReplayMsgs, dismissal.ToInBandMessage())
 	refConsumeMsgs = append(refConsumeMsgs, dismissal.ToInBandMessage())
 
@@ -891,20 +911,24 @@ func TestSyncFutureDismissals(t *testing.T) {
 
 	// Consume msg
 	msg := server.newIbm(uid)
-	server.ConsumeMessage(context.TODO(), msg)
+	err := server.ConsumeMessage(context.TODO(), msg)
+	require.NoError(t, err)
 	refConsumeMsgs = append(refConsumeMsgs, msg.ToInBandMessage())
 	refReplayMsgs = append(refReplayMsgs, msg.ToInBandMessage())
 
 	// Broadcast msg
-	broadcastMessageTesting(t, h, msg)
+	err = broadcastMessageTesting(t, h, msg)
+	require.NoError(t, err)
 
 	// Consume another message but don't broadcast
 	msg2 := server.newIbm(uid)
-	server.ConsumeMessage(context.TODO(), msg2)
+	err = server.ConsumeMessage(context.TODO(), msg2)
+	require.NoError(t, err)
 
 	// Dismiss message
 	dismissal := server.newDismissal(uid, msg2)
-	server.ConsumeMessage(context.TODO(), dismissal.(gregor1.Message))
+	err = server.ConsumeMessage(context.TODO(), dismissal.(gregor1.Message))
+	require.NoError(t, err)
 
 	// Sync from the server
 	h.firstConnect = false
@@ -925,11 +949,11 @@ func TestBroadcastRepeat(t *testing.T) {
 	}
 	uid := gregor1.UID(u.GetUID().ToBytes())
 
-	var h *gregorHandler
-	h = newGregorHandler(g)
+	h := newGregorHandler(g)
 	h.Init()
 	h.testingEvents = newTestingEvents()
-	h.resetGregorClient(context.TODO(), uid, gregor1.DeviceID{})
+	_, err = h.resetGregorClient(context.TODO(), uid, gregor1.DeviceID{})
+	require.NoError(t, err)
 
 	m, err := grutils.TemplateMessage(uid)
 	if err != nil {
@@ -949,8 +973,10 @@ func TestBroadcastRepeat(t *testing.T) {
 		Body_:     gregor1.Body([]byte("mike!!")),
 	}
 
-	broadcastMessageTesting(t, h, m)
-	broadcastMessageTesting(t, h, m2)
+	err = broadcastMessageTesting(t, h, m)
+	require.NoError(t, err)
+	err = broadcastMessageTesting(t, h, m2)
+	require.NoError(t, err)
 	err = broadcastMessageTesting(t, h, m)
 	require.Error(t, err)
 	require.Equal(t, "ignored repeat message", err.Error())

@@ -44,9 +44,11 @@ class ReactionsRow extends React.Component<Props, State> {
   _setShowMobileTooltip = (showMobileTooltip: boolean) =>
     this.setState(s => (s.showMobileTooltip === showMobileTooltip ? null : {showMobileTooltip}))
 
-  _newAttachmentRef: any = null
-  _getNewAttachmentRef = () => this._newAttachmentRef
-  _setNewAttachmentRef = r => (this._newAttachmentRef = r)
+  _newAttachmentRef: typeof ReactButton | null = null
+  private _getNewAttachmentRef = () => this._newAttachmentRef
+  private _setNewAttachmentRef = (r: typeof ReactButton) => {
+    this._newAttachmentRef = r
+  }
 
   render() {
     return this.props.emojis.length === 0 ? null : (
@@ -79,8 +81,8 @@ class ReactionsRow extends React.Component<Props, State> {
         {isMobile ? (
           <ReactButton
             conversationIDKey={this.props.conversationIDKey}
-            ref={this._setNewAttachmentRef}
-            getAttachmentRef={this._getNewAttachmentRef}
+            ref={this._setNewAttachmentRef as any}
+            getAttachmentRef={this._getNewAttachmentRef as any}
             onLongPress={() => this._setShowMobileTooltip(true)}
             ordinal={this.props.ordinal}
             showBorder={true}
@@ -105,23 +107,27 @@ class ReactionsRow extends React.Component<Props, State> {
   }
 }
 
-const styles = styleSheetCreate({
-  button: {marginBottom: globalMargins.tiny},
-  container: {
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
-    paddingRight: 66,
-    paddingTop: globalMargins.tiny,
-  },
-  emojiRow: {
-    backgroundColor: globalColors.white,
-    borderColor: globalColors.black_10,
-    borderRadius,
-    borderStyle: 'solid',
-    borderWidth: 1,
-    marginBottom: globalMargins.tiny,
-  },
-  visibilityHidden: platformStyles({isElectron: {visibility: 'hidden'}}),
-})
+const styles = styleSheetCreate(
+  () =>
+    ({
+      button: {marginBottom: globalMargins.tiny},
+      container: {
+        alignItems: 'flex-start',
+        flexWrap: 'wrap',
+        paddingRight: 66,
+        paddingTop: globalMargins.tiny,
+      },
+      emojiRow: {
+        backgroundColor: globalColors.white,
+        borderColor: globalColors.black_10,
+        borderRadius,
+        borderStyle: 'solid',
+        borderWidth: 1,
+        marginBottom: globalMargins.tiny,
+        paddingRight: globalMargins.xtiny,
+      },
+      visibilityHidden: platformStyles({isElectron: {visibility: 'hidden'}}),
+    } as const)
+)
 
 export default ReactionsRow

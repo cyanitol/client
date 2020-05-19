@@ -1,9 +1,10 @@
 import * as React from 'react'
 import MessagePopupHeader from '../header'
-import {FloatingMenu, MenuItems} from '../../../../../common-adapters/'
+import {FloatingMenu, MenuItem, MenuItems} from '../../../../../common-adapters'
 import {fileUIName, StylesCrossPlatform} from '../../../../../styles'
 import {DeviceType} from '../../../../../constants/types/devices'
 import {Position} from '../../../../../common-adapters/relative-popup-hoc.types'
+import ReactionItem from '../reactionitem'
 
 type Props = {
   attachTo?: () => React.Component<any> | null
@@ -12,9 +13,16 @@ type Props = {
   deviceType: DeviceType
   deviceRevokedAt?: number
   onAddReaction?: () => void
+  onAllMedia: () => void
+  onCopyLink?: () => void
   onDelete?: () => void
   onDownload?: () => void
+  onForward: () => void
   onHidden: () => void
+  onInstallBot?: () => void
+  onKick: () => void
+  onPinMessage?: () => void
+  onReact: (emoji: string) => void
   onReply: () => void
   onSaveAttachment?: () => void
   onShareAttachment?: () => void
@@ -26,50 +34,108 @@ type Props = {
   visible: boolean
   yourMessage: boolean
   isDeleteable: boolean
+  isKickable: boolean
 }
 
 const AttachmentPopupMenu = (props: Props) => {
   const items: MenuItems = [
+    'Divider',
+    ...(props.onAddReaction
+      ? [
+          {
+            unWrapped: true,
+            view: (
+              <ReactionItem
+                onHidden={props.onHidden}
+                onReact={props.onReact}
+                showPicker={props.onAddReaction}
+              />
+            ),
+          },
+          'Divider',
+        ]
+      : []),
+    ...(props.onShowInFinder
+      ? [{icon: 'iconfont-finder', onClick: props.onShowInFinder, title: `Show in ${fileUIName}`}]
+      : []),
+    ...(props.onSaveAttachment
+      ? [
+          {
+            disabled: props.pending,
+            icon: 'iconfont-download-2',
+            onClick: props.onSaveAttachment,
+            title: 'Save',
+          },
+        ]
+      : []),
+    ...(props.onDownload
+      ? [{disabled: props.pending, icon: 'iconfont-download-2', onClick: props.onDownload, title: 'Download'}]
+      : []),
+    ...(props.onShareAttachment
+      ? [{disabled: props.pending, icon: 'iconfont-share', onClick: props.onShareAttachment, title: 'Share'}]
+      : []),
+    ...(props.onInstallBot
+      ? [
+          {
+            disabled: props.pending,
+            icon: 'iconfont-nav-2-robot',
+            onClick: props.onInstallBot,
+            title: 'Install bot in another team or chat',
+          },
+        ]
+      : []),
+    ...(props.onAllMedia ? [{icon: 'iconfont-camera', onClick: props.onAllMedia, title: 'All media'}] : []),
+    ...(props.onCopyLink
+      ? [{icon: 'iconfont-link', onClick: props.onCopyLink, title: 'Copy a link to this message'}]
+      : []),
+    ...(props.onReply ? [{icon: 'iconfont-reply', onClick: props.onReply, title: 'Reply'}] : []),
+    ...(props.onForward ? [{icon: 'iconfont-forward', onClick: props.onForward, title: 'Forward'}] : []),
+    ...(props.onPinMessage
+      ? [{icon: 'iconfont-pin', onClick: props.onPinMessage, title: 'Pin message'}]
+      : []),
     ...(props.isDeleteable
       ? ([
-          'Divider' as const,
           {
             danger: true,
             disabled: !props.onDelete,
+            icon: 'iconfont-trash',
             onClick: props.onDelete,
             subTitle: 'Deletes this attachment for everyone',
             title: 'Delete',
           },
         ] as const)
       : []),
-
-    'Divider' as const,
-    ...(props.onShowInFinder ? [{onClick: props.onShowInFinder, title: `Show in ${fileUIName}`}] : []),
-    ...(props.onSaveAttachment
-      ? [{disabled: props.pending, onClick: props.onSaveAttachment, title: 'Save'}]
+    ...(props.isKickable
+      ? ([
+          'Divider' as const,
+          {
+            danger: true,
+            disabled: !props.onKick,
+            icon: 'iconfont-user-block',
+            onClick: props.onKick,
+            subTitle: 'Removes the user from the team',
+            title: 'Kick user',
+          },
+        ] as const)
       : []),
-    ...(props.onShareAttachment
-      ? [{disabled: props.pending, onClick: props.onShareAttachment, title: 'Share'}]
-      : []),
-    ...(props.onDownload ? [{disabled: props.pending, onClick: props.onDownload, title: 'Download'}] : []),
-    ...(props.onAddReaction ? [{onClick: props.onAddReaction, title: 'Add a reaction'}] : []),
-    ...(props.onReply ? [{onClick: props.onReply, title: 'Reply'}] : []),
-  ]
+  ].reduce<MenuItems>((arr, i) => {
+    i && arr.push(i as MenuItem)
+    return arr
+  }, [])
 
-  const header = {
-    title: 'header',
-    view: (
-      <MessagePopupHeader
-        author={props.author}
-        deviceName={props.deviceName}
-        deviceRevokedAt={props.deviceRevokedAt}
-        deviceType={props.deviceType}
-        isLast={!items.length}
-        timestamp={props.timestamp}
-        yourMessage={props.yourMessage}
-      />
-    ),
-  }
+  const header = (
+    <MessagePopupHeader
+      author={props.author}
+      deviceName={props.deviceName}
+      deviceRevokedAt={props.deviceRevokedAt}
+      deviceType={props.deviceType}
+      isLast={!items.length}
+      isLocation={false}
+      timestamp={props.timestamp}
+      yourMessage={props.yourMessage}
+    />
+  )
+
   return (
     <FloatingMenu
       attachTo={props.attachTo}

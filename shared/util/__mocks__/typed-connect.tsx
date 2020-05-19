@@ -1,5 +1,4 @@
 import * as RR from 'react-redux'
-import {compose, setDisplayName} from 'recompose'
 
 if (!__STORYBOOK__) {
   throw new Error('Invalid load of mock')
@@ -11,7 +10,7 @@ if (!__STORYBOOK__) {
 // In vanilla connect, this function takes in the map*ToProps functions (via options)
 // and composes them to expose output of mergeProps to the component. Here, we ignore
 // the maps and just try to access the prop factory closures in the store directly.
-const selectorDelegatorFactory = (dispatch, options) => {
+const selectorDelegatorFactory = (_, options) => {
   // keep the wrapped displayName for later
   const name = options.wrappedComponentName
   return (state, ownProps) => {
@@ -49,9 +48,11 @@ const mockConnect = () => RR.connectAdvanced(selectorDelegatorFactory)
 
 const connect = RR.connect
 
-export const namedConnect = (_: any, __: any, ___: any, displayName: string) =>
-  compose(
-    mockConnect(),
-    setDisplayName(displayName)
-  )
+export const namedConnect = (_: any, __: any, ___: any, displayName: string) => (component: any) => {
+  component.displayName = displayName
+  const Connected = mockConnect()(component)
+  Connected.displayName = displayName
+  return Connected
+}
+
 export default connect

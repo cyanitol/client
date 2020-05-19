@@ -7,11 +7,18 @@ type Props = {
   message: Types.MessageSetDescription
 }
 
-export default (props: Props) => {
+const lquote = '\u201C'
+const rquote = '\u201D'
+const SetDescriptionMessage = (props: Props) => {
   const desc = props.message.newDescription.stringValue()
   return desc ? (
     <Kb.Text type="BodySmall" style={styles.text} selectable={true}>
-      set the channel description: <Kb.Text type="BodySmallSemiboldItalic">{desc}</Kb.Text>
+      changed the channel description to{' '}
+      <Kb.Text type="BodySmallItalic">
+        {lquote}
+        {desc}
+        {rquote}
+      </Kb.Text>
     </Kb.Text>
   ) : (
     <Kb.Text type="BodySmall" style={styles.text}>
@@ -19,7 +26,11 @@ export default (props: Props) => {
     </Kb.Text>
   )
 }
+export default SetDescriptionMessage
 
-const styles = Styles.styleSheetCreate({
-  text: {flexGrow: 1},
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      text: {flexGrow: 1},
+    } as const)
+)

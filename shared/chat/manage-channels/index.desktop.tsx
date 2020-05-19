@@ -1,13 +1,13 @@
 import * as React from 'react'
 import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
-import {Props, RowProps} from './index.types'
+import {Props, RowProps} from './index'
 import {pluralize} from '../../util/string'
 
-const HoverBox = Styles.styled(Kb.Box)({
+const HoverBox = Styles.styled(Kb.Box)(() => ({
   '.channel-row:hover &': {opacity: 1},
   opacity: 0,
-})
+}))
 
 const Edit = ({onClick, style}: {onClick: () => void; style: Object}) => (
   <HoverBox style={style} onClick={onClick}>
@@ -93,8 +93,8 @@ const _rowBox = {
 
 const ManageChannels = (props: Props) => {
   let channelDisplay
-  if (props.channels.length === 0 || props.waitingForGet) {
-    channelDisplay = <Kb.ProgressIndicator style={{width: 48}} />
+  if (!props.isFiltered && (props.channels.length === 0 || props.waitingForGet)) {
+    channelDisplay = <Kb.ProgressIndicator type="Large" style={styles.progressIndicator} />
   } else {
     channelDisplay = (
       <Kb.Text
@@ -106,14 +106,14 @@ const ManageChannels = (props: Props) => {
     )
   }
   return (
-    <Kb.PopupDialog onClose={props.onClose} styleCover={_styleCover} styleContainer={_styleContainer}>
+    <Kb.PopupDialog onClose={props.onClose} styleCover={styles.cover} styleContainer={styles.container}>
       {props.canCreateChannels && (
-        <Kb.Box style={_createStyle}>
+        <Kb.Box style={styles.create}>
           <Kb.Icon
-            style={_createIcon}
+            style={styles.createIcon}
             type="iconfont-new"
             onClick={props.onCreate}
-            hoverColor={_hoverColor}
+            hoverColor={Styles.globalColors.blueLight}
             color={Styles.globalColors.blue}
           />
           <Kb.Text type="BodyBigLink" onClick={props.onCreate}>
@@ -121,12 +121,23 @@ const ManageChannels = (props: Props) => {
           </Kb.Text>
         </Kb.Box>
       )}
-      <Kb.Box style={_boxStyle}>
+      <Kb.Box style={styles.box}>
         <Kb.Avatar isTeam={true} teamname={props.teamname} size={32} />
         <Kb.Text type="BodySmallSemibold" style={{marginTop: Styles.globalMargins.xtiny}}>
           {props.teamname}
         </Kb.Text>
         {channelDisplay}
+        <Kb.Box2 direction="horizontal" fullWidth={true} style={styles.searchBox}>
+          <Kb.SearchFilter
+            size="full-width"
+            icon="iconfont-search"
+            placeholderText={`Search channels in ${props.teamname}`}
+            placeholderCentered={true}
+            mobileCancelButton={true}
+            hotkey="f"
+            onChange={props.onChangeSearch}
+          />
+        </Kb.Box2>
         <Kb.ScrollView style={{flex: 1, width: '100%'}}>
           {props.channels.map(c => (
             <Row
@@ -160,40 +171,46 @@ const ManageChannels = (props: Props) => {
   )
 }
 
-const _boxStyle = {
-  ...Styles.globalStyles.flexBoxColumn,
-  alignItems: 'center',
-  flex: 1,
-  paddingBottom: Styles.globalMargins.medium,
-  paddingLeft: Styles.globalMargins.large,
-  paddingRight: Styles.globalMargins.large,
-  paddingTop: Styles.globalMargins.medium,
-}
-
-const _createIcon = Styles.platformStyles({
-  common: {marginRight: Styles.globalMargins.xtiny},
-  isElectron: {display: 'block'},
-})
-
-const _hoverColor = Styles.globalColors.blueLight
-
-const _createStyle = {
-  ...Styles.globalStyles.flexBoxRow,
-  alignItems: 'center',
-  position: 'absolute',
-  right: 32,
-  top: 32,
-}
-
-const _styleCover = {
-  alignItems: 'center',
-  backgroundColor: Styles.globalColors.black_50,
-  justifyContent: 'center',
-}
-
-const _styleContainer = {
-  height: 520,
-  width: 620,
-}
+const styles = Styles.styleSheetCreate(() => ({
+  box: {
+    ...Styles.globalStyles.flexBoxColumn,
+    alignItems: 'center',
+    flex: 1,
+    height: '100%',
+    paddingBottom: Styles.globalMargins.medium,
+    paddingLeft: Styles.globalMargins.large,
+    paddingRight: Styles.globalMargins.large,
+    paddingTop: Styles.globalMargins.medium,
+  },
+  container: {
+    height: 520,
+    width: 620,
+  },
+  cover: {
+    alignItems: 'center',
+    backgroundColor: Styles.globalColors.black_50OrBlack_60,
+    justifyContent: 'center',
+  },
+  create: {
+    ...Styles.globalStyles.flexBoxRow,
+    alignItems: 'center',
+    position: 'absolute',
+    right: 32,
+    top: 32,
+  },
+  createIcon: Styles.platformStyles({
+    common: {marginRight: Styles.globalMargins.xtiny},
+    isElectron: {display: 'block'},
+  }),
+  progressIndicator: {
+    margin: Styles.globalMargins.xtiny,
+    width: 48,
+  },
+  searchBox: {
+    paddingBottom: Styles.globalMargins.tiny,
+    paddingLeft: Styles.globalMargins.medium,
+    paddingRight: Styles.globalMargins.medium,
+  },
+}))
 
 export default ManageChannels

@@ -21,8 +21,8 @@ class Friend extends React.PureComponent<Props> {
         >
           <Kb.Avatar size={64} username={p.username} style={styles.avatar} showFollowingStatus={true} />
           <Kb.ConnectedUsernames
-            type={Styles.isMobile ? 'BodySmallSemibold' : 'BodySemibold'}
-            usernames={[p.username]}
+            type={Styles.isMobile ? 'BodySmallBold' : 'BodyBold'}
+            usernames={p.username}
             colorBroken={true}
             colorFollowing={true}
           />
@@ -35,7 +35,7 @@ class Friend extends React.PureComponent<Props> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   avatar: {marginBottom: Styles.globalMargins.xxtiny},
   container: {
     flexShrink: 0,
@@ -46,11 +46,10 @@ const styles = Styles.styleSheetCreate({
   fullname: Styles.platformStyles({
     isElectron: {
       textAlign: 'center',
-      whiteSpace: 'nowrap',
       width: 80,
       wordBreak: 'break-all',
     },
   }),
-})
+}))
 
 export default Friend

@@ -5,16 +5,18 @@ type TimeoutInfo = {
   timeRemaining: () => number
 }
 
-function immediateCallback(cb: (info: TimeoutInfo) => void): NodeJS.Immediate {
+function immediateCallback(cb: (info: TimeoutInfo) => void): ReturnType<typeof setImmediate> {
   cb({didTimeout: true, timeRemaining: () => 0})
-  return {
+  const r = {
     _onImmediate: () => {},
-    ref: () => {},
-    unref: () => {},
+    hasRef: () => false,
+    ref: () => r,
+    unref: () => r,
   }
+  return r
 }
 
-function timeoutFallback(cb: (info: TimeoutInfo) => void): NodeJS.Timer {
+function timeoutFallback(cb: (info: TimeoutInfo) => void): ReturnType<typeof setTimeout> {
   return setTimeout(function() {
     cb({
       didTimeout: true,

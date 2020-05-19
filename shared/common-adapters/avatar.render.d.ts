@@ -1,4 +1,5 @@
 import * as React from 'react'
+import * as TeamsTypes from '../constants/types/teams'
 import {StylesCrossPlatform} from '../styles'
 import {IconType, IconStyle} from './icon'
 
@@ -6,17 +7,18 @@ export type AvatarSize = 128 | 96 | 64 | 48 | 32 | 24 | 16
 
 export type Props = {
   borderColor?: string
+  blocked?: boolean
   children?: React.ReactNode
+  crop?: TeamsTypes.AvatarCrop
   editable?: boolean
   followIconSize: number
   followIconType?: IconType
   followIconStyle: IconStyle
   isTeam: boolean
-  load?: () => void
   name: string
   loadingColor?: string
   onClick?: () => void
-  onEditAvatarClick?: (e: React.SyntheticEvent) => void
+  onEditAvatarClick?: (e: React.BaseSyntheticEvent) => void
   opacity?: number
   size: AvatarSize
   skipBackground?: boolean

@@ -41,7 +41,7 @@ const SetDefaultAccountPopup = (props: Props) => {
       <Kb.Box2 centerChildren={true} direction="vertical" style={styles.flexOne} fullWidth={true}>
         <Kb.Box style={styles.avatarAndIcon}>
           <Kb.Icon type={Styles.isMobile ? 'icon-wallet-64' : 'icon-wallet-48'} />
-          <Kb.Avatar size={32} username={props.username} style={Kb.avatarCastPlatformStyles(styles.avatar)} />
+          <Kb.Avatar size={32} username={props.username} style={styles.avatar} />
         </Kb.Box>
         <Kb.Text
           center={true}
@@ -60,7 +60,7 @@ const SetDefaultAccountPopup = (props: Props) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
+const styles = Styles.styleSheetCreate(() => ({
   avatar: Styles.platformStyles({
     common: {position: 'absolute'},
     isElectron: {
@@ -97,6 +97,6 @@ const styles = Styles.styleSheetCreate({
       paddingRight: Styles.globalMargins.medium,
     },
   }),
-})
+}))
 
 export default SetDefaultAccountPopup

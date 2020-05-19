@@ -1,55 +1,46 @@
 import * as React from 'react'
-import {Box, Text, Button, StandardScreen} from '../../../common-adapters/mobile.native'
-import {globalColors, globalStyles, globalMargins} from '../../../styles'
-import {Props} from './you-rekey.types'
+import * as Kb from '../../../common-adapters/mobile.native'
+import * as Styles from '../../../styles'
+import {Props} from './you-rekey'
 
-const YouRekey = ({onEnterPaperkey, onBack}: Props) => {
-  const bannerEl = (
-    <Box
-      style={{
-        ...globalStyles.flexBoxRow,
-        backgroundColor: globalColors.red,
-        justifyContent: 'center',
-      }}
-    >
-      <Text
-        center={true}
-        negative={true}
-        style={{paddingBottom: 8, paddingLeft: 24, paddingRight: 24, paddingTop: 8}}
-        type="BodySemibold"
+const YouRekey = ({onEnterPaperkey}: Props) => (
+  <Kb.Box2 direction="vertical">
+    <Kb.Banner color="red">
+      <Kb.BannerParagraph bannerColor="red" content="This conversation needs to be rekeyed." />
+    </Kb.Banner>
+    <Kb.Box style={styles.container}>
+      <Kb.Box
+        style={{
+          ...Styles.globalStyles.flexBoxColumn,
+          alignItems: 'stretch',
+          flex: 1,
+          justifyContent: 'center',
+        }}
       >
-        This conversation needs to be rekeyed.
-      </Text>
-    </Box>
-  )
-  const notification = {message: bannerEl, type: 'error'}
+        <Kb.Text center={true} type="BodySmall" style={styles.text} negative={true}>
+          To unlock this conversation, open one of your other devices or enter a paperkey.
+        </Kb.Text>
+        <Kb.Button onClick={onEnterPaperkey} label="Enter a paper key" />
+      </Kb.Box>
+    </Kb.Box>
+  </Kb.Box2>
+)
 
-  return (
-    <StandardScreen onBack={onBack} theme="dark" notification={notification}>
-      <Box style={containerStyle}>
-        <Box
-          style={{...globalStyles.flexBoxColumn, alignItems: 'stretch', flex: 1, justifyContent: 'center'}}
-        >
-          <Text center={true} type="BodySmall" style={textStyle} negative={true}>
-            To unlock this conversation, open one of your other devices or enter a paperkey.
-          </Text>
-          <Button onClick={onEnterPaperkey} label="Enter a paper key" />
-        </Box>
-      </Box>
-    </StandardScreen>
-  )
-}
-
-const containerStyle = {
-  ...globalStyles.flexBoxColumn,
-  alignItems: 'stretch',
-  flex: 1,
-  justifyContent: 'flex-start',
-}
-
-const textStyle = {
-  marginBottom: globalMargins.large,
-  marginTop: globalMargins.large,
-}
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'stretch',
+        flex: 1,
+        justifyContent: 'flex-start',
+        padding: Styles.globalMargins.small,
+      },
+      text: {
+        marginBottom: Styles.globalMargins.large,
+        marginTop: Styles.globalMargins.large,
+      },
+    } as const)
+)
 
 export default YouRekey

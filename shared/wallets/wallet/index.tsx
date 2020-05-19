@@ -3,23 +3,20 @@ import * as Kb from '../../common-adapters'
 import * as Styles from '../../styles'
 import * as Types from '../../constants/types/wallets'
 import AccountReloader from '../common/account-reloader'
-import Header from './header/container'
 import Asset from '../asset/container'
 import Transaction from '../transaction/container'
 
-const stripePatternName = Styles.isMobile
-  ? require('../../images/icons/pattern-stripes-blue-5-black-5-mobile.png')
-  : 'pattern-stripes-blue-5-black-5-desktop.png'
 const stripePatternSize = Styles.isMobile ? 18 : 9
 
 export type Props = {
   acceptedDisclaimer: boolean
   accountID: Types.AccountID
+  loadError: string
   loadingMore: boolean
   onBack: () => void
   onLoadMore: () => void
   onMarkAsRead: () => void
-  sections: Array<{data: any; title: string | React.ReactNode; stripeHeader?: boolean}>
+  sections: Array<{data: any; title: string | React.ReactNode; kind: string; stripeHeader?: boolean}>
 }
 
 const HistoryPlaceholder = () => (
@@ -35,14 +32,14 @@ export const AssetSectionTitle = (props: {onSetupTrustline: () => void; thisDevi
     Your assets
     {!props.thisDeviceIsLockedOut && (
       <Kb.Text type="BodySmallSemibold">
-        &nbsp; (
+        &nbsp;(
         <Kb.Text
           className="hover-underline"
           onClick={props.onSetupTrustline}
           style={styles.clickable}
           type="BodySmallSemibold"
         >
-          manage
+          Manage
         </Kb.Text>
         )
       </Kb.Text>
@@ -74,9 +71,7 @@ class Wallet extends React.Component<Props> {
           gapStart={true}
         >
           <Kb.ProgressIndicator key="spinner" style={styles.spinner} type="Small" />
-          <Kb.Text type="BodySmall">
-            {section.title === 'Your assets' ? 'Loading assets...' : 'Loading payments...'}
-          </Kb.Text>
+          <Kb.Text type="BodySmall">Loading {section.kind}...</Kb.Text>
         </Kb.Box2>
       )
     } else if (item === 'noPayments') {
@@ -112,8 +107,16 @@ class Wallet extends React.Component<Props> {
     return index
   }
 
-  _renderSectionHeader = ({section}) =>
-    section.stripeHeader ? (
+  _renderSectionHeader = ({section}) => {
+    const stripePatternName = Styles.isMobile
+      ? Styles.isDarkMode()
+        ? require('../../images/icons/dark-pattern-stripes-blue-5-black-5-mobile.png')
+        : require('../../images/icons/pattern-stripes-blue-5-black-5-mobile.png')
+      : Styles.isDarkMode()
+      ? 'dark-pattern-stripes-blue-5-black-5-desktop.png'
+      : 'pattern-stripes-blue-5-black-5-desktop.png'
+
+    return section.stripeHeader ? (
       <Kb.BackgroundRepeatBox
         imageHeight={stripePatternSize}
         imageName={stripePatternName}
@@ -126,15 +129,20 @@ class Wallet extends React.Component<Props> {
     ) : (
       <Kb.SectionDivider label={section.title} />
     )
+  }
 
   _onEndReached = () => {
-    this.props.onLoadMore()
+    // React native's SectionList seems to call the onEndReached method twice each time it hits the end of the list
+    // so only dispatch the action if we aren't already waiting for more data
+    if (!this.props.loadingMore) {
+      this.props.onLoadMore()
+    }
   }
 
   render() {
     return (
       <Kb.Box2 direction="vertical" style={{flexGrow: 1}} fullHeight={true}>
-        {Styles.isMobile && <Header onBack={this.props.onBack} />}
+        {!!this.props.loadError && <Kb.Banner color="yellow">{this.props.loadError}</Kb.Banner>}
         <Kb.SectionList
           sections={this.props.sections}
           renderItem={this._renderItem}
@@ -149,48 +157,51 @@ class Wallet extends React.Component<Props> {
   }
 }
 
-const styles = Styles.styleSheetCreate({
-  clickable: Styles.platformStyles({
-    isElectron: {...Styles.desktopStyles.clickable},
-  }),
-  historyPlaceholder: {
-    marginTop: 36,
-  },
-  historyPlaceholderText: {
-    color: Styles.globalColors.black_50,
-  },
-  loadingBox: {
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  loadingMore: {
-    bottom: 10,
-    height: 20,
-    position: 'absolute',
-    right: 10,
-    width: 20,
-  },
-  sectionHeader: {
-    ...Styles.globalStyles.flexBoxColumn,
-    backgroundColor: Styles.globalColors.blueLighter3,
-    paddingBottom: Styles.globalMargins.xtiny,
-    paddingLeft: Styles.globalMargins.tiny,
-    paddingRight: Styles.globalMargins.xtiny,
-    paddingTop: Styles.globalMargins.xtiny,
-    width: '100%',
-  },
-  spinner: {
-    height: 46,
-    padding: Styles.globalMargins.tiny,
-    width: 46,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      clickable: Styles.platformStyles({
+        isElectron: {...Styles.desktopStyles.clickable},
+      }),
+      historyPlaceholder: {
+        marginTop: 36,
+      },
+      historyPlaceholderText: {
+        color: Styles.globalColors.black_50,
+      },
+      loadingBox: {
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+      },
+      loadingMore: {
+        bottom: 10,
+        height: 20,
+        position: 'absolute',
+        right: 10,
+        width: 20,
+      },
+      sectionHeader: {
+        ...Styles.globalStyles.flexBoxColumn,
+        backgroundColor: Styles.globalColors.blueLighter3,
+        paddingBottom: Styles.globalMargins.xtiny,
+        paddingLeft: Styles.globalMargins.tiny,
+        paddingRight: Styles.globalMargins.xtiny,
+        paddingTop: Styles.globalMargins.xtiny,
+        width: '100%',
+      },
+      spinner: {
+        height: 46,
+        padding: Styles.globalMargins.tiny,
+        width: 46,
+      },
+    } as const)
+)
 
 // If we're on mobile, this is the entry point, so we need to wrap
 // with AccountReloader.
 const MaybeReloaderWallet = (props: Props) => {
   const wallet = <Wallet {...props} />
-  return Styles.isMobile ? <AccountReloader onBack={props.onBack}>{wallet}</AccountReloader> : wallet
+  return Styles.isPhone ? <AccountReloader onBack={props.onBack}>{wallet}</AccountReloader> : wallet
 }
 
 export default MaybeReloaderWallet

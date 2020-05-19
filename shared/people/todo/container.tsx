@@ -1,17 +1,20 @@
 import * as React from 'react'
-import {Task, TaskButton} from '.'
+import {Task} from '.'
+import {TaskButton} from '../item'
 import * as PeopleGen from '../../actions/people-gen'
 import * as Types from '../../constants/types/people'
 import * as Tabs from '../../constants/tabs'
 import * as SettingsTabs from '../../constants/settings'
-import {IconType} from '../../common-adapters/icon.constants'
+import {IconType} from '../../common-adapters/icon.constants-gen'
 import {todoTypes} from '../../constants/people'
 import {connect, isMobile} from '../../util/container'
 import * as Tracker2Gen from '../../actions/tracker2-gen'
 import * as RouteTreeGen from '../../actions/route-tree-gen'
 import * as ProfileGen from '../../actions/profile-gen'
 import * as SettingsGen from '../../actions/settings-gen'
+import * as TeamsGen from '../../actions/teams-gen'
 import openURL from '../../util/open-url'
+import {appendPeopleBuilder} from '../../actions/typed-routes'
 
 type TodoOwnProps = {
   badged: boolean
@@ -35,7 +38,7 @@ function makeDefaultButtons(onConfirm, confirmLabel, onDismiss?, dismissLabel?) 
   ] as Array<TaskButton>
   if (onDismiss) {
     result.push({
-      label: dismissLabel || 'Later',
+      label: dismissLabel || 'Skip',
       mode: 'Secondary',
       onClick: onDismiss,
     })
@@ -142,18 +145,14 @@ const DeviceConnector = connect(
 const FollowConnector = connect(
   () => ({}),
   dispatch => ({
+    onConfirm: () => {
+      dispatch(appendPeopleBuilder())
+    },
     onDismiss: onSkipTodo('follow', dispatch),
   }),
   (_, d, o: TodoOwnProps) => ({
     ...o,
-    buttons: [
-      {
-        label: 'Follow later',
-        mode: 'Secondary',
-        onClick: d.onDismiss,
-      },
-    ] as Array<TaskButton>,
-    showSearchBar: true,
+    buttons: makeDefaultButtons(d.onConfirm, o.confirmLabel, d.onDismiss),
   })
 )(Task)
 
@@ -189,8 +188,8 @@ const TeamConnector = connect(
   () => ({}),
   dispatch => ({
     onConfirm: () => {
-      dispatch(RouteTreeGen.createNavigateAppend({parentPath: [Tabs.teamsTab], path: ['teamNewTeamDialog']}))
-      dispatch(RouteTreeGen.createSwitchTo({path: [Tabs.teamsTab]}))
+      dispatch(RouteTreeGen.createSwitchTab({tab: Tabs.teamsTab}))
+      dispatch(TeamsGen.createLaunchNewTeamWizardOrModal())
     },
     onDismiss: onSkipTodo('team', dispatch),
   }),
@@ -237,7 +236,7 @@ const GitRepoConnector = connect(
         onClick: () => dispatchProps.onConfirm(true),
       },
       {
-        label: 'Later',
+        label: 'Skip',
         mode: 'Secondary',
         onClick: dispatchProps.onDismiss,
       },
@@ -258,40 +257,45 @@ const TeamShowcaseConnector = connect(
 )(Task)
 
 const VerifyAllEmailConnector = connect(
-  mapStateToProps,
+  state => ({...mapStateToProps(state), _addingEmail: state.settings.email.addingEmail}),
   dispatch => ({
     _onConfirm: email => {
-      dispatch(RouteTreeGen.createSwitchTab({tab: Tabs.settingsTab}))
-      dispatch(RouteTreeGen.createNavigateAppend({path: [SettingsTabs.accountTab]}))
       dispatch(SettingsGen.createEditEmail({email, verify: true}))
+      dispatch(PeopleGen.createSetResentEmail({email}))
     },
     onManage: () => {
       dispatch(RouteTreeGen.createSwitchTab({tab: Tabs.settingsTab}))
       dispatch(RouteTreeGen.createNavigateAppend({path: [SettingsTabs.accountTab]}))
     },
   }),
-  (_, dispatchProps, ownProps: TodoOwnProps) => ({
-    ...ownProps,
-    buttons: [
-      ...(ownProps.metadata
-        ? [
-            {
-              label: 'Verify',
-              onClick: () => {
-                const meta = ownProps.metadata
-                meta && meta.type === 'email' && dispatchProps._onConfirm(meta.email)
+  (s, d, o: TodoOwnProps) => {
+    const meta = o.metadata && o.metadata.type === 'email' ? o.metadata : undefined
+
+    // Has the user received a verification email less than 30 minutes ago?
+    const hasRecentVerifyEmail =
+      meta && meta.lastVerifyEmailDate && Date.now() / 1000 - meta.lastVerifyEmailDate < 30 * 60
+
+    return {
+      ...o,
+      buttons: [
+        ...(meta
+          ? [
+              {
+                label: hasRecentVerifyEmail ? `Verify again` : 'Verify',
+                onClick: () => d._onConfirm(meta.email),
+                type: 'Success',
+                waiting: s._addingEmail && s._addingEmail === meta.email,
               },
-              type: 'Success',
-            },
-          ]
-        : []),
-      {
-        label: 'Manage email',
-        mode: 'Secondary',
-        onClick: dispatchProps.onManage,
-      },
-    ] as Array<TaskButton>,
-  })
+            ]
+          : []),
+        {
+          label: 'Manage emails',
+          mode: 'Secondary',
+          onClick: d.onManage,
+        },
+      ] as Array<TaskButton>,
+    }
+  }
 )(Task)
 
 const VerifyAllPhoneNumberConnector = connect(
@@ -306,16 +310,16 @@ const VerifyAllPhoneNumberConnector = connect(
       dispatch(RouteTreeGen.createNavigateAppend({path: [SettingsTabs.accountTab]}))
     },
   }),
-  (stateProps, dispatchProps, ownProps: TodoOwnProps) => ({
-    ...ownProps,
+  (_, d, o: TodoOwnProps) => ({
+    ...o,
     buttons: [
-      ...(ownProps.metadata
+      ...(o.metadata
         ? [
             {
               label: 'Verify',
               onClick: () => {
-                const meta = ownProps.metadata
-                meta && meta.type === 'phone' && dispatchProps._onConfirm(meta.phone)
+                const meta = o.metadata
+                meta && meta.type === 'phone' && d._onConfirm(meta.phone)
               },
               type: 'Success',
             },
@@ -324,7 +328,7 @@ const VerifyAllPhoneNumberConnector = connect(
       {
         label: 'Manage numbers',
         mode: 'Secondary',
-        onClick: dispatchProps.onManage,
+        onClick: d.onManage,
       },
     ] as Array<TaskButton>,
   })

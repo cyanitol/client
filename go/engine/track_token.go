@@ -64,7 +64,7 @@ func (e *TrackToken) SubConsumers() []libkb.UIConsumer {
 
 // Run starts the engine.
 func (e *TrackToken) Run(m libkb.MetaContext) (err error) {
-	defer m.Trace("TrackToken#Run", func() error { return err })()
+	defer m.Trace("TrackToken#Run", &err)()
 
 	if len(e.arg.Token) == 0 && e.arg.Outcome == nil {
 		err = fmt.Errorf("missing TrackToken argument")
@@ -128,7 +128,10 @@ func (e *TrackToken) Run(m libkb.MetaContext) (err error) {
 		if err == nil {
 			// if the remote track succeeded, remove local tracks
 			// (this also removes any snoozes)
-			e.removeLocalTracks(m)
+			err := e.removeLocalTracks(m)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if err != nil {
@@ -216,7 +219,7 @@ func (e *TrackToken) storeLocalTrack(m libkb.MetaContext) error {
 }
 
 func (e *TrackToken) storeRemoteTrack(m libkb.MetaContext, pubKID keybase1.KID) (err error) {
-	defer m.Trace("TrackToken#StoreRemoteTrack", func() error { return err })()
+	defer m.Trace("TrackToken#StoreRemoteTrack", &err)()
 
 	// need unlocked signing key
 	me := e.arg.Me
@@ -255,7 +258,7 @@ func (e *TrackToken) storeRemoteTrack(m libkb.MetaContext, pubKID keybase1.KID) 
 	}
 
 	httpsArgs := libkb.HTTPArgs{
-		"sig_id_base":  libkb.S{Val: sigID.ToString(false)},
+		"sig_id_base":  libkb.S{Val: sigID.StripSuffix().String()},
 		"sig_id_short": libkb.S{Val: sigID.ToShortID()},
 		"sig":          libkb.S{Val: sig},
 		"uid":          libkb.UIDArg(e.them.GetUID()),
@@ -286,7 +289,7 @@ func (e *TrackToken) storeRemoteTrack(m libkb.MetaContext, pubKID keybase1.KID) 
 }
 
 func (e *TrackToken) removeLocalTracks(m libkb.MetaContext) (err error) {
-	defer m.Trace("removeLocalTracks", func() error { return err })()
+	defer m.Trace("removeLocalTracks", &err)()
 	err = libkb.RemoveLocalTracks(m, e.arg.Me.GetUID(), e.them.GetUID())
 	return err
 }

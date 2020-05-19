@@ -16,6 +16,8 @@ import (
 type IdentifyOutcome struct {
 	Contextified
 	Username              NormalizedUsername
+	UID                   keybase1.UID
+	EldestSeqno           keybase1.Seqno
 	Error                 error
 	KeyDiffs              []TrackDiff
 	Revoked               []TrackDiff
@@ -29,8 +31,13 @@ type IdentifyOutcome struct {
 	ResponsibleGregorItem gregor.Item
 }
 
-func NewIdentifyOutcomeWithUsername(g *GlobalContext, u NormalizedUsername) *IdentifyOutcome {
-	return &IdentifyOutcome{Contextified: NewContextified(g), Username: u}
+func NewIdentifyOutcome(g *GlobalContext, username NormalizedUsername, uid keybase1.UID, eldestSeqno keybase1.Seqno) *IdentifyOutcome {
+	return &IdentifyOutcome{
+		Contextified: NewContextified(g),
+		Username:     username,
+		UID:          uid,
+		EldestSeqno:  eldestSeqno,
+	}
 }
 
 func (i *IdentifyOutcome) remoteProofLinks() *RemoteProofLinks {
@@ -42,7 +49,7 @@ func (i *IdentifyOutcome) remoteProofLinks() *RemoteProofLinks {
 }
 
 func (i *IdentifyOutcome) GetRemoteCheckResultFor(service string, username string) ProofError {
-	cieq := func(a, b string) bool { return strings.ToLower(a) == strings.ToLower(b) }
+	cieq := strings.EqualFold
 	for _, pc := range i.ProofChecks {
 		k, v := pc.GetLink().ToKeyValuePair()
 		if cieq(k, service) && cieq(v, username) {
@@ -254,18 +261,10 @@ func (i IdentifyOutcome) GetErrorAndWarnings(strict bool) (warnings Warnings, er
 }
 
 func (i IdentifyOutcome) GetError() error {
-	_, e := i.GetErrorAndWarnings(true)
+	_, e := i.GetErrorAndWarnings(true /*strict */)
 	return e
 }
 
 func (i IdentifyOutcome) GetErrorLax() (Warnings, error) {
-	return i.GetErrorAndWarnings(false)
-}
-
-type byDisplayString []*LinkCheckResult
-
-func (a byDisplayString) Len() int      { return len(a) }
-func (a byDisplayString) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
-func (a byDisplayString) Less(i, j int) bool {
-	return a[i].link.ToDisplayString() < a[j].link.ToDisplayString()
+	return i.GetErrorAndWarnings(false /*strict */)
 }

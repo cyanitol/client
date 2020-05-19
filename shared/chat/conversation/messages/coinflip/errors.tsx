@@ -1,49 +1,50 @@
 import * as React from 'react'
 import * as Kb from '../../../../common-adapters'
 import * as RPCChatTypes from '../../../../constants/types/rpc-chat-gen'
+import * as RouteTreeGen from '../../../../actions/route-tree-gen'
 import * as Styles from '../../../../styles'
+import * as Container from '../../../../util/container'
 
 type Props = {
   error: RPCChatTypes.UICoinFlipError
 }
 
 const CoinFlipError = (props: Props) => {
-  if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.generic && props.error.generic) {
-    return <CoinFlipGenericError error={props.error.generic} />
-  } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.absentee && props.error.absentee) {
+  if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.generic) {
+    return <CoinFlipGenericError />
+  } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.absentee) {
     return <CoinFlipAbsenteeError error={props.error.absentee} />
   } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.timeout) {
     return <CoinFlipTimeoutError />
   } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.aborted) {
     return <CoinFlipAbortedError />
-  } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.dupreg && props.error.dupreg) {
+  } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.dupreg) {
     return <CoinFlipDupError offender={props.error.dupreg} desc="registration" />
-  } else if (
-    props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.dupcommitcomplete &&
-    props.error.dupcommitcomplete
-  ) {
+  } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.dupcommitcomplete) {
     return <CoinFlipDupError offender={props.error.dupcommitcomplete} desc="commitment list" />
-  } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.dupreveal && props.error.dupreveal) {
+  } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.dupreveal) {
     return <CoinFlipDupError offender={props.error.dupreveal} desc="secret reveal" />
-  } else if (
-    props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.commitmismatch &&
-    props.error.commitmismatch
-  ) {
+  } else if (props.error.typ === RPCChatTypes.UICoinFlipErrorTyp.commitmismatch) {
     return <CoinFlipCommitMismatchError offender={props.error.commitmismatch} />
   }
 
-  return <CoinFlipGenericError error={'Unknown error occurred'} />
+  return <CoinFlipGenericError />
 }
 
-type GenericProps = {
-  error: string
+const CoinFlipGenericError = () => {
+  const dispatch = Container.useDispatch()
+  const sendFeedback = () => {
+    dispatch(RouteTreeGen.createNavigateAppend({path: ['modalFeedback']}))
+  }
+  return (
+    <Kb.Text selectable={true} style={styles.error} type="BodySmall">
+      An unexpected error occurred, unable to determine the result of the flip.{' '}
+      <Kb.Text onClick={sendFeedback} style={styles.error} type="BodySmallPrimaryLink" underline={true}>
+        Please send feedback.
+      </Kb.Text>
+    </Kb.Text>
+  )
 }
-
-const CoinFlipGenericError = (props: GenericProps) => (
-  <Kb.Text selectable={true} style={styles.error} type="BodySmall">
-    {props.error}
-  </Kb.Text>
-)
 
 type AbsenteeProps = {
   error: RPCChatTypes.UICoinFlipAbsenteeError
@@ -113,16 +114,19 @@ const CoinFlipCommitMismatchError = (props: CommitMismatchProps) => (
   </Kb.Box2>
 )
 
-const styles = Styles.styleSheetCreate({
-  bordered: {
-    borderColor: Styles.globalColors.greyLight,
-    borderLeftWidth: 4,
-    borderStyle: 'solid',
-    paddingLeft: Styles.globalMargins.tiny,
-  },
-  error: {
-    color: Styles.globalColors.redDark,
-  },
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      bordered: {
+        borderColor: Styles.globalColors.grey,
+        borderLeftWidth: 4,
+        borderStyle: 'solid',
+        paddingLeft: Styles.globalMargins.tiny,
+      },
+      error: {
+        color: Styles.globalColors.redDark,
+      },
+    } as const)
+)
 
 export default CoinFlipError

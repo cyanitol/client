@@ -313,7 +313,7 @@ func TestBalances(t *testing.T) {
 	tcs, cleanup := setupNTests(t, 1)
 	defer cleanup()
 
-	accountID := tcs[0].Backend.AddAccount()
+	accountID := tcs[0].Backend.AddAccount(tcs[0].Fu.GetUID())
 
 	balances, err := tcs[0].Srv.BalancesLocal(context.Background(), accountID)
 	if err != nil {
@@ -354,8 +354,8 @@ func TestSendLocalStellarAddress(t *testing.T) {
 
 	srv := tcs[0].Srv
 	rm := tcs[0].Backend
-	accountIDSender := rm.AddAccount()
-	accountIDRecip := rm.AddAccount()
+	accountIDSender := rm.AddAccount(tcs[0].Fu.GetUID())
+	accountIDRecip := rm.AddAccount(tcs[0].Fu.GetUID())
 
 	err := srv.ImportSecretKeyLocal(context.Background(), stellar1.ImportSecretKeyLocalArg{
 		SecretKey:   rm.SecretKey(accountIDSender),
@@ -397,8 +397,8 @@ func TestSendLocalKeybase(t *testing.T) {
 
 	srvSender := tcs[0].Srv
 	rm := tcs[0].Backend
-	accountIDSender := rm.AddAccount()
-	accountIDRecip := rm.AddAccount()
+	accountIDSender := rm.AddAccount(tcs[0].Fu.GetUID())
+	accountIDRecip := rm.AddAccount(tcs[1].Fu.GetUID())
 
 	srvRecip := tcs[1].Srv
 
@@ -446,8 +446,8 @@ func TestRecentPaymentsLocal(t *testing.T) {
 
 	srvSender := tcs[0].Srv
 	rm := tcs[0].Backend
-	accountIDSender := rm.AddAccount()
-	accountIDRecip := rm.AddAccount()
+	accountIDSender := rm.AddAccount(tcs[0].Fu.GetUID())
+	accountIDRecip := rm.AddAccount(tcs[1].Fu.GetUID())
 
 	srvRecip := tcs[1].Srv
 
@@ -954,10 +954,12 @@ func TestBundleFlows(t *testing.T) {
 	assertFetchAccountBundles(t, tcs[0], a2)
 
 	// switch which account is primary
-	err = tcs[0].Srv.SetWalletAccountAsDefaultLocal(ctx, stellar1.SetWalletAccountAsDefaultLocalArg{
+	defaultChangeRes, err := tcs[0].Srv.SetWalletAccountAsDefaultLocal(ctx, stellar1.SetWalletAccountAsDefaultLocalArg{
 		AccountID: a1,
 	})
 	require.NoError(t, err)
+	require.Equal(t, a1, defaultChangeRes[0].AccountID)
+	require.True(t, defaultChangeRes[0].IsDefault)
 	assertFetchAccountBundles(t, tcs[0], a1)
 
 	fullBundle, err := fetchWholeBundleForTesting(mctx)
@@ -981,11 +983,12 @@ func TestBundleFlows(t *testing.T) {
 	require.EqualValues(t, s2, privKey)
 
 	// ChangeAccountName
-	err = tcs[0].Srv.ChangeWalletAccountNameLocal(ctx, stellar1.ChangeWalletAccountNameLocalArg{
+	res, err := tcs[0].Srv.ChangeWalletAccountNameLocal(ctx, stellar1.ChangeWalletAccountNameLocalArg{
 		AccountID: a2,
 		NewName:   "rename",
 	})
 	require.NoError(t, err)
+	require.Equal(t, "rename", res.Name)
 	bundle, err = remote.FetchAccountBundle(mctx, a2)
 	require.NoError(t, err)
 	for _, acc := range bundle.Accounts {
@@ -1138,7 +1141,7 @@ func TestMakeAccountMobileOnlyOnDesktop(t *testing.T) {
 
 	// Provision a new mobile device, and then use the newly provisioned mobile
 	// device to set mobile only.
-	tc2, cleanup2 := provisionNewDeviceForTest(t, tc, libkb.DeviceTypeMobile)
+	tc2, cleanup2 := provisionNewDeviceForTest(t, tc, keybase1.DeviceTypeV2_MOBILE)
 	defer cleanup2()
 
 	err = tc2.Srv.SetAccountMobileOnlyLocal(context.TODO(), stellar1.SetAccountMobileOnlyLocalArg{
@@ -1180,6 +1183,20 @@ func TestMakeAccountMobileOnlyOnDesktop(t *testing.T) {
 	rev2Bundle.Revision = 4
 	err = remote.Post(mctx, *rev2Bundle)
 	RequireAppStatusError(t, libkb.SCStellarDeviceNotMobile, err)
+
+	for i := 0; i < 10; i++ {
+		// turn mobile only off
+		err = tc2.Srv.SetAccountAllDevicesLocal(context.TODO(), stellar1.SetAccountAllDevicesLocalArg{
+			AccountID: a1,
+		})
+		require.NoError(t, err)
+
+		// and on
+		err = tc2.Srv.SetAccountMobileOnlyLocal(context.TODO(), stellar1.SetAccountMobileOnlyLocalArg{
+			AccountID: a1,
+		})
+		require.NoError(t, err)
+	}
 }
 
 // TestMakeAccountMobileOnlyOnRecentMobile imports a new secret stellar key, then
@@ -1238,7 +1255,7 @@ func TestMakeAccountMobileOnlyOnRecentMobile(t *testing.T) {
 
 	// Get a new mobile device that will be too recent to fetch
 	// MOBILE ONLY bundle.
-	tc2, cleanup2 := provisionNewDeviceForTest(t, tc, libkb.DeviceTypeMobile)
+	tc2, cleanup2 := provisionNewDeviceForTest(t, tc, keybase1.DeviceTypeV2_MOBILE)
 	defer cleanup2()
 
 	_, err = remote.FetchAccountBundle(libkb.NewMetaContext(context.Background(), tc2.G), a1)
@@ -1357,7 +1374,7 @@ func TestShutdown(t *testing.T) {
 	tcs, cleanup := setupNTests(t, 1)
 	defer cleanup()
 
-	accountID := tcs[0].Backend.AddAccount()
+	accountID := tcs[0].Backend.AddAccount(tcs[0].Fu.GetUID())
 
 	tcs[0].Srv.walletState.SeqnoLock()
 	_, err := tcs[0].Srv.walletState.AccountSeqnoAndBump(context.Background(), accountID)
@@ -1378,18 +1395,19 @@ func TestShutdown(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func() {
+		go func(index int) {
+			time.Sleep(time.Duration(index*10) * time.Millisecond)
 			_, err := tcs[0].Srv.BalancesLocal(context.Background(), accountID)
 			if err != nil {
 				t.Error(err)
 			}
 			wg.Done()
-		}()
+		}(i)
 	}
 
 	wg.Add(1)
 	go func() {
-		if err := tcs[0].Srv.walletState.Shutdown(); err != nil {
+		if err := tcs[0].Srv.walletState.Shutdown(tcs[0].MetaContext()); err != nil {
 			t.Logf("shutdown error: %s", err)
 		}
 		wg.Done()
@@ -1618,7 +1636,7 @@ func setupTestsWithSettings(t *testing.T, settings []usetting) ([]*TestContext, 
 	return tcs, cleanup
 }
 
-func provisionNewDeviceForTest(t *testing.T, tc *TestContext, newDeviceType string) (outTc *TestContext, cleanup func()) {
+func provisionNewDeviceForTest(t *testing.T, tc *TestContext, newDeviceType keybase1.DeviceTypeV2) (outTc *TestContext, cleanup func()) {
 	bem := tc.Backend
 	tc2 := SetupTest(t, "wall_p", 1)
 	kbtest.ProvisionNewDeviceKex(&tc.TestContext, &tc2, tc.Fu, newDeviceType)

@@ -7,10 +7,7 @@ import * as stellar1Types from '../constants/types/rpc-stellar-gen'
 // Constants
 export const resetStore = 'common:resetStore' // not a part of engine-gen but is handled by every reducer. NEVER dispatch this
 export const typePrefix = 'engine-gen:'
-export const chat1ChatUiChatAttachmentDownloadDone = 'engine-gen:chat1ChatUiChatAttachmentDownloadDone'
-export const chat1ChatUiChatAttachmentDownloadProgress =
-  'engine-gen:chat1ChatUiChatAttachmentDownloadProgress'
-export const chat1ChatUiChatAttachmentDownloadStart = 'engine-gen:chat1ChatUiChatAttachmentDownloadStart'
+export const chat1ChatUiChatBotCommandsUpdateStatus = 'engine-gen:chat1ChatUiChatBotCommandsUpdateStatus'
 export const chat1ChatUiChatClearWatch = 'engine-gen:chat1ChatUiChatClearWatch'
 export const chat1ChatUiChatCoinFlipStatus = 'engine-gen:chat1ChatUiChatCoinFlipStatus'
 export const chat1ChatUiChatCommandMarkdown = 'engine-gen:chat1ChatUiChatCommandMarkdown'
@@ -20,9 +17,11 @@ export const chat1ChatUiChatGiphySearchResults = 'engine-gen:chat1ChatUiChatGiph
 export const chat1ChatUiChatGiphyToggleResultWindow = 'engine-gen:chat1ChatUiChatGiphyToggleResultWindow'
 export const chat1ChatUiChatInboxConversation = 'engine-gen:chat1ChatUiChatInboxConversation'
 export const chat1ChatUiChatInboxFailed = 'engine-gen:chat1ChatUiChatInboxFailed'
+export const chat1ChatUiChatInboxLayout = 'engine-gen:chat1ChatUiChatInboxLayout'
 export const chat1ChatUiChatInboxUnverified = 'engine-gen:chat1ChatUiChatInboxUnverified'
 export const chat1ChatUiChatLoadGalleryHit = 'engine-gen:chat1ChatUiChatLoadGalleryHit'
 export const chat1ChatUiChatMaybeMentionUpdate = 'engine-gen:chat1ChatUiChatMaybeMentionUpdate'
+export const chat1ChatUiChatSearchBotHits = 'engine-gen:chat1ChatUiChatSearchBotHits'
 export const chat1ChatUiChatSearchConvHits = 'engine-gen:chat1ChatUiChatSearchConvHits'
 export const chat1ChatUiChatSearchDone = 'engine-gen:chat1ChatUiChatSearchDone'
 export const chat1ChatUiChatSearchHit = 'engine-gen:chat1ChatUiChatSearchHit'
@@ -30,6 +29,7 @@ export const chat1ChatUiChatSearchInboxDone = 'engine-gen:chat1ChatUiChatSearchI
 export const chat1ChatUiChatSearchInboxHit = 'engine-gen:chat1ChatUiChatSearchInboxHit'
 export const chat1ChatUiChatSearchInboxStart = 'engine-gen:chat1ChatUiChatSearchInboxStart'
 export const chat1ChatUiChatSearchIndexStatus = 'engine-gen:chat1ChatUiChatSearchIndexStatus'
+export const chat1ChatUiChatSearchTeamHits = 'engine-gen:chat1ChatUiChatSearchTeamHits'
 export const chat1ChatUiChatShowManageChannels = 'engine-gen:chat1ChatUiChatShowManageChannels'
 export const chat1ChatUiChatStellarDataConfirm = 'engine-gen:chat1ChatUiChatStellarDataConfirm'
 export const chat1ChatUiChatStellarDataError = 'engine-gen:chat1ChatUiChatStellarDataError'
@@ -37,10 +37,17 @@ export const chat1ChatUiChatStellarDone = 'engine-gen:chat1ChatUiChatStellarDone
 export const chat1ChatUiChatStellarShowConfirm = 'engine-gen:chat1ChatUiChatStellarShowConfirm'
 export const chat1ChatUiChatThreadCached = 'engine-gen:chat1ChatUiChatThreadCached'
 export const chat1ChatUiChatThreadFull = 'engine-gen:chat1ChatUiChatThreadFull'
+export const chat1ChatUiChatThreadStatus = 'engine-gen:chat1ChatUiChatThreadStatus'
 export const chat1ChatUiChatWatchPosition = 'engine-gen:chat1ChatUiChatWatchPosition'
+export const chat1ChatUiTriggerContactSync = 'engine-gen:chat1ChatUiTriggerContactSync'
+export const chat1NotifyChatChatAttachmentDownloadComplete =
+  'engine-gen:chat1NotifyChatChatAttachmentDownloadComplete'
+export const chat1NotifyChatChatAttachmentDownloadProgress =
+  'engine-gen:chat1NotifyChatChatAttachmentDownloadProgress'
 export const chat1NotifyChatChatAttachmentUploadProgress =
   'engine-gen:chat1NotifyChatChatAttachmentUploadProgress'
 export const chat1NotifyChatChatAttachmentUploadStart = 'engine-gen:chat1NotifyChatChatAttachmentUploadStart'
+export const chat1NotifyChatChatConvUpdate = 'engine-gen:chat1NotifyChatChatConvUpdate'
 export const chat1NotifyChatChatIdentifyUpdate = 'engine-gen:chat1NotifyChatChatIdentifyUpdate'
 export const chat1NotifyChatChatInboxStale = 'engine-gen:chat1NotifyChatChatInboxStale'
 export const chat1NotifyChatChatInboxSyncStarted = 'engine-gen:chat1NotifyChatChatInboxSyncStarted'
@@ -48,6 +55,7 @@ export const chat1NotifyChatChatInboxSynced = 'engine-gen:chat1NotifyChatChatInb
 export const chat1NotifyChatChatJoinedConversation = 'engine-gen:chat1NotifyChatChatJoinedConversation'
 export const chat1NotifyChatChatKBFSToImpteamUpgrade = 'engine-gen:chat1NotifyChatChatKBFSToImpteamUpgrade'
 export const chat1NotifyChatChatLeftConversation = 'engine-gen:chat1NotifyChatChatLeftConversation'
+export const chat1NotifyChatChatParticipantsInfo = 'engine-gen:chat1NotifyChatChatParticipantsInfo'
 export const chat1NotifyChatChatPaymentInfo = 'engine-gen:chat1NotifyChatChatPaymentInfo'
 export const chat1NotifyChatChatPromptUnfurl = 'engine-gen:chat1NotifyChatChatPromptUnfurl'
 export const chat1NotifyChatChatRequestInfo = 'engine-gen:chat1NotifyChatChatRequestInfo'
@@ -60,6 +68,7 @@ export const chat1NotifyChatChatTLFFinalize = 'engine-gen:chat1NotifyChatChatTLF
 export const chat1NotifyChatChatTLFResolve = 'engine-gen:chat1NotifyChatChatTLFResolve'
 export const chat1NotifyChatChatThreadsStale = 'engine-gen:chat1NotifyChatChatThreadsStale'
 export const chat1NotifyChatChatTypingUpdate = 'engine-gen:chat1NotifyChatChatTypingUpdate'
+export const chat1NotifyChatChatWelcomeMessageLoaded = 'engine-gen:chat1NotifyChatChatWelcomeMessageLoaded'
 export const chat1NotifyChatNewChatActivity = 'engine-gen:chat1NotifyChatNewChatActivity'
 export const connected = 'engine-gen:connected'
 export const disconnected = 'engine-gen:disconnected'
@@ -76,6 +85,7 @@ export const keybase1GregorUIPushState = 'engine-gen:keybase1GregorUIPushState'
 export const keybase1HomeUIHomeUIRefresh = 'engine-gen:keybase1HomeUIHomeUIRefresh'
 export const keybase1Identify3UiIdentify3Result = 'engine-gen:keybase1Identify3UiIdentify3Result'
 export const keybase1Identify3UiIdentify3ShowTracker = 'engine-gen:keybase1Identify3UiIdentify3ShowTracker'
+export const keybase1Identify3UiIdentify3Summary = 'engine-gen:keybase1Identify3UiIdentify3Summary'
 export const keybase1Identify3UiIdentify3TrackerTimedOut =
   'engine-gen:keybase1Identify3UiIdentify3TrackerTimedOut'
 export const keybase1Identify3UiIdentify3UpdateRow = 'engine-gen:keybase1Identify3UiIdentify3UpdateRow'
@@ -101,8 +111,10 @@ export const keybase1IdentifyUiReportLastTrack = 'engine-gen:keybase1IdentifyUiR
 export const keybase1IdentifyUiReportTrackToken = 'engine-gen:keybase1IdentifyUiReportTrackToken'
 export const keybase1IdentifyUiStart = 'engine-gen:keybase1IdentifyUiStart'
 export const keybase1LogUiLog = 'engine-gen:keybase1LogUiLog'
+export const keybase1LoginUiChooseDeviceToRecoverWith = 'engine-gen:keybase1LoginUiChooseDeviceToRecoverWith'
 export const keybase1LoginUiDisplayPaperKeyPhrase = 'engine-gen:keybase1LoginUiDisplayPaperKeyPhrase'
 export const keybase1LoginUiDisplayPrimaryPaperKey = 'engine-gen:keybase1LoginUiDisplayPrimaryPaperKey'
+export const keybase1LoginUiDisplayResetMessage = 'engine-gen:keybase1LoginUiDisplayResetMessage'
 export const keybase1LoginUiDisplayResetProgress = 'engine-gen:keybase1LoginUiDisplayResetProgress'
 export const keybase1LoginUiExplainDeviceRecovery = 'engine-gen:keybase1LoginUiExplainDeviceRecovery'
 export const keybase1LoginUiGetEmailOrUsername = 'engine-gen:keybase1LoginUiGetEmailOrUsername'
@@ -123,6 +135,7 @@ export const keybase1NotifyEmailAddressEmailAddressVerified =
 export const keybase1NotifyEmailAddressEmailsChanged = 'engine-gen:keybase1NotifyEmailAddressEmailsChanged'
 export const keybase1NotifyEphemeralNewTeamEk = 'engine-gen:keybase1NotifyEphemeralNewTeamEk'
 export const keybase1NotifyEphemeralNewTeambotEk = 'engine-gen:keybase1NotifyEphemeralNewTeambotEk'
+export const keybase1NotifyEphemeralTeambotEkNeeded = 'engine-gen:keybase1NotifyEphemeralTeambotEkNeeded'
 export const keybase1NotifyFSFSActivity = 'engine-gen:keybase1NotifyFSFSActivity'
 export const keybase1NotifyFSFSEditListResponse = 'engine-gen:keybase1NotifyFSFSEditListResponse'
 export const keybase1NotifyFSFSFavoritesChanged = 'engine-gen:keybase1NotifyFSFSFavoritesChanged'
@@ -130,9 +143,15 @@ export const keybase1NotifyFSFSOnlineStatusChanged = 'engine-gen:keybase1NotifyF
 export const keybase1NotifyFSFSOverallSyncStatusChanged =
   'engine-gen:keybase1NotifyFSFSOverallSyncStatusChanged'
 export const keybase1NotifyFSFSPathUpdated = 'engine-gen:keybase1NotifyFSFSPathUpdated'
+export const keybase1NotifyFSFSSubscriptionNotify = 'engine-gen:keybase1NotifyFSFSSubscriptionNotify'
+export const keybase1NotifyFSFSSubscriptionNotifyPath = 'engine-gen:keybase1NotifyFSFSSubscriptionNotifyPath'
 export const keybase1NotifyFSFSSyncActivity = 'engine-gen:keybase1NotifyFSFSSyncActivity'
 export const keybase1NotifyFSFSSyncStatusResponse = 'engine-gen:keybase1NotifyFSFSSyncStatusResponse'
 export const keybase1NotifyFavoritesFavoritesChanged = 'engine-gen:keybase1NotifyFavoritesFavoritesChanged'
+export const keybase1NotifyFeaturedBotsFeaturedBotsUpdate =
+  'engine-gen:keybase1NotifyFeaturedBotsFeaturedBotsUpdate'
+export const keybase1NotifyInviteFriendsUpdateInviteCounts =
+  'engine-gen:keybase1NotifyInviteFriendsUpdateInviteCounts'
 export const keybase1NotifyKeyfamilyKeyfamilyChanged = 'engine-gen:keybase1NotifyKeyfamilyKeyfamilyChanged'
 export const keybase1NotifyPGPPgpKeyInSecretStoreFile = 'engine-gen:keybase1NotifyPGPPgpKeyInSecretStoreFile'
 export const keybase1NotifyPaperKeyPaperKeyCached = 'engine-gen:keybase1NotifyPaperKeyPaperKeyCached'
@@ -140,6 +159,14 @@ export const keybase1NotifyPhoneNumberPhoneNumbersChanged =
   'engine-gen:keybase1NotifyPhoneNumberPhoneNumbersChanged'
 export const keybase1NotifyRuntimeStatsRuntimeStatsUpdate =
   'engine-gen:keybase1NotifyRuntimeStatsRuntimeStatsUpdate'
+export const keybase1NotifySaltpackSaltpackOperationDone =
+  'engine-gen:keybase1NotifySaltpackSaltpackOperationDone'
+export const keybase1NotifySaltpackSaltpackOperationProgress =
+  'engine-gen:keybase1NotifySaltpackSaltpackOperationProgress'
+export const keybase1NotifySaltpackSaltpackOperationStart =
+  'engine-gen:keybase1NotifySaltpackSaltpackOperationStart'
+export const keybase1NotifyServiceHTTPSrvInfoUpdate = 'engine-gen:keybase1NotifyServiceHTTPSrvInfoUpdate'
+export const keybase1NotifyServiceHandleKeybaseLink = 'engine-gen:keybase1NotifyServiceHandleKeybaseLink'
 export const keybase1NotifyServiceShutdown = 'engine-gen:keybase1NotifyServiceShutdown'
 export const keybase1NotifySessionClientOutOfDate = 'engine-gen:keybase1NotifySessionClientOutOfDate'
 export const keybase1NotifySessionLoggedIn = 'engine-gen:keybase1NotifySessionLoggedIn'
@@ -151,17 +178,26 @@ export const keybase1NotifyTeamTeamChangedByID = 'engine-gen:keybase1NotifyTeamT
 export const keybase1NotifyTeamTeamChangedByName = 'engine-gen:keybase1NotifyTeamTeamChangedByName'
 export const keybase1NotifyTeamTeamDeleted = 'engine-gen:keybase1NotifyTeamTeamDeleted'
 export const keybase1NotifyTeamTeamExit = 'engine-gen:keybase1NotifyTeamTeamExit'
+export const keybase1NotifyTeamTeamMetadataUpdate = 'engine-gen:keybase1NotifyTeamTeamMetadataUpdate'
+export const keybase1NotifyTeamTeamRoleMapChanged = 'engine-gen:keybase1NotifyTeamTeamRoleMapChanged'
+export const keybase1NotifyTeamTeamTreeMembershipsDone =
+  'engine-gen:keybase1NotifyTeamTeamTreeMembershipsDone'
+export const keybase1NotifyTeamTeamTreeMembershipsPartial =
+  'engine-gen:keybase1NotifyTeamTeamTreeMembershipsPartial'
+export const keybase1NotifyTeambotNewTeambotKey = 'engine-gen:keybase1NotifyTeambotNewTeambotKey'
+export const keybase1NotifyTeambotTeambotKeyNeeded = 'engine-gen:keybase1NotifyTeambotTeambotKeyNeeded'
+export const keybase1NotifyTrackingNotifyUserBlocked = 'engine-gen:keybase1NotifyTrackingNotifyUserBlocked'
 export const keybase1NotifyTrackingTrackingChanged = 'engine-gen:keybase1NotifyTrackingTrackingChanged'
 export const keybase1NotifyTrackingTrackingInfo = 'engine-gen:keybase1NotifyTrackingTrackingInfo'
-export const keybase1NotifyUnverifiedTeamListTeamListUnverifiedChanged =
-  'engine-gen:keybase1NotifyUnverifiedTeamListTeamListUnverifiedChanged'
+export const keybase1NotifyUsersIdentifyUpdate = 'engine-gen:keybase1NotifyUsersIdentifyUpdate'
 export const keybase1NotifyUsersPasswordChanged = 'engine-gen:keybase1NotifyUsersPasswordChanged'
 export const keybase1NotifyUsersUserChanged = 'engine-gen:keybase1NotifyUsersUserChanged'
+export const keybase1NotifyUsersWebOfTrustChanged = 'engine-gen:keybase1NotifyUsersWebOfTrustChanged'
 export const keybase1PgpUiFinished = 'engine-gen:keybase1PgpUiFinished'
 export const keybase1PgpUiKeyGenerated = 'engine-gen:keybase1PgpUiKeyGenerated'
+export const keybase1PgpUiOutputPGPWarning = 'engine-gen:keybase1PgpUiOutputPGPWarning'
+export const keybase1PgpUiOutputSignatureNonKeybase = 'engine-gen:keybase1PgpUiOutputSignatureNonKeybase'
 export const keybase1PgpUiOutputSignatureSuccess = 'engine-gen:keybase1PgpUiOutputSignatureSuccess'
-export const keybase1PgpUiOutputSignatureSuccessNonKeybase =
-  'engine-gen:keybase1PgpUiOutputSignatureSuccessNonKeybase'
 export const keybase1PgpUiShouldPushPrivate = 'engine-gen:keybase1PgpUiShouldPushPrivate'
 export const keybase1ProveUiChecking = 'engine-gen:keybase1ProveUiChecking'
 export const keybase1ProveUiContinueChecking = 'engine-gen:keybase1ProveUiContinueChecking'
@@ -199,6 +235,7 @@ export const keybase1StreamUiClose = 'engine-gen:keybase1StreamUiClose'
 export const keybase1StreamUiRead = 'engine-gen:keybase1StreamUiRead'
 export const keybase1StreamUiReset = 'engine-gen:keybase1StreamUiReset'
 export const keybase1StreamUiWrite = 'engine-gen:keybase1StreamUiWrite'
+export const keybase1TeamsUiConfirmInviteLinkAccept = 'engine-gen:keybase1TeamsUiConfirmInviteLinkAccept'
 export const keybase1TeamsUiConfirmRootTeamDelete = 'engine-gen:keybase1TeamsUiConfirmRootTeamDelete'
 export const keybase1TeamsUiConfirmSubteamDelete = 'engine-gen:keybase1TeamsUiConfirmSubteamDelete'
 export const keybase1UiPromptYesNo = 'engine-gen:keybase1UiPromptYesNo'
@@ -212,33 +249,13 @@ export const stellar1NotifyRequestStatusNotification = 'engine-gen:stellar1Notif
 export const stellar1UiPaymentReviewed = 'engine-gen:stellar1UiPaymentReviewed'
 
 // Payload Types
-type _Chat1ChatUiChatAttachmentDownloadDonePayload = {
-  readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatAttachmentDownloadDone']['inParam'] & {
+type _Chat1ChatUiChatBotCommandsUpdateStatusPayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatBotCommandsUpdateStatus']['inParam'] & {
     sessionID: number
   }
   response: {
     error: chat1Types.IncomingErrorCallback
-    result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatAttachmentDownloadDone']['outParam']) => void
-  }
-}
-type _Chat1ChatUiChatAttachmentDownloadProgressPayload = {
-  readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatAttachmentDownloadProgress']['inParam'] & {
-    sessionID: number
-  }
-  response: {
-    error: chat1Types.IncomingErrorCallback
-    result: (
-      param: chat1Types.MessageTypes['chat.1.chatUi.chatAttachmentDownloadProgress']['outParam']
-    ) => void
-  }
-}
-type _Chat1ChatUiChatAttachmentDownloadStartPayload = {
-  readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatAttachmentDownloadStart']['inParam'] & {
-    sessionID: number
-  }
-  response: {
-    error: chat1Types.IncomingErrorCallback
-    result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatAttachmentDownloadStart']['outParam']) => void
+    result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatBotCommandsUpdateStatus']['outParam']) => void
   }
 }
 type _Chat1ChatUiChatClearWatchPayload = {
@@ -316,6 +333,13 @@ type _Chat1ChatUiChatInboxFailedPayload = {
     result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatInboxFailed']['outParam']) => void
   }
 }
+type _Chat1ChatUiChatInboxLayoutPayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatInboxLayout']['inParam'] & {sessionID: number}
+  response: {
+    error: chat1Types.IncomingErrorCallback
+    result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatInboxLayout']['outParam']) => void
+  }
+}
 type _Chat1ChatUiChatInboxUnverifiedPayload = {
   readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatInboxUnverified']['inParam'] & {
     sessionID: number
@@ -341,6 +365,13 @@ type _Chat1ChatUiChatMaybeMentionUpdatePayload = {
   response: {
     error: chat1Types.IncomingErrorCallback
     result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatMaybeMentionUpdate']['outParam']) => void
+  }
+}
+type _Chat1ChatUiChatSearchBotHitsPayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatSearchBotHits']['inParam'] & {sessionID: number}
+  response: {
+    error: chat1Types.IncomingErrorCallback
+    result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatSearchBotHits']['outParam']) => void
   }
 }
 type _Chat1ChatUiChatSearchConvHitsPayload = {
@@ -402,6 +433,15 @@ type _Chat1ChatUiChatSearchIndexStatusPayload = {
     result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatSearchIndexStatus']['outParam']) => void
   }
 }
+type _Chat1ChatUiChatSearchTeamHitsPayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatSearchTeamHits']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: chat1Types.IncomingErrorCallback
+    result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatSearchTeamHits']['outParam']) => void
+  }
+}
 type _Chat1ChatUiChatShowManageChannelsPayload = {
   readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatShowManageChannels']['inParam'] & {
     sessionID: number
@@ -459,11 +499,37 @@ type _Chat1ChatUiChatThreadFullPayload = {
     result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatThreadFull']['outParam']) => void
   }
 }
+type _Chat1ChatUiChatThreadStatusPayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatThreadStatus']['inParam'] & {sessionID: number}
+  response: {
+    error: chat1Types.IncomingErrorCallback
+    result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatThreadStatus']['outParam']) => void
+  }
+}
 type _Chat1ChatUiChatWatchPositionPayload = {
   readonly params: chat1Types.MessageTypes['chat.1.chatUi.chatWatchPosition']['inParam'] & {sessionID: number}
   response: {
     error: chat1Types.IncomingErrorCallback
     result: (param: chat1Types.MessageTypes['chat.1.chatUi.chatWatchPosition']['outParam']) => void
+  }
+}
+type _Chat1ChatUiTriggerContactSyncPayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.chatUi.triggerContactSync']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: chat1Types.IncomingErrorCallback
+    result: (param: chat1Types.MessageTypes['chat.1.chatUi.triggerContactSync']['outParam']) => void
+  }
+}
+type _Chat1NotifyChatChatAttachmentDownloadCompletePayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.NotifyChat.ChatAttachmentDownloadComplete']['inParam'] & {
+    sessionID: number
+  }
+}
+type _Chat1NotifyChatChatAttachmentDownloadProgressPayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.NotifyChat.ChatAttachmentDownloadProgress']['inParam'] & {
+    sessionID: number
   }
 }
 type _Chat1NotifyChatChatAttachmentUploadProgressPayload = {
@@ -473,6 +539,11 @@ type _Chat1NotifyChatChatAttachmentUploadProgressPayload = {
 }
 type _Chat1NotifyChatChatAttachmentUploadStartPayload = {
   readonly params: chat1Types.MessageTypes['chat.1.NotifyChat.ChatAttachmentUploadStart']['inParam'] & {
+    sessionID: number
+  }
+}
+type _Chat1NotifyChatChatConvUpdatePayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.NotifyChat.ChatConvUpdate']['inParam'] & {
     sessionID: number
   }
 }
@@ -508,6 +579,11 @@ type _Chat1NotifyChatChatKBFSToImpteamUpgradePayload = {
 }
 type _Chat1NotifyChatChatLeftConversationPayload = {
   readonly params: chat1Types.MessageTypes['chat.1.NotifyChat.ChatLeftConversation']['inParam'] & {
+    sessionID: number
+  }
+}
+type _Chat1NotifyChatChatParticipantsInfoPayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.NotifyChat.ChatParticipantsInfo']['inParam'] & {
     sessionID: number
   }
 }
@@ -568,6 +644,11 @@ type _Chat1NotifyChatChatThreadsStalePayload = {
 }
 type _Chat1NotifyChatChatTypingUpdatePayload = {
   readonly params: chat1Types.MessageTypes['chat.1.NotifyChat.ChatTypingUpdate']['inParam'] & {
+    sessionID: number
+  }
+}
+type _Chat1NotifyChatChatWelcomeMessageLoadedPayload = {
+  readonly params: chat1Types.MessageTypes['chat.1.NotifyChat.ChatWelcomeMessageLoaded']['inParam'] & {
     sessionID: number
   }
 }
@@ -684,6 +765,15 @@ type _Keybase1Identify3UiIdentify3ShowTrackerPayload = {
     result: (
       param: keybase1Types.MessageTypes['keybase.1.identify3Ui.identify3ShowTracker']['outParam']
     ) => void
+  }
+}
+type _Keybase1Identify3UiIdentify3SummaryPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.identify3Ui.identify3Summary']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (param: keybase1Types.MessageTypes['keybase.1.identify3Ui.identify3Summary']['outParam']) => void
   }
 }
 type _Keybase1Identify3UiIdentify3TrackerTimedOutPayload = {
@@ -894,6 +984,17 @@ type _Keybase1LogUiLogPayload = {
     result: (param: keybase1Types.MessageTypes['keybase.1.logUi.log']['outParam']) => void
   }
 }
+type _Keybase1LoginUiChooseDeviceToRecoverWithPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.loginUi.chooseDeviceToRecoverWith']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.loginUi.chooseDeviceToRecoverWith']['outParam']
+    ) => void
+  }
+}
 type _Keybase1LoginUiDisplayPaperKeyPhrasePayload = {
   readonly params: keybase1Types.MessageTypes['keybase.1.loginUi.displayPaperKeyPhrase']['inParam'] & {
     sessionID: number
@@ -912,6 +1013,15 @@ type _Keybase1LoginUiDisplayPrimaryPaperKeyPayload = {
     result: (
       param: keybase1Types.MessageTypes['keybase.1.loginUi.displayPrimaryPaperKey']['outParam']
     ) => void
+  }
+}
+type _Keybase1LoginUiDisplayResetMessagePayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.loginUi.displayResetMessage']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (param: keybase1Types.MessageTypes['keybase.1.loginUi.displayResetMessage']['outParam']) => void
   }
 }
 type _Keybase1LoginUiDisplayResetProgressPayload = {
@@ -1047,6 +1157,17 @@ type _Keybase1NotifyEphemeralNewTeambotEkPayload = {
     result: (param: keybase1Types.MessageTypes['keybase.1.NotifyEphemeral.newTeambotEk']['outParam']) => void
   }
 }
+type _Keybase1NotifyEphemeralTeambotEkNeededPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyEphemeral.teambotEkNeeded']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyEphemeral.teambotEkNeeded']['outParam']
+    ) => void
+  }
+}
 type _Keybase1NotifyFSFSActivityPayload = {
   readonly params: keybase1Types.MessageTypes['keybase.1.NotifyFS.FSActivity']['inParam'] & {
     sessionID: number
@@ -1097,6 +1218,26 @@ type _Keybase1NotifyFSFSPathUpdatedPayload = {
     sessionID: number
   }
 }
+type _Keybase1NotifyFSFSSubscriptionNotifyPathPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyFS.FSSubscriptionNotifyPath']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyFS.FSSubscriptionNotifyPath']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifyFSFSSubscriptionNotifyPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyFS.FSSubscriptionNotify']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (param: keybase1Types.MessageTypes['keybase.1.NotifyFS.FSSubscriptionNotify']['outParam']) => void
+  }
+}
 type _Keybase1NotifyFSFSSyncActivityPayload = {
   readonly params: keybase1Types.MessageTypes['keybase.1.NotifyFS.FSSyncActivity']['inParam'] & {
     sessionID: number
@@ -1118,6 +1259,28 @@ type _Keybase1NotifyFSFSSyncStatusResponsePayload = {
 type _Keybase1NotifyFavoritesFavoritesChangedPayload = {
   readonly params: keybase1Types.MessageTypes['keybase.1.NotifyFavorites.favoritesChanged']['inParam'] & {
     sessionID: number
+  }
+}
+type _Keybase1NotifyFeaturedBotsFeaturedBotsUpdatePayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyFeaturedBots.featuredBotsUpdate']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyFeaturedBots.featuredBotsUpdate']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifyInviteFriendsUpdateInviteCountsPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyInviteFriends.updateInviteCounts']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyInviteFriends.updateInviteCounts']['outParam']
+    ) => void
   }
 }
 type _Keybase1NotifyKeyfamilyKeyfamilyChangedPayload = {
@@ -1170,6 +1333,61 @@ type _Keybase1NotifyRuntimeStatsRuntimeStatsUpdatePayload = {
     error: keybase1Types.IncomingErrorCallback
     result: (
       param: keybase1Types.MessageTypes['keybase.1.NotifyRuntimeStats.runtimeStatsUpdate']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifySaltpackSaltpackOperationDonePayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifySaltpack.saltpackOperationDone']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifySaltpack.saltpackOperationDone']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifySaltpackSaltpackOperationProgressPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifySaltpack.saltpackOperationProgress']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifySaltpack.saltpackOperationProgress']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifySaltpackSaltpackOperationStartPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifySaltpack.saltpackOperationStart']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifySaltpack.saltpackOperationStart']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifyServiceHTTPSrvInfoUpdatePayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyService.HTTPSrvInfoUpdate']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyService.HTTPSrvInfoUpdate']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifyServiceHandleKeybaseLinkPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyService.handleKeybaseLink']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyService.handleKeybaseLink']['outParam']
     ) => void
   }
 }
@@ -1268,6 +1486,73 @@ type _Keybase1NotifyTeamTeamExitPayload = {
     result: (param: keybase1Types.MessageTypes['keybase.1.NotifyTeam.teamExit']['outParam']) => void
   }
 }
+type _Keybase1NotifyTeamTeamMetadataUpdatePayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyTeam.teamMetadataUpdate']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (param: keybase1Types.MessageTypes['keybase.1.NotifyTeam.teamMetadataUpdate']['outParam']) => void
+  }
+}
+type _Keybase1NotifyTeamTeamRoleMapChangedPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyTeam.teamRoleMapChanged']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (param: keybase1Types.MessageTypes['keybase.1.NotifyTeam.teamRoleMapChanged']['outParam']) => void
+  }
+}
+type _Keybase1NotifyTeamTeamTreeMembershipsDonePayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyTeam.teamTreeMembershipsDone']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyTeam.teamTreeMembershipsDone']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifyTeamTeamTreeMembershipsPartialPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyTeam.teamTreeMembershipsPartial']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyTeam.teamTreeMembershipsPartial']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifyTeambotNewTeambotKeyPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyTeambot.newTeambotKey']['inParam'] & {
+    sessionID: number
+  }
+}
+type _Keybase1NotifyTeambotTeambotKeyNeededPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyTeambot.teambotKeyNeeded']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyTeambot.teambotKeyNeeded']['outParam']
+    ) => void
+  }
+}
+type _Keybase1NotifyTrackingNotifyUserBlockedPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyTracking.notifyUserBlocked']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.NotifyTracking.notifyUserBlocked']['outParam']
+    ) => void
+  }
+}
 type _Keybase1NotifyTrackingTrackingChangedPayload = {
   readonly params: keybase1Types.MessageTypes['keybase.1.NotifyTracking.trackingChanged']['inParam'] & {
     sessionID: number
@@ -1282,9 +1567,13 @@ type _Keybase1NotifyTrackingTrackingInfoPayload = {
     result: (param: keybase1Types.MessageTypes['keybase.1.NotifyTracking.trackingInfo']['outParam']) => void
   }
 }
-type _Keybase1NotifyUnverifiedTeamListTeamListUnverifiedChangedPayload = {
-  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyUnverifiedTeamList.teamListUnverifiedChanged']['inParam'] & {
+type _Keybase1NotifyUsersIdentifyUpdatePayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyUsers.identifyUpdate']['inParam'] & {
     sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (param: keybase1Types.MessageTypes['keybase.1.NotifyUsers.identifyUpdate']['outParam']) => void
   }
 }
 type _Keybase1NotifyUsersPasswordChangedPayload = {
@@ -1298,6 +1587,11 @@ type _Keybase1NotifyUsersPasswordChangedPayload = {
 }
 type _Keybase1NotifyUsersUserChangedPayload = {
   readonly params: keybase1Types.MessageTypes['keybase.1.NotifyUsers.userChanged']['inParam'] & {
+    sessionID: number
+  }
+}
+type _Keybase1NotifyUsersWebOfTrustChangedPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.NotifyUsers.webOfTrustChanged']['inParam'] & {
     sessionID: number
   }
 }
@@ -1315,14 +1609,23 @@ type _Keybase1PgpUiKeyGeneratedPayload = {
     result: (param: keybase1Types.MessageTypes['keybase.1.pgpUi.keyGenerated']['outParam']) => void
   }
 }
-type _Keybase1PgpUiOutputSignatureSuccessNonKeybasePayload = {
-  readonly params: keybase1Types.MessageTypes['keybase.1.pgpUi.outputSignatureSuccessNonKeybase']['inParam'] & {
+type _Keybase1PgpUiOutputPGPWarningPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.pgpUi.outputPGPWarning']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (param: keybase1Types.MessageTypes['keybase.1.pgpUi.outputPGPWarning']['outParam']) => void
+  }
+}
+type _Keybase1PgpUiOutputSignatureNonKeybasePayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.pgpUi.outputSignatureNonKeybase']['inParam'] & {
     sessionID: number
   }
   response: {
     error: keybase1Types.IncomingErrorCallback
     result: (
-      param: keybase1Types.MessageTypes['keybase.1.pgpUi.outputSignatureSuccessNonKeybase']['outParam']
+      param: keybase1Types.MessageTypes['keybase.1.pgpUi.outputSignatureNonKeybase']['outParam']
     ) => void
   }
 }
@@ -1623,6 +1926,17 @@ type _Keybase1StreamUiWritePayload = {
     result: (param: keybase1Types.MessageTypes['keybase.1.streamUi.write']['outParam']) => void
   }
 }
+type _Keybase1TeamsUiConfirmInviteLinkAcceptPayload = {
+  readonly params: keybase1Types.MessageTypes['keybase.1.teamsUi.confirmInviteLinkAccept']['inParam'] & {
+    sessionID: number
+  }
+  response: {
+    error: keybase1Types.IncomingErrorCallback
+    result: (
+      param: keybase1Types.MessageTypes['keybase.1.teamsUi.confirmInviteLinkAccept']['outParam']
+    ) => void
+  }
+}
 type _Keybase1TeamsUiConfirmRootTeamDeletePayload = {
   readonly params: keybase1Types.MessageTypes['keybase.1.teamsUi.confirmRootTeamDelete']['inParam'] & {
     sessionID: number
@@ -1692,18 +2006,9 @@ type _Stellar1UiPaymentReviewedPayload = {
 }
 
 // Action Creators
-export const createChat1ChatUiChatAttachmentDownloadDone = (
-  payload: _Chat1ChatUiChatAttachmentDownloadDonePayload
-): Chat1ChatUiChatAttachmentDownloadDonePayload => ({payload, type: chat1ChatUiChatAttachmentDownloadDone})
-export const createChat1ChatUiChatAttachmentDownloadProgress = (
-  payload: _Chat1ChatUiChatAttachmentDownloadProgressPayload
-): Chat1ChatUiChatAttachmentDownloadProgressPayload => ({
-  payload,
-  type: chat1ChatUiChatAttachmentDownloadProgress,
-})
-export const createChat1ChatUiChatAttachmentDownloadStart = (
-  payload: _Chat1ChatUiChatAttachmentDownloadStartPayload
-): Chat1ChatUiChatAttachmentDownloadStartPayload => ({payload, type: chat1ChatUiChatAttachmentDownloadStart})
+export const createChat1ChatUiChatBotCommandsUpdateStatus = (
+  payload: _Chat1ChatUiChatBotCommandsUpdateStatusPayload
+): Chat1ChatUiChatBotCommandsUpdateStatusPayload => ({payload, type: chat1ChatUiChatBotCommandsUpdateStatus})
 export const createChat1ChatUiChatClearWatch = (
   payload: _Chat1ChatUiChatClearWatchPayload
 ): Chat1ChatUiChatClearWatchPayload => ({payload, type: chat1ChatUiChatClearWatch})
@@ -1731,6 +2036,9 @@ export const createChat1ChatUiChatInboxConversation = (
 export const createChat1ChatUiChatInboxFailed = (
   payload: _Chat1ChatUiChatInboxFailedPayload
 ): Chat1ChatUiChatInboxFailedPayload => ({payload, type: chat1ChatUiChatInboxFailed})
+export const createChat1ChatUiChatInboxLayout = (
+  payload: _Chat1ChatUiChatInboxLayoutPayload
+): Chat1ChatUiChatInboxLayoutPayload => ({payload, type: chat1ChatUiChatInboxLayout})
 export const createChat1ChatUiChatInboxUnverified = (
   payload: _Chat1ChatUiChatInboxUnverifiedPayload
 ): Chat1ChatUiChatInboxUnverifiedPayload => ({payload, type: chat1ChatUiChatInboxUnverified})
@@ -1740,6 +2048,9 @@ export const createChat1ChatUiChatLoadGalleryHit = (
 export const createChat1ChatUiChatMaybeMentionUpdate = (
   payload: _Chat1ChatUiChatMaybeMentionUpdatePayload
 ): Chat1ChatUiChatMaybeMentionUpdatePayload => ({payload, type: chat1ChatUiChatMaybeMentionUpdate})
+export const createChat1ChatUiChatSearchBotHits = (
+  payload: _Chat1ChatUiChatSearchBotHitsPayload
+): Chat1ChatUiChatSearchBotHitsPayload => ({payload, type: chat1ChatUiChatSearchBotHits})
 export const createChat1ChatUiChatSearchConvHits = (
   payload: _Chat1ChatUiChatSearchConvHitsPayload
 ): Chat1ChatUiChatSearchConvHitsPayload => ({payload, type: chat1ChatUiChatSearchConvHits})
@@ -1761,6 +2072,9 @@ export const createChat1ChatUiChatSearchInboxStart = (
 export const createChat1ChatUiChatSearchIndexStatus = (
   payload: _Chat1ChatUiChatSearchIndexStatusPayload
 ): Chat1ChatUiChatSearchIndexStatusPayload => ({payload, type: chat1ChatUiChatSearchIndexStatus})
+export const createChat1ChatUiChatSearchTeamHits = (
+  payload: _Chat1ChatUiChatSearchTeamHitsPayload
+): Chat1ChatUiChatSearchTeamHitsPayload => ({payload, type: chat1ChatUiChatSearchTeamHits})
 export const createChat1ChatUiChatShowManageChannels = (
   payload: _Chat1ChatUiChatShowManageChannelsPayload
 ): Chat1ChatUiChatShowManageChannelsPayload => ({payload, type: chat1ChatUiChatShowManageChannels})
@@ -1782,9 +2096,27 @@ export const createChat1ChatUiChatThreadCached = (
 export const createChat1ChatUiChatThreadFull = (
   payload: _Chat1ChatUiChatThreadFullPayload
 ): Chat1ChatUiChatThreadFullPayload => ({payload, type: chat1ChatUiChatThreadFull})
+export const createChat1ChatUiChatThreadStatus = (
+  payload: _Chat1ChatUiChatThreadStatusPayload
+): Chat1ChatUiChatThreadStatusPayload => ({payload, type: chat1ChatUiChatThreadStatus})
 export const createChat1ChatUiChatWatchPosition = (
   payload: _Chat1ChatUiChatWatchPositionPayload
 ): Chat1ChatUiChatWatchPositionPayload => ({payload, type: chat1ChatUiChatWatchPosition})
+export const createChat1ChatUiTriggerContactSync = (
+  payload: _Chat1ChatUiTriggerContactSyncPayload
+): Chat1ChatUiTriggerContactSyncPayload => ({payload, type: chat1ChatUiTriggerContactSync})
+export const createChat1NotifyChatChatAttachmentDownloadComplete = (
+  payload: _Chat1NotifyChatChatAttachmentDownloadCompletePayload
+): Chat1NotifyChatChatAttachmentDownloadCompletePayload => ({
+  payload,
+  type: chat1NotifyChatChatAttachmentDownloadComplete,
+})
+export const createChat1NotifyChatChatAttachmentDownloadProgress = (
+  payload: _Chat1NotifyChatChatAttachmentDownloadProgressPayload
+): Chat1NotifyChatChatAttachmentDownloadProgressPayload => ({
+  payload,
+  type: chat1NotifyChatChatAttachmentDownloadProgress,
+})
 export const createChat1NotifyChatChatAttachmentUploadProgress = (
   payload: _Chat1NotifyChatChatAttachmentUploadProgressPayload
 ): Chat1NotifyChatChatAttachmentUploadProgressPayload => ({
@@ -1797,6 +2129,9 @@ export const createChat1NotifyChatChatAttachmentUploadStart = (
   payload,
   type: chat1NotifyChatChatAttachmentUploadStart,
 })
+export const createChat1NotifyChatChatConvUpdate = (
+  payload: _Chat1NotifyChatChatConvUpdatePayload
+): Chat1NotifyChatChatConvUpdatePayload => ({payload, type: chat1NotifyChatChatConvUpdate})
 export const createChat1NotifyChatChatIdentifyUpdate = (
   payload: _Chat1NotifyChatChatIdentifyUpdatePayload
 ): Chat1NotifyChatChatIdentifyUpdatePayload => ({payload, type: chat1NotifyChatChatIdentifyUpdate})
@@ -1821,6 +2156,9 @@ export const createChat1NotifyChatChatKBFSToImpteamUpgrade = (
 export const createChat1NotifyChatChatLeftConversation = (
   payload: _Chat1NotifyChatChatLeftConversationPayload
 ): Chat1NotifyChatChatLeftConversationPayload => ({payload, type: chat1NotifyChatChatLeftConversation})
+export const createChat1NotifyChatChatParticipantsInfo = (
+  payload: _Chat1NotifyChatChatParticipantsInfoPayload
+): Chat1NotifyChatChatParticipantsInfoPayload => ({payload, type: chat1NotifyChatChatParticipantsInfo})
 export const createChat1NotifyChatChatPaymentInfo = (
   payload: _Chat1NotifyChatChatPaymentInfoPayload
 ): Chat1NotifyChatChatPaymentInfoPayload => ({payload, type: chat1NotifyChatChatPaymentInfo})
@@ -1857,6 +2195,12 @@ export const createChat1NotifyChatChatThreadsStale = (
 export const createChat1NotifyChatChatTypingUpdate = (
   payload: _Chat1NotifyChatChatTypingUpdatePayload
 ): Chat1NotifyChatChatTypingUpdatePayload => ({payload, type: chat1NotifyChatChatTypingUpdate})
+export const createChat1NotifyChatChatWelcomeMessageLoaded = (
+  payload: _Chat1NotifyChatChatWelcomeMessageLoadedPayload
+): Chat1NotifyChatChatWelcomeMessageLoadedPayload => ({
+  payload,
+  type: chat1NotifyChatChatWelcomeMessageLoaded,
+})
 export const createChat1NotifyChatNewChatActivity = (
   payload: _Chat1NotifyChatNewChatActivityPayload
 ): Chat1NotifyChatNewChatActivityPayload => ({payload, type: chat1NotifyChatNewChatActivity})
@@ -1908,6 +2252,9 @@ export const createKeybase1Identify3UiIdentify3ShowTracker = (
   payload,
   type: keybase1Identify3UiIdentify3ShowTracker,
 })
+export const createKeybase1Identify3UiIdentify3Summary = (
+  payload: _Keybase1Identify3UiIdentify3SummaryPayload
+): Keybase1Identify3UiIdentify3SummaryPayload => ({payload, type: keybase1Identify3UiIdentify3Summary})
 export const createKeybase1Identify3UiIdentify3TrackerTimedOut = (
   payload: _Keybase1Identify3UiIdentify3TrackerTimedOutPayload
 ): Keybase1Identify3UiIdentify3TrackerTimedOutPayload => ({
@@ -1996,12 +2343,21 @@ export const createKeybase1LogUiLog = (payload: _Keybase1LogUiLogPayload): Keyba
   payload,
   type: keybase1LogUiLog,
 })
+export const createKeybase1LoginUiChooseDeviceToRecoverWith = (
+  payload: _Keybase1LoginUiChooseDeviceToRecoverWithPayload
+): Keybase1LoginUiChooseDeviceToRecoverWithPayload => ({
+  payload,
+  type: keybase1LoginUiChooseDeviceToRecoverWith,
+})
 export const createKeybase1LoginUiDisplayPaperKeyPhrase = (
   payload: _Keybase1LoginUiDisplayPaperKeyPhrasePayload
 ): Keybase1LoginUiDisplayPaperKeyPhrasePayload => ({payload, type: keybase1LoginUiDisplayPaperKeyPhrase})
 export const createKeybase1LoginUiDisplayPrimaryPaperKey = (
   payload: _Keybase1LoginUiDisplayPrimaryPaperKeyPayload
 ): Keybase1LoginUiDisplayPrimaryPaperKeyPayload => ({payload, type: keybase1LoginUiDisplayPrimaryPaperKey})
+export const createKeybase1LoginUiDisplayResetMessage = (
+  payload: _Keybase1LoginUiDisplayResetMessagePayload
+): Keybase1LoginUiDisplayResetMessagePayload => ({payload, type: keybase1LoginUiDisplayResetMessage})
 export const createKeybase1LoginUiDisplayResetProgress = (
   payload: _Keybase1LoginUiDisplayResetProgressPayload
 ): Keybase1LoginUiDisplayResetProgressPayload => ({payload, type: keybase1LoginUiDisplayResetProgress})
@@ -2068,6 +2424,9 @@ export const createKeybase1NotifyEphemeralNewTeamEk = (
 export const createKeybase1NotifyEphemeralNewTeambotEk = (
   payload: _Keybase1NotifyEphemeralNewTeambotEkPayload
 ): Keybase1NotifyEphemeralNewTeambotEkPayload => ({payload, type: keybase1NotifyEphemeralNewTeambotEk})
+export const createKeybase1NotifyEphemeralTeambotEkNeeded = (
+  payload: _Keybase1NotifyEphemeralTeambotEkNeededPayload
+): Keybase1NotifyEphemeralTeambotEkNeededPayload => ({payload, type: keybase1NotifyEphemeralTeambotEkNeeded})
 export const createKeybase1NotifyFSFSActivity = (
   payload: _Keybase1NotifyFSFSActivityPayload
 ): Keybase1NotifyFSFSActivityPayload => ({payload, type: keybase1NotifyFSFSActivity})
@@ -2089,6 +2448,15 @@ export const createKeybase1NotifyFSFSOverallSyncStatusChanged = (
 export const createKeybase1NotifyFSFSPathUpdated = (
   payload: _Keybase1NotifyFSFSPathUpdatedPayload
 ): Keybase1NotifyFSFSPathUpdatedPayload => ({payload, type: keybase1NotifyFSFSPathUpdated})
+export const createKeybase1NotifyFSFSSubscriptionNotify = (
+  payload: _Keybase1NotifyFSFSSubscriptionNotifyPayload
+): Keybase1NotifyFSFSSubscriptionNotifyPayload => ({payload, type: keybase1NotifyFSFSSubscriptionNotify})
+export const createKeybase1NotifyFSFSSubscriptionNotifyPath = (
+  payload: _Keybase1NotifyFSFSSubscriptionNotifyPathPayload
+): Keybase1NotifyFSFSSubscriptionNotifyPathPayload => ({
+  payload,
+  type: keybase1NotifyFSFSSubscriptionNotifyPath,
+})
 export const createKeybase1NotifyFSFSSyncActivity = (
   payload: _Keybase1NotifyFSFSSyncActivityPayload
 ): Keybase1NotifyFSFSSyncActivityPayload => ({payload, type: keybase1NotifyFSFSSyncActivity})
@@ -2100,6 +2468,18 @@ export const createKeybase1NotifyFavoritesFavoritesChanged = (
 ): Keybase1NotifyFavoritesFavoritesChangedPayload => ({
   payload,
   type: keybase1NotifyFavoritesFavoritesChanged,
+})
+export const createKeybase1NotifyFeaturedBotsFeaturedBotsUpdate = (
+  payload: _Keybase1NotifyFeaturedBotsFeaturedBotsUpdatePayload
+): Keybase1NotifyFeaturedBotsFeaturedBotsUpdatePayload => ({
+  payload,
+  type: keybase1NotifyFeaturedBotsFeaturedBotsUpdate,
+})
+export const createKeybase1NotifyInviteFriendsUpdateInviteCounts = (
+  payload: _Keybase1NotifyInviteFriendsUpdateInviteCountsPayload
+): Keybase1NotifyInviteFriendsUpdateInviteCountsPayload => ({
+  payload,
+  type: keybase1NotifyInviteFriendsUpdateInviteCounts,
 })
 export const createKeybase1NotifyKeyfamilyKeyfamilyChanged = (
   payload: _Keybase1NotifyKeyfamilyKeyfamilyChangedPayload
@@ -2128,6 +2508,30 @@ export const createKeybase1NotifyRuntimeStatsRuntimeStatsUpdate = (
   payload,
   type: keybase1NotifyRuntimeStatsRuntimeStatsUpdate,
 })
+export const createKeybase1NotifySaltpackSaltpackOperationDone = (
+  payload: _Keybase1NotifySaltpackSaltpackOperationDonePayload
+): Keybase1NotifySaltpackSaltpackOperationDonePayload => ({
+  payload,
+  type: keybase1NotifySaltpackSaltpackOperationDone,
+})
+export const createKeybase1NotifySaltpackSaltpackOperationProgress = (
+  payload: _Keybase1NotifySaltpackSaltpackOperationProgressPayload
+): Keybase1NotifySaltpackSaltpackOperationProgressPayload => ({
+  payload,
+  type: keybase1NotifySaltpackSaltpackOperationProgress,
+})
+export const createKeybase1NotifySaltpackSaltpackOperationStart = (
+  payload: _Keybase1NotifySaltpackSaltpackOperationStartPayload
+): Keybase1NotifySaltpackSaltpackOperationStartPayload => ({
+  payload,
+  type: keybase1NotifySaltpackSaltpackOperationStart,
+})
+export const createKeybase1NotifyServiceHTTPSrvInfoUpdate = (
+  payload: _Keybase1NotifyServiceHTTPSrvInfoUpdatePayload
+): Keybase1NotifyServiceHTTPSrvInfoUpdatePayload => ({payload, type: keybase1NotifyServiceHTTPSrvInfoUpdate})
+export const createKeybase1NotifyServiceHandleKeybaseLink = (
+  payload: _Keybase1NotifyServiceHandleKeybaseLinkPayload
+): Keybase1NotifyServiceHandleKeybaseLinkPayload => ({payload, type: keybase1NotifyServiceHandleKeybaseLink})
 export const createKeybase1NotifyServiceShutdown = (
   payload: _Keybase1NotifyServiceShutdownPayload
 ): Keybase1NotifyServiceShutdownPayload => ({payload, type: keybase1NotifyServiceShutdown})
@@ -2161,39 +2565,69 @@ export const createKeybase1NotifyTeamTeamDeleted = (
 export const createKeybase1NotifyTeamTeamExit = (
   payload: _Keybase1NotifyTeamTeamExitPayload
 ): Keybase1NotifyTeamTeamExitPayload => ({payload, type: keybase1NotifyTeamTeamExit})
+export const createKeybase1NotifyTeamTeamMetadataUpdate = (
+  payload: _Keybase1NotifyTeamTeamMetadataUpdatePayload
+): Keybase1NotifyTeamTeamMetadataUpdatePayload => ({payload, type: keybase1NotifyTeamTeamMetadataUpdate})
+export const createKeybase1NotifyTeamTeamRoleMapChanged = (
+  payload: _Keybase1NotifyTeamTeamRoleMapChangedPayload
+): Keybase1NotifyTeamTeamRoleMapChangedPayload => ({payload, type: keybase1NotifyTeamTeamRoleMapChanged})
+export const createKeybase1NotifyTeamTeamTreeMembershipsDone = (
+  payload: _Keybase1NotifyTeamTeamTreeMembershipsDonePayload
+): Keybase1NotifyTeamTeamTreeMembershipsDonePayload => ({
+  payload,
+  type: keybase1NotifyTeamTeamTreeMembershipsDone,
+})
+export const createKeybase1NotifyTeamTeamTreeMembershipsPartial = (
+  payload: _Keybase1NotifyTeamTeamTreeMembershipsPartialPayload
+): Keybase1NotifyTeamTeamTreeMembershipsPartialPayload => ({
+  payload,
+  type: keybase1NotifyTeamTeamTreeMembershipsPartial,
+})
+export const createKeybase1NotifyTeambotNewTeambotKey = (
+  payload: _Keybase1NotifyTeambotNewTeambotKeyPayload
+): Keybase1NotifyTeambotNewTeambotKeyPayload => ({payload, type: keybase1NotifyTeambotNewTeambotKey})
+export const createKeybase1NotifyTeambotTeambotKeyNeeded = (
+  payload: _Keybase1NotifyTeambotTeambotKeyNeededPayload
+): Keybase1NotifyTeambotTeambotKeyNeededPayload => ({payload, type: keybase1NotifyTeambotTeambotKeyNeeded})
+export const createKeybase1NotifyTrackingNotifyUserBlocked = (
+  payload: _Keybase1NotifyTrackingNotifyUserBlockedPayload
+): Keybase1NotifyTrackingNotifyUserBlockedPayload => ({
+  payload,
+  type: keybase1NotifyTrackingNotifyUserBlocked,
+})
 export const createKeybase1NotifyTrackingTrackingChanged = (
   payload: _Keybase1NotifyTrackingTrackingChangedPayload
 ): Keybase1NotifyTrackingTrackingChangedPayload => ({payload, type: keybase1NotifyTrackingTrackingChanged})
 export const createKeybase1NotifyTrackingTrackingInfo = (
   payload: _Keybase1NotifyTrackingTrackingInfoPayload
 ): Keybase1NotifyTrackingTrackingInfoPayload => ({payload, type: keybase1NotifyTrackingTrackingInfo})
-export const createKeybase1NotifyUnverifiedTeamListTeamListUnverifiedChanged = (
-  payload: _Keybase1NotifyUnverifiedTeamListTeamListUnverifiedChangedPayload
-): Keybase1NotifyUnverifiedTeamListTeamListUnverifiedChangedPayload => ({
-  payload,
-  type: keybase1NotifyUnverifiedTeamListTeamListUnverifiedChanged,
-})
+export const createKeybase1NotifyUsersIdentifyUpdate = (
+  payload: _Keybase1NotifyUsersIdentifyUpdatePayload
+): Keybase1NotifyUsersIdentifyUpdatePayload => ({payload, type: keybase1NotifyUsersIdentifyUpdate})
 export const createKeybase1NotifyUsersPasswordChanged = (
   payload: _Keybase1NotifyUsersPasswordChangedPayload
 ): Keybase1NotifyUsersPasswordChangedPayload => ({payload, type: keybase1NotifyUsersPasswordChanged})
 export const createKeybase1NotifyUsersUserChanged = (
   payload: _Keybase1NotifyUsersUserChangedPayload
 ): Keybase1NotifyUsersUserChangedPayload => ({payload, type: keybase1NotifyUsersUserChanged})
+export const createKeybase1NotifyUsersWebOfTrustChanged = (
+  payload: _Keybase1NotifyUsersWebOfTrustChangedPayload
+): Keybase1NotifyUsersWebOfTrustChangedPayload => ({payload, type: keybase1NotifyUsersWebOfTrustChanged})
 export const createKeybase1PgpUiFinished = (
   payload: _Keybase1PgpUiFinishedPayload
 ): Keybase1PgpUiFinishedPayload => ({payload, type: keybase1PgpUiFinished})
 export const createKeybase1PgpUiKeyGenerated = (
   payload: _Keybase1PgpUiKeyGeneratedPayload
 ): Keybase1PgpUiKeyGeneratedPayload => ({payload, type: keybase1PgpUiKeyGenerated})
+export const createKeybase1PgpUiOutputPGPWarning = (
+  payload: _Keybase1PgpUiOutputPGPWarningPayload
+): Keybase1PgpUiOutputPGPWarningPayload => ({payload, type: keybase1PgpUiOutputPGPWarning})
+export const createKeybase1PgpUiOutputSignatureNonKeybase = (
+  payload: _Keybase1PgpUiOutputSignatureNonKeybasePayload
+): Keybase1PgpUiOutputSignatureNonKeybasePayload => ({payload, type: keybase1PgpUiOutputSignatureNonKeybase})
 export const createKeybase1PgpUiOutputSignatureSuccess = (
   payload: _Keybase1PgpUiOutputSignatureSuccessPayload
 ): Keybase1PgpUiOutputSignatureSuccessPayload => ({payload, type: keybase1PgpUiOutputSignatureSuccess})
-export const createKeybase1PgpUiOutputSignatureSuccessNonKeybase = (
-  payload: _Keybase1PgpUiOutputSignatureSuccessNonKeybasePayload
-): Keybase1PgpUiOutputSignatureSuccessNonKeybasePayload => ({
-  payload,
-  type: keybase1PgpUiOutputSignatureSuccessNonKeybase,
-})
 export const createKeybase1PgpUiShouldPushPrivate = (
   payload: _Keybase1PgpUiShouldPushPrivatePayload
 ): Keybase1PgpUiShouldPushPrivatePayload => ({payload, type: keybase1PgpUiShouldPushPrivate})
@@ -2311,6 +2745,9 @@ export const createKeybase1StreamUiReset = (
 export const createKeybase1StreamUiWrite = (
   payload: _Keybase1StreamUiWritePayload
 ): Keybase1StreamUiWritePayload => ({payload, type: keybase1StreamUiWrite})
+export const createKeybase1TeamsUiConfirmInviteLinkAccept = (
+  payload: _Keybase1TeamsUiConfirmInviteLinkAcceptPayload
+): Keybase1TeamsUiConfirmInviteLinkAcceptPayload => ({payload, type: keybase1TeamsUiConfirmInviteLinkAccept})
 export const createKeybase1TeamsUiConfirmRootTeamDelete = (
   payload: _Keybase1TeamsUiConfirmRootTeamDeletePayload
 ): Keybase1TeamsUiConfirmRootTeamDeletePayload => ({payload, type: keybase1TeamsUiConfirmRootTeamDelete})
@@ -2352,17 +2789,9 @@ export const createStellar1UiPaymentReviewed = (
 ): Stellar1UiPaymentReviewedPayload => ({payload, type: stellar1UiPaymentReviewed})
 
 // Action Payloads
-export type Chat1ChatUiChatAttachmentDownloadDonePayload = {
-  readonly payload: _Chat1ChatUiChatAttachmentDownloadDonePayload
-  readonly type: typeof chat1ChatUiChatAttachmentDownloadDone
-}
-export type Chat1ChatUiChatAttachmentDownloadProgressPayload = {
-  readonly payload: _Chat1ChatUiChatAttachmentDownloadProgressPayload
-  readonly type: typeof chat1ChatUiChatAttachmentDownloadProgress
-}
-export type Chat1ChatUiChatAttachmentDownloadStartPayload = {
-  readonly payload: _Chat1ChatUiChatAttachmentDownloadStartPayload
-  readonly type: typeof chat1ChatUiChatAttachmentDownloadStart
+export type Chat1ChatUiChatBotCommandsUpdateStatusPayload = {
+  readonly payload: _Chat1ChatUiChatBotCommandsUpdateStatusPayload
+  readonly type: typeof chat1ChatUiChatBotCommandsUpdateStatus
 }
 export type Chat1ChatUiChatClearWatchPayload = {
   readonly payload: _Chat1ChatUiChatClearWatchPayload
@@ -2400,6 +2829,10 @@ export type Chat1ChatUiChatInboxFailedPayload = {
   readonly payload: _Chat1ChatUiChatInboxFailedPayload
   readonly type: typeof chat1ChatUiChatInboxFailed
 }
+export type Chat1ChatUiChatInboxLayoutPayload = {
+  readonly payload: _Chat1ChatUiChatInboxLayoutPayload
+  readonly type: typeof chat1ChatUiChatInboxLayout
+}
 export type Chat1ChatUiChatInboxUnverifiedPayload = {
   readonly payload: _Chat1ChatUiChatInboxUnverifiedPayload
   readonly type: typeof chat1ChatUiChatInboxUnverified
@@ -2411,6 +2844,10 @@ export type Chat1ChatUiChatLoadGalleryHitPayload = {
 export type Chat1ChatUiChatMaybeMentionUpdatePayload = {
   readonly payload: _Chat1ChatUiChatMaybeMentionUpdatePayload
   readonly type: typeof chat1ChatUiChatMaybeMentionUpdate
+}
+export type Chat1ChatUiChatSearchBotHitsPayload = {
+  readonly payload: _Chat1ChatUiChatSearchBotHitsPayload
+  readonly type: typeof chat1ChatUiChatSearchBotHits
 }
 export type Chat1ChatUiChatSearchConvHitsPayload = {
   readonly payload: _Chat1ChatUiChatSearchConvHitsPayload
@@ -2440,6 +2877,10 @@ export type Chat1ChatUiChatSearchIndexStatusPayload = {
   readonly payload: _Chat1ChatUiChatSearchIndexStatusPayload
   readonly type: typeof chat1ChatUiChatSearchIndexStatus
 }
+export type Chat1ChatUiChatSearchTeamHitsPayload = {
+  readonly payload: _Chat1ChatUiChatSearchTeamHitsPayload
+  readonly type: typeof chat1ChatUiChatSearchTeamHits
+}
 export type Chat1ChatUiChatShowManageChannelsPayload = {
   readonly payload: _Chat1ChatUiChatShowManageChannelsPayload
   readonly type: typeof chat1ChatUiChatShowManageChannels
@@ -2468,9 +2909,25 @@ export type Chat1ChatUiChatThreadFullPayload = {
   readonly payload: _Chat1ChatUiChatThreadFullPayload
   readonly type: typeof chat1ChatUiChatThreadFull
 }
+export type Chat1ChatUiChatThreadStatusPayload = {
+  readonly payload: _Chat1ChatUiChatThreadStatusPayload
+  readonly type: typeof chat1ChatUiChatThreadStatus
+}
 export type Chat1ChatUiChatWatchPositionPayload = {
   readonly payload: _Chat1ChatUiChatWatchPositionPayload
   readonly type: typeof chat1ChatUiChatWatchPosition
+}
+export type Chat1ChatUiTriggerContactSyncPayload = {
+  readonly payload: _Chat1ChatUiTriggerContactSyncPayload
+  readonly type: typeof chat1ChatUiTriggerContactSync
+}
+export type Chat1NotifyChatChatAttachmentDownloadCompletePayload = {
+  readonly payload: _Chat1NotifyChatChatAttachmentDownloadCompletePayload
+  readonly type: typeof chat1NotifyChatChatAttachmentDownloadComplete
+}
+export type Chat1NotifyChatChatAttachmentDownloadProgressPayload = {
+  readonly payload: _Chat1NotifyChatChatAttachmentDownloadProgressPayload
+  readonly type: typeof chat1NotifyChatChatAttachmentDownloadProgress
 }
 export type Chat1NotifyChatChatAttachmentUploadProgressPayload = {
   readonly payload: _Chat1NotifyChatChatAttachmentUploadProgressPayload
@@ -2479,6 +2936,10 @@ export type Chat1NotifyChatChatAttachmentUploadProgressPayload = {
 export type Chat1NotifyChatChatAttachmentUploadStartPayload = {
   readonly payload: _Chat1NotifyChatChatAttachmentUploadStartPayload
   readonly type: typeof chat1NotifyChatChatAttachmentUploadStart
+}
+export type Chat1NotifyChatChatConvUpdatePayload = {
+  readonly payload: _Chat1NotifyChatChatConvUpdatePayload
+  readonly type: typeof chat1NotifyChatChatConvUpdate
 }
 export type Chat1NotifyChatChatIdentifyUpdatePayload = {
   readonly payload: _Chat1NotifyChatChatIdentifyUpdatePayload
@@ -2507,6 +2968,10 @@ export type Chat1NotifyChatChatKBFSToImpteamUpgradePayload = {
 export type Chat1NotifyChatChatLeftConversationPayload = {
   readonly payload: _Chat1NotifyChatChatLeftConversationPayload
   readonly type: typeof chat1NotifyChatChatLeftConversation
+}
+export type Chat1NotifyChatChatParticipantsInfoPayload = {
+  readonly payload: _Chat1NotifyChatChatParticipantsInfoPayload
+  readonly type: typeof chat1NotifyChatChatParticipantsInfo
 }
 export type Chat1NotifyChatChatPaymentInfoPayload = {
   readonly payload: _Chat1NotifyChatChatPaymentInfoPayload
@@ -2555,6 +3020,10 @@ export type Chat1NotifyChatChatThreadsStalePayload = {
 export type Chat1NotifyChatChatTypingUpdatePayload = {
   readonly payload: _Chat1NotifyChatChatTypingUpdatePayload
   readonly type: typeof chat1NotifyChatChatTypingUpdate
+}
+export type Chat1NotifyChatChatWelcomeMessageLoadedPayload = {
+  readonly payload: _Chat1NotifyChatChatWelcomeMessageLoadedPayload
+  readonly type: typeof chat1NotifyChatChatWelcomeMessageLoaded
 }
 export type Chat1NotifyChatNewChatActivityPayload = {
   readonly payload: _Chat1NotifyChatNewChatActivityPayload
@@ -2609,6 +3078,10 @@ export type Keybase1Identify3UiIdentify3ResultPayload = {
 export type Keybase1Identify3UiIdentify3ShowTrackerPayload = {
   readonly payload: _Keybase1Identify3UiIdentify3ShowTrackerPayload
   readonly type: typeof keybase1Identify3UiIdentify3ShowTracker
+}
+export type Keybase1Identify3UiIdentify3SummaryPayload = {
+  readonly payload: _Keybase1Identify3UiIdentify3SummaryPayload
+  readonly type: typeof keybase1Identify3UiIdentify3Summary
 }
 export type Keybase1Identify3UiIdentify3TrackerTimedOutPayload = {
   readonly payload: _Keybase1Identify3UiIdentify3TrackerTimedOutPayload
@@ -2698,6 +3171,10 @@ export type Keybase1LogUiLogPayload = {
   readonly payload: _Keybase1LogUiLogPayload
   readonly type: typeof keybase1LogUiLog
 }
+export type Keybase1LoginUiChooseDeviceToRecoverWithPayload = {
+  readonly payload: _Keybase1LoginUiChooseDeviceToRecoverWithPayload
+  readonly type: typeof keybase1LoginUiChooseDeviceToRecoverWith
+}
 export type Keybase1LoginUiDisplayPaperKeyPhrasePayload = {
   readonly payload: _Keybase1LoginUiDisplayPaperKeyPhrasePayload
   readonly type: typeof keybase1LoginUiDisplayPaperKeyPhrase
@@ -2705,6 +3182,10 @@ export type Keybase1LoginUiDisplayPaperKeyPhrasePayload = {
 export type Keybase1LoginUiDisplayPrimaryPaperKeyPayload = {
   readonly payload: _Keybase1LoginUiDisplayPrimaryPaperKeyPayload
   readonly type: typeof keybase1LoginUiDisplayPrimaryPaperKey
+}
+export type Keybase1LoginUiDisplayResetMessagePayload = {
+  readonly payload: _Keybase1LoginUiDisplayResetMessagePayload
+  readonly type: typeof keybase1LoginUiDisplayResetMessage
 }
 export type Keybase1LoginUiDisplayResetProgressPayload = {
   readonly payload: _Keybase1LoginUiDisplayResetProgressPayload
@@ -2774,6 +3255,10 @@ export type Keybase1NotifyEphemeralNewTeambotEkPayload = {
   readonly payload: _Keybase1NotifyEphemeralNewTeambotEkPayload
   readonly type: typeof keybase1NotifyEphemeralNewTeambotEk
 }
+export type Keybase1NotifyEphemeralTeambotEkNeededPayload = {
+  readonly payload: _Keybase1NotifyEphemeralTeambotEkNeededPayload
+  readonly type: typeof keybase1NotifyEphemeralTeambotEkNeeded
+}
 export type Keybase1NotifyFSFSActivityPayload = {
   readonly payload: _Keybase1NotifyFSFSActivityPayload
   readonly type: typeof keybase1NotifyFSFSActivity
@@ -2798,6 +3283,14 @@ export type Keybase1NotifyFSFSPathUpdatedPayload = {
   readonly payload: _Keybase1NotifyFSFSPathUpdatedPayload
   readonly type: typeof keybase1NotifyFSFSPathUpdated
 }
+export type Keybase1NotifyFSFSSubscriptionNotifyPathPayload = {
+  readonly payload: _Keybase1NotifyFSFSSubscriptionNotifyPathPayload
+  readonly type: typeof keybase1NotifyFSFSSubscriptionNotifyPath
+}
+export type Keybase1NotifyFSFSSubscriptionNotifyPayload = {
+  readonly payload: _Keybase1NotifyFSFSSubscriptionNotifyPayload
+  readonly type: typeof keybase1NotifyFSFSSubscriptionNotify
+}
 export type Keybase1NotifyFSFSSyncActivityPayload = {
   readonly payload: _Keybase1NotifyFSFSSyncActivityPayload
   readonly type: typeof keybase1NotifyFSFSSyncActivity
@@ -2809,6 +3302,14 @@ export type Keybase1NotifyFSFSSyncStatusResponsePayload = {
 export type Keybase1NotifyFavoritesFavoritesChangedPayload = {
   readonly payload: _Keybase1NotifyFavoritesFavoritesChangedPayload
   readonly type: typeof keybase1NotifyFavoritesFavoritesChanged
+}
+export type Keybase1NotifyFeaturedBotsFeaturedBotsUpdatePayload = {
+  readonly payload: _Keybase1NotifyFeaturedBotsFeaturedBotsUpdatePayload
+  readonly type: typeof keybase1NotifyFeaturedBotsFeaturedBotsUpdate
+}
+export type Keybase1NotifyInviteFriendsUpdateInviteCountsPayload = {
+  readonly payload: _Keybase1NotifyInviteFriendsUpdateInviteCountsPayload
+  readonly type: typeof keybase1NotifyInviteFriendsUpdateInviteCounts
 }
 export type Keybase1NotifyKeyfamilyKeyfamilyChangedPayload = {
   readonly payload: _Keybase1NotifyKeyfamilyKeyfamilyChangedPayload
@@ -2829,6 +3330,26 @@ export type Keybase1NotifyPhoneNumberPhoneNumbersChangedPayload = {
 export type Keybase1NotifyRuntimeStatsRuntimeStatsUpdatePayload = {
   readonly payload: _Keybase1NotifyRuntimeStatsRuntimeStatsUpdatePayload
   readonly type: typeof keybase1NotifyRuntimeStatsRuntimeStatsUpdate
+}
+export type Keybase1NotifySaltpackSaltpackOperationDonePayload = {
+  readonly payload: _Keybase1NotifySaltpackSaltpackOperationDonePayload
+  readonly type: typeof keybase1NotifySaltpackSaltpackOperationDone
+}
+export type Keybase1NotifySaltpackSaltpackOperationProgressPayload = {
+  readonly payload: _Keybase1NotifySaltpackSaltpackOperationProgressPayload
+  readonly type: typeof keybase1NotifySaltpackSaltpackOperationProgress
+}
+export type Keybase1NotifySaltpackSaltpackOperationStartPayload = {
+  readonly payload: _Keybase1NotifySaltpackSaltpackOperationStartPayload
+  readonly type: typeof keybase1NotifySaltpackSaltpackOperationStart
+}
+export type Keybase1NotifyServiceHTTPSrvInfoUpdatePayload = {
+  readonly payload: _Keybase1NotifyServiceHTTPSrvInfoUpdatePayload
+  readonly type: typeof keybase1NotifyServiceHTTPSrvInfoUpdate
+}
+export type Keybase1NotifyServiceHandleKeybaseLinkPayload = {
+  readonly payload: _Keybase1NotifyServiceHandleKeybaseLinkPayload
+  readonly type: typeof keybase1NotifyServiceHandleKeybaseLink
 }
 export type Keybase1NotifyServiceShutdownPayload = {
   readonly payload: _Keybase1NotifyServiceShutdownPayload
@@ -2874,6 +3395,34 @@ export type Keybase1NotifyTeamTeamExitPayload = {
   readonly payload: _Keybase1NotifyTeamTeamExitPayload
   readonly type: typeof keybase1NotifyTeamTeamExit
 }
+export type Keybase1NotifyTeamTeamMetadataUpdatePayload = {
+  readonly payload: _Keybase1NotifyTeamTeamMetadataUpdatePayload
+  readonly type: typeof keybase1NotifyTeamTeamMetadataUpdate
+}
+export type Keybase1NotifyTeamTeamRoleMapChangedPayload = {
+  readonly payload: _Keybase1NotifyTeamTeamRoleMapChangedPayload
+  readonly type: typeof keybase1NotifyTeamTeamRoleMapChanged
+}
+export type Keybase1NotifyTeamTeamTreeMembershipsDonePayload = {
+  readonly payload: _Keybase1NotifyTeamTeamTreeMembershipsDonePayload
+  readonly type: typeof keybase1NotifyTeamTeamTreeMembershipsDone
+}
+export type Keybase1NotifyTeamTeamTreeMembershipsPartialPayload = {
+  readonly payload: _Keybase1NotifyTeamTeamTreeMembershipsPartialPayload
+  readonly type: typeof keybase1NotifyTeamTeamTreeMembershipsPartial
+}
+export type Keybase1NotifyTeambotNewTeambotKeyPayload = {
+  readonly payload: _Keybase1NotifyTeambotNewTeambotKeyPayload
+  readonly type: typeof keybase1NotifyTeambotNewTeambotKey
+}
+export type Keybase1NotifyTeambotTeambotKeyNeededPayload = {
+  readonly payload: _Keybase1NotifyTeambotTeambotKeyNeededPayload
+  readonly type: typeof keybase1NotifyTeambotTeambotKeyNeeded
+}
+export type Keybase1NotifyTrackingNotifyUserBlockedPayload = {
+  readonly payload: _Keybase1NotifyTrackingNotifyUserBlockedPayload
+  readonly type: typeof keybase1NotifyTrackingNotifyUserBlocked
+}
 export type Keybase1NotifyTrackingTrackingChangedPayload = {
   readonly payload: _Keybase1NotifyTrackingTrackingChangedPayload
   readonly type: typeof keybase1NotifyTrackingTrackingChanged
@@ -2882,9 +3431,9 @@ export type Keybase1NotifyTrackingTrackingInfoPayload = {
   readonly payload: _Keybase1NotifyTrackingTrackingInfoPayload
   readonly type: typeof keybase1NotifyTrackingTrackingInfo
 }
-export type Keybase1NotifyUnverifiedTeamListTeamListUnverifiedChangedPayload = {
-  readonly payload: _Keybase1NotifyUnverifiedTeamListTeamListUnverifiedChangedPayload
-  readonly type: typeof keybase1NotifyUnverifiedTeamListTeamListUnverifiedChanged
+export type Keybase1NotifyUsersIdentifyUpdatePayload = {
+  readonly payload: _Keybase1NotifyUsersIdentifyUpdatePayload
+  readonly type: typeof keybase1NotifyUsersIdentifyUpdate
 }
 export type Keybase1NotifyUsersPasswordChangedPayload = {
   readonly payload: _Keybase1NotifyUsersPasswordChangedPayload
@@ -2894,6 +3443,10 @@ export type Keybase1NotifyUsersUserChangedPayload = {
   readonly payload: _Keybase1NotifyUsersUserChangedPayload
   readonly type: typeof keybase1NotifyUsersUserChanged
 }
+export type Keybase1NotifyUsersWebOfTrustChangedPayload = {
+  readonly payload: _Keybase1NotifyUsersWebOfTrustChangedPayload
+  readonly type: typeof keybase1NotifyUsersWebOfTrustChanged
+}
 export type Keybase1PgpUiFinishedPayload = {
   readonly payload: _Keybase1PgpUiFinishedPayload
   readonly type: typeof keybase1PgpUiFinished
@@ -2902,9 +3455,13 @@ export type Keybase1PgpUiKeyGeneratedPayload = {
   readonly payload: _Keybase1PgpUiKeyGeneratedPayload
   readonly type: typeof keybase1PgpUiKeyGenerated
 }
-export type Keybase1PgpUiOutputSignatureSuccessNonKeybasePayload = {
-  readonly payload: _Keybase1PgpUiOutputSignatureSuccessNonKeybasePayload
-  readonly type: typeof keybase1PgpUiOutputSignatureSuccessNonKeybase
+export type Keybase1PgpUiOutputPGPWarningPayload = {
+  readonly payload: _Keybase1PgpUiOutputPGPWarningPayload
+  readonly type: typeof keybase1PgpUiOutputPGPWarning
+}
+export type Keybase1PgpUiOutputSignatureNonKeybasePayload = {
+  readonly payload: _Keybase1PgpUiOutputSignatureNonKeybasePayload
+  readonly type: typeof keybase1PgpUiOutputSignatureNonKeybase
 }
 export type Keybase1PgpUiOutputSignatureSuccessPayload = {
   readonly payload: _Keybase1PgpUiOutputSignatureSuccessPayload
@@ -3038,6 +3595,10 @@ export type Keybase1StreamUiWritePayload = {
   readonly payload: _Keybase1StreamUiWritePayload
   readonly type: typeof keybase1StreamUiWrite
 }
+export type Keybase1TeamsUiConfirmInviteLinkAcceptPayload = {
+  readonly payload: _Keybase1TeamsUiConfirmInviteLinkAcceptPayload
+  readonly type: typeof keybase1TeamsUiConfirmInviteLinkAccept
+}
 export type Keybase1TeamsUiConfirmRootTeamDeletePayload = {
   readonly payload: _Keybase1TeamsUiConfirmRootTeamDeletePayload
   readonly type: typeof keybase1TeamsUiConfirmRootTeamDelete
@@ -3086,9 +3647,7 @@ export type Stellar1UiPaymentReviewedPayload = {
 // All Actions
 // prettier-ignore
 export type Actions =
-  | Chat1ChatUiChatAttachmentDownloadDonePayload
-  | Chat1ChatUiChatAttachmentDownloadProgressPayload
-  | Chat1ChatUiChatAttachmentDownloadStartPayload
+  | Chat1ChatUiChatBotCommandsUpdateStatusPayload
   | Chat1ChatUiChatClearWatchPayload
   | Chat1ChatUiChatCoinFlipStatusPayload
   | Chat1ChatUiChatCommandMarkdownPayload
@@ -3098,9 +3657,11 @@ export type Actions =
   | Chat1ChatUiChatGiphyToggleResultWindowPayload
   | Chat1ChatUiChatInboxConversationPayload
   | Chat1ChatUiChatInboxFailedPayload
+  | Chat1ChatUiChatInboxLayoutPayload
   | Chat1ChatUiChatInboxUnverifiedPayload
   | Chat1ChatUiChatLoadGalleryHitPayload
   | Chat1ChatUiChatMaybeMentionUpdatePayload
+  | Chat1ChatUiChatSearchBotHitsPayload
   | Chat1ChatUiChatSearchConvHitsPayload
   | Chat1ChatUiChatSearchDonePayload
   | Chat1ChatUiChatSearchHitPayload
@@ -3108,6 +3669,7 @@ export type Actions =
   | Chat1ChatUiChatSearchInboxHitPayload
   | Chat1ChatUiChatSearchInboxStartPayload
   | Chat1ChatUiChatSearchIndexStatusPayload
+  | Chat1ChatUiChatSearchTeamHitsPayload
   | Chat1ChatUiChatShowManageChannelsPayload
   | Chat1ChatUiChatStellarDataConfirmPayload
   | Chat1ChatUiChatStellarDataErrorPayload
@@ -3115,9 +3677,14 @@ export type Actions =
   | Chat1ChatUiChatStellarShowConfirmPayload
   | Chat1ChatUiChatThreadCachedPayload
   | Chat1ChatUiChatThreadFullPayload
+  | Chat1ChatUiChatThreadStatusPayload
   | Chat1ChatUiChatWatchPositionPayload
+  | Chat1ChatUiTriggerContactSyncPayload
+  | Chat1NotifyChatChatAttachmentDownloadCompletePayload
+  | Chat1NotifyChatChatAttachmentDownloadProgressPayload
   | Chat1NotifyChatChatAttachmentUploadProgressPayload
   | Chat1NotifyChatChatAttachmentUploadStartPayload
+  | Chat1NotifyChatChatConvUpdatePayload
   | Chat1NotifyChatChatIdentifyUpdatePayload
   | Chat1NotifyChatChatInboxStalePayload
   | Chat1NotifyChatChatInboxSyncStartedPayload
@@ -3125,6 +3692,7 @@ export type Actions =
   | Chat1NotifyChatChatJoinedConversationPayload
   | Chat1NotifyChatChatKBFSToImpteamUpgradePayload
   | Chat1NotifyChatChatLeftConversationPayload
+  | Chat1NotifyChatChatParticipantsInfoPayload
   | Chat1NotifyChatChatPaymentInfoPayload
   | Chat1NotifyChatChatPromptUnfurlPayload
   | Chat1NotifyChatChatRequestInfoPayload
@@ -3137,6 +3705,7 @@ export type Actions =
   | Chat1NotifyChatChatTLFResolvePayload
   | Chat1NotifyChatChatThreadsStalePayload
   | Chat1NotifyChatChatTypingUpdatePayload
+  | Chat1NotifyChatChatWelcomeMessageLoadedPayload
   | Chat1NotifyChatNewChatActivityPayload
   | ConnectedPayload
   | DisconnectedPayload
@@ -3152,6 +3721,7 @@ export type Actions =
   | Keybase1HomeUIHomeUIRefreshPayload
   | Keybase1Identify3UiIdentify3ResultPayload
   | Keybase1Identify3UiIdentify3ShowTrackerPayload
+  | Keybase1Identify3UiIdentify3SummaryPayload
   | Keybase1Identify3UiIdentify3TrackerTimedOutPayload
   | Keybase1Identify3UiIdentify3UpdateRowPayload
   | Keybase1Identify3UiIdentify3UpdateUserCardPayload
@@ -3174,8 +3744,10 @@ export type Actions =
   | Keybase1IdentifyUiReportTrackTokenPayload
   | Keybase1IdentifyUiStartPayload
   | Keybase1LogUiLogPayload
+  | Keybase1LoginUiChooseDeviceToRecoverWithPayload
   | Keybase1LoginUiDisplayPaperKeyPhrasePayload
   | Keybase1LoginUiDisplayPrimaryPaperKeyPayload
+  | Keybase1LoginUiDisplayResetMessagePayload
   | Keybase1LoginUiDisplayResetProgressPayload
   | Keybase1LoginUiExplainDeviceRecoveryPayload
   | Keybase1LoginUiGetEmailOrUsernamePayload
@@ -3193,20 +3765,30 @@ export type Actions =
   | Keybase1NotifyEmailAddressEmailsChangedPayload
   | Keybase1NotifyEphemeralNewTeamEkPayload
   | Keybase1NotifyEphemeralNewTeambotEkPayload
+  | Keybase1NotifyEphemeralTeambotEkNeededPayload
   | Keybase1NotifyFSFSActivityPayload
   | Keybase1NotifyFSFSEditListResponsePayload
   | Keybase1NotifyFSFSFavoritesChangedPayload
   | Keybase1NotifyFSFSOnlineStatusChangedPayload
   | Keybase1NotifyFSFSOverallSyncStatusChangedPayload
   | Keybase1NotifyFSFSPathUpdatedPayload
+  | Keybase1NotifyFSFSSubscriptionNotifyPathPayload
+  | Keybase1NotifyFSFSSubscriptionNotifyPayload
   | Keybase1NotifyFSFSSyncActivityPayload
   | Keybase1NotifyFSFSSyncStatusResponsePayload
   | Keybase1NotifyFavoritesFavoritesChangedPayload
+  | Keybase1NotifyFeaturedBotsFeaturedBotsUpdatePayload
+  | Keybase1NotifyInviteFriendsUpdateInviteCountsPayload
   | Keybase1NotifyKeyfamilyKeyfamilyChangedPayload
   | Keybase1NotifyPGPPgpKeyInSecretStoreFilePayload
   | Keybase1NotifyPaperKeyPaperKeyCachedPayload
   | Keybase1NotifyPhoneNumberPhoneNumbersChangedPayload
   | Keybase1NotifyRuntimeStatsRuntimeStatsUpdatePayload
+  | Keybase1NotifySaltpackSaltpackOperationDonePayload
+  | Keybase1NotifySaltpackSaltpackOperationProgressPayload
+  | Keybase1NotifySaltpackSaltpackOperationStartPayload
+  | Keybase1NotifyServiceHTTPSrvInfoUpdatePayload
+  | Keybase1NotifyServiceHandleKeybaseLinkPayload
   | Keybase1NotifyServiceShutdownPayload
   | Keybase1NotifySessionClientOutOfDatePayload
   | Keybase1NotifySessionLoggedInPayload
@@ -3218,14 +3800,23 @@ export type Actions =
   | Keybase1NotifyTeamTeamChangedByNamePayload
   | Keybase1NotifyTeamTeamDeletedPayload
   | Keybase1NotifyTeamTeamExitPayload
+  | Keybase1NotifyTeamTeamMetadataUpdatePayload
+  | Keybase1NotifyTeamTeamRoleMapChangedPayload
+  | Keybase1NotifyTeamTeamTreeMembershipsDonePayload
+  | Keybase1NotifyTeamTeamTreeMembershipsPartialPayload
+  | Keybase1NotifyTeambotNewTeambotKeyPayload
+  | Keybase1NotifyTeambotTeambotKeyNeededPayload
+  | Keybase1NotifyTrackingNotifyUserBlockedPayload
   | Keybase1NotifyTrackingTrackingChangedPayload
   | Keybase1NotifyTrackingTrackingInfoPayload
-  | Keybase1NotifyUnverifiedTeamListTeamListUnverifiedChangedPayload
+  | Keybase1NotifyUsersIdentifyUpdatePayload
   | Keybase1NotifyUsersPasswordChangedPayload
   | Keybase1NotifyUsersUserChangedPayload
+  | Keybase1NotifyUsersWebOfTrustChangedPayload
   | Keybase1PgpUiFinishedPayload
   | Keybase1PgpUiKeyGeneratedPayload
-  | Keybase1PgpUiOutputSignatureSuccessNonKeybasePayload
+  | Keybase1PgpUiOutputPGPWarningPayload
+  | Keybase1PgpUiOutputSignatureNonKeybasePayload
   | Keybase1PgpUiOutputSignatureSuccessPayload
   | Keybase1PgpUiShouldPushPrivatePayload
   | Keybase1ProveUiCheckingPayload
@@ -3259,6 +3850,7 @@ export type Actions =
   | Keybase1StreamUiReadPayload
   | Keybase1StreamUiResetPayload
   | Keybase1StreamUiWritePayload
+  | Keybase1TeamsUiConfirmInviteLinkAcceptPayload
   | Keybase1TeamsUiConfirmRootTeamDeletePayload
   | Keybase1TeamsUiConfirmSubteamDeletePayload
   | Keybase1UiPromptYesNoPayload

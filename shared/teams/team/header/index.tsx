@@ -5,6 +5,8 @@ import * as Kb from '../../../common-adapters'
 import AddPeopleHow from './add-people-how/container'
 import NameWithIconWrapper from './name-with-icon-wrapper'
 import * as Styles from '../../../styles'
+import * as ImagePicker from 'expo-image-picker'
+import {pluralize} from '../../../util/string'
 
 export type Props = {
   canChat: boolean
@@ -17,11 +19,12 @@ export type Props = {
   openTeam: boolean
   role: Types.MaybeTeamRoleType
   showingMenu: boolean
+  teamID: Types.TeamID
   teamname: Types.Teamname
   onAddSelf: () => void
   onChat: () => void
   onEditDescription: () => void
-  onEditIcon: (image?) => void
+  onEditIcon: (image?: ImagePicker.ImagePickerResult) => void
   onFilePickerError: (error: Error) => void
   onRename: (() => void) | null
 } & Kb.OverlayParentProps
@@ -103,11 +106,7 @@ const _TeamHeader = (props: Props) => (
       <Kb.ButtonBar direction="row" style={styles.buttonBar}>
         {props.canChat && (
           <Kb.Button label="Chat" onClick={props.onChat}>
-            <Kb.Icon
-              type="iconfont-chat"
-              style={Kb.iconCastPlatformStyles(styles.chatIcon)}
-              color={Styles.globalColors.white}
-            />
+            <Kb.Icon type="iconfont-chat" style={styles.chatIcon} color={Styles.globalColors.whiteOrWhite} />
           </Kb.Button>
         )}
         {props.canManageMembers && (
@@ -125,7 +124,7 @@ const _TeamHeader = (props: Props) => (
       <AddPeopleHow
         attachTo={props.getAttachmentRef}
         visible={props.showingMenu}
-        teamname={props.teamname}
+        teamID={props.teamID}
         onHidden={props.toggleShowingMenu}
       />
 
@@ -145,73 +144,76 @@ const _TeamHeader = (props: Props) => (
 const TeamHeader = Kb.OverlayParentHOC(_TeamHeader)
 
 const getTeamSubtitle = (memberCount: number, role: Types.MaybeTeamRoleType): string => {
-  let res = `${memberCount} member`
-  if (memberCount !== 1) {
-    res += 's'
+  if (memberCount === -1) {
+    return Constants.typeToLabel[role]
   }
+  let res = `${memberCount} ${pluralize('member', memberCount)}`
   if (role && role !== 'none') {
     res += ` • ${Constants.typeToLabel[role]}`
   }
   return res
 }
 
-const styles = Styles.styleSheetCreate({
-  addYourselfBanner: {
-    ...Styles.globalStyles.flexBoxColumn,
-    alignItems: 'center',
-    alignSelf: 'stretch',
-    backgroundColor: Styles.globalColors.blue,
-    justifyContent: 'center',
-    marginBottom: Styles.globalMargins.tiny,
-    minHeight: 40,
-    paddingBottom: Styles.globalMargins.tiny,
-    paddingLeft: Styles.globalMargins.medium,
-    paddingRight: Styles.globalMargins.medium,
-    paddingTop: Styles.globalMargins.tiny,
-  },
-  addYourselfBannerText: {color: Styles.globalColors.white},
-  buttonBar: Styles.platformStyles({
-    isMobile: {
-      marginBottom: -8,
-      width: 'auto',
-    },
-  }),
-  chatIcon: {
-    marginRight: 8,
-  },
-  cliTerminalText: {
-    marginLeft: Styles.globalMargins.xtiny,
-    marginTop: Styles.globalMargins.xtiny,
-  },
-  container: {
-    ...Styles.globalStyles.flexBoxColumn,
-    alignItems: 'center',
-    flex: 1,
-    height: '100%',
-    position: 'relative',
-    width: '100%',
-  },
-  description: {
-    maxWidth: 560,
-    paddingTop: Styles.globalMargins.tiny,
-  },
-  meta: {
-    alignSelf: 'center',
-    marginLeft: Styles.globalMargins.tiny,
-  },
-  teamHeader: Styles.platformStyles({
-    common: {
-      ...Styles.globalStyles.flexBoxColumn,
-      alignItems: 'center',
-      paddingLeft: Styles.globalMargins.medium,
-      paddingRight: Styles.globalMargins.medium,
-      paddingTop: Styles.globalMargins.tiny,
-    },
-    isElectron: {
-      paddingTop: Styles.globalMargins.medium,
-      textAlign: 'center',
-    },
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      addYourselfBanner: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'center',
+        alignSelf: 'stretch',
+        backgroundColor: Styles.globalColors.blue,
+        justifyContent: 'center',
+        marginBottom: Styles.globalMargins.tiny,
+        minHeight: 40,
+        paddingBottom: Styles.globalMargins.tiny,
+        paddingLeft: Styles.globalMargins.medium,
+        paddingRight: Styles.globalMargins.medium,
+        paddingTop: Styles.globalMargins.tiny,
+      },
+      addYourselfBannerText: {color: Styles.globalColors.white},
+      buttonBar: Styles.platformStyles({
+        isMobile: {
+          marginBottom: -8,
+          width: 'auto',
+        },
+      }),
+      chatIcon: {
+        marginRight: 8,
+      },
+      cliTerminalText: {
+        marginLeft: Styles.globalMargins.xtiny,
+        marginTop: Styles.globalMargins.xtiny,
+      },
+      container: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'center',
+        flex: 1,
+        height: '100%',
+        position: 'relative',
+        width: '100%',
+      },
+      description: {
+        maxWidth: 560,
+        paddingTop: Styles.globalMargins.tiny,
+      },
+      meta: {
+        alignSelf: 'center',
+        marginLeft: Styles.globalMargins.tiny,
+      },
+      teamHeader: Styles.platformStyles({
+        common: {
+          ...Styles.globalStyles.flexBoxColumn,
+          alignItems: 'center',
+          paddingLeft: Styles.globalMargins.medium,
+          paddingRight: Styles.globalMargins.medium,
+          paddingTop: Styles.globalMargins.tiny,
+        },
+        isElectron: {
+          paddingTop: Styles.globalMargins.medium,
+          textAlign: 'center',
+        },
+      }),
+    } as const)
+)
 
 export {TeamHeader}

@@ -67,7 +67,7 @@ const mapDispatchToProps = dispatch => ({
   onSubmit: () => dispatch(ProfileGen.createCheckProof()),
 })
 
-const mergeProps = (stateProps, dispatchProps) => ({
+const mergeProps = (stateProps, dispatchProps, _: OwnProps) => ({
   copyToClipboard: dispatchProps.copyToClipboard,
   errorMessage: stateProps.errorMessage,
   onCancel: dispatchProps.onCancel,
@@ -79,8 +79,4 @@ const mergeProps = (stateProps, dispatchProps) => ({
   url: stateProps.url,
 })
 
-export default connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  mergeProps
-)(PostProof)
+export default connect(mapStateToProps, mapDispatchToProps, mergeProps)(PostProof)

@@ -1,8 +1,8 @@
 import * as React from 'react'
 import * as Sb from '../../stories/storybook'
-import * as Kb from '../'
+import * as Kb from '..'
 import * as Styles from '../../styles'
-import {range} from 'lodash-es'
+import range from 'lodash/range'
 import Modal from '.'
 
 const padding = Styles.padding(10)
@@ -158,6 +158,31 @@ const load = () => {
       >
         {filler}
       </Modal>
+    ))
+    .add('Long title, small sides', () => (
+      <Modal
+        onClose={onClose}
+        header={{
+          leftButton: <Kb.Icon type="iconfont-add" />,
+          rightButton: (
+            <Kb.Box2 direction="horizontal" gap="tiny">
+              <Kb.Icon type="iconfont-file" />
+              <Kb.Icon type="iconfont-info" />
+            </Kb.Box2>
+          ),
+          title: 'Do one of a few possibilities for things',
+        }}
+      >
+        {filler}
+      </Modal>
+    ))
+    .add('Fullscreen', () => (
+      <Modal header={{title: "I'm way up here"}} fullscreen={true}>
+        {filler}
+      </Modal>
+    ))
+    .add('Icon', () => (
+      <Modal header={{icon: <Kb.Icon type="iconfont-gear" sizeType="Big" />}}>{filler}</Modal>
     ))
 }
 

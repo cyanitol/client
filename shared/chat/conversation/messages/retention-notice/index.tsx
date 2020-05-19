@@ -1,44 +1,68 @@
 import * as React from 'react'
-import {Box, Icon, Text} from '../../../../common-adapters/'
-import {globalColors, globalMargins, globalStyles, isMobile} from '../../../../styles'
+import * as Kb from '../../../../common-adapters'
+import * as Container from '../../../../util/container'
+import * as Styles from '../../../../styles'
+import {RetentionPolicy} from '../../../../constants/types/retention-policy'
 
 export type Props = {
   canChange: boolean
+  explanation?: string
+  measure?: () => void
   onChange: () => void
-  explanation: string
+  policy: RetentionPolicy
+  teamPolicy: RetentionPolicy
 }
 
-const iconType = isMobile ? 'icon-message-retention-48' : 'icon-message-retention-32'
+const RetentionNotice = (props: Props) => {
+  Container.useDepChangeEffect(() => {
+    props.measure && props.measure()
+  }, [props.canChange, props.policy, props.teamPolicy])
 
-export default (props: Props) => {
+  const iconType =
+    props.policy.type === 'explode' ||
+    (props.policy.type === 'inherit' && props.teamPolicy.type === 'explode')
+      ? 'iconfont-bomb-solid'
+      : 'iconfont-timer-solid'
+
   return (
-    <Box style={containerStyle}>
-      <Icon type={iconType} style={iconStyle} />
-      <Text center={true} type="BodySmallSemibold">
-        {props.explanation}
-      </Text>
-      {props.canChange && (
-        <Text type="BodySmallSemibold" style={{color: globalColors.blueDark}} onClick={props.onChange}>
-          Change this
-        </Text>
+    <Kb.Box style={styles.container}>
+      <Kb.Box style={styles.iconBox}>
+        <Kb.Icon color={Styles.globalColors.black_20} fontSize={20} type={iconType} />
+      </Kb.Box>
+      {!!props.explanation && (
+        <Kb.Text center={true} type="BodySmallSemibold">
+          {props.explanation}
+        </Kb.Text>
       )}
-    </Box>
+      {props.canChange && (
+        <Kb.Text
+          type="BodySmallSemiboldPrimaryLink"
+          style={{color: Styles.globalColors.blueDark}}
+          onClick={props.onChange}
+        >
+          Change this
+        </Kb.Text>
+      )}
+    </Kb.Box>
   )
 }
+export default RetentionNotice
 
-const containerStyle = {
-  ...globalStyles.flexBoxColumn,
-  alignItems: 'center',
-  backgroundColor: globalColors.blueLighter3,
-  paddingBottom: globalMargins.small,
-  paddingLeft: globalMargins.medium,
-  paddingRight: globalMargins.medium,
-  paddingTop: globalMargins.small,
-  width: '100%',
-}
-
-const iconStyle = {
-  height: isMobile ? 48 : 32,
-  marginBottom: globalMargins.tiny,
-  width: isMobile ? 48 : 32,
-}
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      container: {
+        ...Styles.globalStyles.flexBoxColumn,
+        alignItems: 'center',
+        backgroundColor: Styles.globalColors.blueLighter3,
+        paddingBottom: Styles.globalMargins.small,
+        paddingLeft: Styles.globalMargins.medium,
+        paddingRight: Styles.globalMargins.medium,
+        paddingTop: Styles.globalMargins.small,
+        width: '100%',
+      },
+      iconBox: {
+        marginBottom: Styles.globalMargins.xtiny,
+      },
+    } as const)
+)

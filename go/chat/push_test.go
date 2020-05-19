@@ -86,6 +86,8 @@ func TestPushOrdering(t *testing.T) {
 	uid := u.User.GetUID().ToBytes()
 	tc := world.Tcs[u.Username]
 	handler := NewPushHandler(tc.Context())
+	handler.Start(context.TODO(), nil)
+	defer func() { <-handler.Stop(context.TODO()) }()
 	handler.SetClock(world.Fc)
 	timeout := 2 * time.Second
 
@@ -158,6 +160,8 @@ func TestPushAppState(t *testing.T) {
 	uid := u.User.GetUID().ToBytes()
 	tc := world.Tcs[u.Username]
 	handler := NewPushHandler(tc.Context())
+	handler.Start(context.TODO(), nil)
+	defer func() { <-handler.Stop(context.TODO()) }()
 	handler.SetClock(world.Fc)
 	conv := newBlankConv(ctx, t, tc, uid, ri, sender, u.Username)
 
@@ -206,6 +210,8 @@ func TestPushTyping(t *testing.T) {
 	uid := u.User.GetUID().ToBytes()
 	tc := world.Tcs[u.Username]
 	handler := NewPushHandler(tc.Context())
+	handler.Start(context.TODO(), nil)
+	defer func() { <-handler.Stop(context.TODO()) }()
 	handler.SetClock(world.Fc)
 	handler.typingMonitor.SetClock(world.Fc)
 	handler.typingMonitor.SetTimeout(time.Minute)
@@ -236,13 +242,16 @@ func TestPushTyping(t *testing.T) {
 	}
 
 	t.Logf("test basic")
-	handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), true))
+	err := handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), true))
+	require.NoError(t, err)
 	confirmTyping(list)
-	handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), false))
+	err = handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), false))
+	require.NoError(t, err)
 	confirmNotTyping(list)
 
 	t.Logf("test expiration")
-	handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), true))
+	err = handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), true))
+	require.NoError(t, err)
 	confirmTyping(list)
 	world.Fc.Advance(time.Hour)
 	confirmNotTyping(list)
@@ -250,10 +259,12 @@ func TestPushTyping(t *testing.T) {
 	t.Logf("test extend")
 	extendCh := make(chan struct{})
 	handler.typingMonitor.extendCh = &extendCh
-	handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), true))
+	err = handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), true))
+	require.NoError(t, err)
 	confirmTyping(list)
 	world.Fc.Advance(30 * time.Second)
-	handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), true))
+	err = handler.Typing(context.TODO(), makeTypingNotification(t, uid, conv.GetConvID(), true))
+	require.NoError(t, err)
 	select {
 	case <-list.typingUpdate:
 		require.Fail(t, "should have extended")

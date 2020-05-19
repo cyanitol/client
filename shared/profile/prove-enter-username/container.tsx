@@ -38,7 +38,7 @@ const mapDispatchToProps = dispatch => ({
   },
 })
 
-const mergeProps = (stateProps, dispatchProps, ownProps) => ({
+const mergeProps = (stateProps, dispatchProps, _: OwnProps) => ({
   errorText: stateProps.errorText,
   onCancel: dispatchProps.onCancel,
   onSubmit: (username: string) => dispatchProps._onSubmit(username, stateProps.platform),
@@ -46,8 +46,4 @@ const mergeProps = (stateProps, dispatchProps, ownProps) => ({
   username: stateProps.username,
 })
 
-export default connect(
-  mapStateToProps,
-  mapDispatchToProps,
-  mergeProps
-)(ProveEnterUsername)
+export default connect(mapStateToProps, mapDispatchToProps, mergeProps)(ProveEnterUsername)

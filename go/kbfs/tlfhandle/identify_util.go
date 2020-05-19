@@ -290,15 +290,6 @@ func identifyUser(ctx context.Context, nug idutil.NormalizedUsernameGetter,
 	return nil
 }
 
-// identifyUserToChan calls identifyUser and plugs the result into the error channnel.
-func identifyUserToChan(
-	ctx context.Context, nug idutil.NormalizedUsernameGetter,
-	identifier idutil.Identifier, name kbname.NormalizedUsername,
-	id keybase1.UserOrTeamID, t tlf.Type, offline keybase1.OfflineAvailability,
-	errChan chan error) {
-	errChan <- identifyUser(ctx, nug, identifier, name, id, t, offline)
-}
-
 // identifyUsers identifies the users in the given maps.
 func identifyUsers(
 	ctx context.Context, nug idutil.NormalizedUsernameGetter,
@@ -376,4 +367,40 @@ func IdentifyHandle(
 	}
 	return identifyUsersForTLF(
 		ctx, nug, identifier, h.ResolvedUsersMap(), h.Type(), offline)
+}
+
+// IdentifySingleAssertion identifies a single assertion, and takes
+// care of any necessary extended identify behaviors.  It does not
+// relay any broken identify warnings back to the caller, however.
+func IdentifySingleAssertion(
+	ctx context.Context, assertion, reason string, identifier idutil.Identifier,
+	offline keybase1.OfflineAvailability) (
+	name kbname.NormalizedUsername, err error) {
+	ei := GetExtendedIdentify(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Make sure to wait on any errors.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ei.makeTlfBreaksIfNeeded(ctx, 1)
+	}()
+
+	name, _, err = identifier.Identify(ctx, assertion, reason, offline)
+	if err != nil {
+		return "", err
+	}
+
+	// Wait for the goroutine to finish, but ignore the error.
+	select {
+	case <-errCh:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+
+	if ei.Behavior.WarningInsteadOfErrorOnBrokenTracks() {
+		_ = GetExtendedIdentify(ctx).GetTlfBreakAndClose()
+	}
+
+	return name, nil
 }

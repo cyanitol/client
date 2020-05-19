@@ -23,39 +23,66 @@ func NewSignupHandler(xp rpc.Transporter, g *libkb.GlobalContext) *SignupHandler
 	}
 }
 
+type usernameAvailableRes struct {
+	libkb.AppStatusEmbed
+	Available bool   `json:"available"`
+	Reason    string `json:"reason"`
+}
+
 func (h *SignupHandler) CheckUsernameAvailable(ctx context.Context, arg keybase1.CheckUsernameAvailableArg) error {
 	mctx := libkb.NewMetaContext(ctx, h.G())
-	_, err := mctx.G().API.Get(mctx, libkb.APIArg{
-		Endpoint:    "user/lookup",
+	var apiRes usernameAvailableRes
+	err := mctx.G().API.GetDecode(mctx, libkb.APIArg{
+		Endpoint:    "user/username_available",
 		SessionType: libkb.APISessionTypeNONE,
 		Args: libkb.HTTPArgs{
 			"username": libkb.S{Val: arg.Username},
-			"fields":   libkb.S{Val: "basics"},
 		},
-	})
-	switch err := err.(type) {
-	case nil:
+	}, &apiRes)
+	if err != nil {
+		return err
+	}
+	if apiRes.Available {
+		return nil
+	}
+	switch apiRes.Reason {
+	case "invalid":
+		return libkb.AppStatusError{
+			Code: libkb.SCBadUsername,
+			Name: "BAD_USERNAME",
+			Desc: "Usernames must be 2-16 characters long, and can use letters, numbers, and underscores.",
+		}
+	case "user":
 		// User found, so the name is taken.
 		return libkb.AppStatusError{
 			Code: libkb.SCBadSignupUsernameTaken,
 			Name: "BAD_SIGNUP_USERNAME_TAKEN",
 			Desc: "This username is already taken! Please pick another one.",
 		}
-	case libkb.AppStatusError:
-		switch err.Name {
-		case "NOT_FOUND":
-			// User not found, name is available.
-			return nil
-		case "DELETED":
-			return libkb.AppStatusError{
-				Code: libkb.SCBadSignupUsernameDeleted,
-				Name: "BAD_SIGNUP_USERNAME_DELETED",
-				Desc: "This username has been deleted! Please pick another one.",
-			}
+	case "reserved":
+		return libkb.AppStatusError{
+			Code: libkb.SCBadSignupUsernameReserved,
+			Name: "BAD_SIGNUP_USERNAME_RESERVED",
+			Desc: "This username is reserved by the Keybase team, possibly for your organization. Contact reservations@keybase.io to claim it.",
 		}
-		return err
+	case "user_deleted":
+		return libkb.AppStatusError{
+			Code: libkb.SCBadSignupUsernameDeleted,
+			Name: "BAD_SIGNUP_USERNAME_DELETED",
+			Desc: "This username has been deleted! Please pick another one.",
+		}
+	case "team":
+		return libkb.AppStatusError{
+			Code: libkb.SCBadSignupTeamName,
+			Name: "BAD_SIGNUP_TEAM_NAME",
+			Desc: "This username is already taken. Please pick another one.",
+		}
 	default:
-		return err
+		return libkb.AppStatusError{
+			Code: libkb.SCGenericAPIError,
+			Name: "GENERIC",
+			Desc: "This username is not available.",
+		}
 	}
 }
 
@@ -80,6 +107,8 @@ func (h *SignupHandler) Signup(ctx context.Context, arg keybase1.SignupArg) (res
 		GenPGPBatch:              arg.GenPGPBatch,
 		SkipPaper:                !arg.GenPaper,
 		VerifyEmail:              arg.VerifyEmail,
+		BotToken:                 arg.BotToken,
+		SkipGPG:                  arg.SkipGPG,
 	}
 	m := libkb.NewMetaContext(ctx, h.G()).WithUIs(uis)
 	eng := engine.NewSignupEngine(h.G(), &runarg)
@@ -93,6 +122,9 @@ func (h *SignupHandler) Signup(ctx context.Context, arg keybase1.SignupArg) (res
 		res.PassphraseOk = true
 		res.PostOk = true
 		res.WriteOk = true
+		if pk := eng.PaperKey(); pk != nil && arg.BotToken.Exists() {
+			res.PaperKey = pk.String()
+		}
 		return res, nil
 	}
 

@@ -34,7 +34,7 @@ func TestGetWalletAccountsLocal(t *testing.T) {
 
 	acceptDisclaimer(tcs[0])
 
-	accountID := tcs[0].Backend.AddAccount()
+	accountID := tcs[0].Backend.AddAccount(tcs[0].Fu.GetUID())
 
 	err := tcs[0].Srv.ImportSecretKeyLocal(context.Background(), stellar1.ImportSecretKeyLocalArg{
 		SecretKey:   tcs[0].Backend.SecretKey(accountID),
@@ -107,7 +107,7 @@ func TestGetWalletAccountsLocal(t *testing.T) {
 
 	// Add another account that we will add 1 XLM, enough to be funded but not
 	// enough to make any txs out of it.
-	anotherAccountID := tcs[0].Backend.AddAccountEmpty(t)
+	anotherAccountID := tcs[0].Backend.AddAccountEmpty(t, tcs[0].Fu.GetUID())
 	err = tcs[0].Srv.ImportSecretKeyLocal(context.Background(), stellar1.ImportSecretKeyLocalArg{
 		SecretKey:   tcs[0].Backend.SecretKey(anotherAccountID),
 		MakePrimary: false,
@@ -127,7 +127,7 @@ func TestGetWalletAccountsLocal(t *testing.T) {
 	require.False(t, details.CanAddTrustline)
 
 	// Add another account that we will add 10 XLM, enough to be funded and can create trustlines
-	yetAnotherAccountID := tcs[0].Backend.AddAccountEmpty(t)
+	yetAnotherAccountID := tcs[0].Backend.AddAccountEmpty(t, tcs[0].Fu.GetUID())
 	err = tcs[0].Srv.ImportSecretKeyLocal(context.Background(), stellar1.ImportSecretKeyLocalArg{
 		SecretKey:   tcs[0].Backend.SecretKey(yetAnotherAccountID),
 		MakePrimary: false,
@@ -152,7 +152,7 @@ func TestGetAccountAssetsLocalWithBalance(t *testing.T) {
 
 	acceptDisclaimer(tcs[0])
 
-	accountID := tcs[0].Backend.AddAccount()
+	accountID := tcs[0].Backend.AddAccount(tcs[0].Fu.GetUID())
 
 	err := tcs[0].Srv.ImportSecretKeyLocal(context.Background(), stellar1.ImportSecretKeyLocalArg{
 		SecretKey:   tcs[0].Backend.SecretKey(accountID),
@@ -184,7 +184,7 @@ func TestGetAccountAssetsLocalWithCHFBalance(t *testing.T) {
 
 	acceptDisclaimer(tcs[0])
 
-	accountID := tcs[0].Backend.AddAccount()
+	accountID := tcs[0].Backend.AddAccount(tcs[0].Fu.GetUID())
 
 	err := tcs[0].Srv.ImportSecretKeyLocal(context.Background(), stellar1.ImportSecretKeyLocalArg{
 		SecretKey:   tcs[0].Backend.SecretKey(accountID),
@@ -193,11 +193,12 @@ func TestGetAccountAssetsLocalWithCHFBalance(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
+	curr, err := tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
 		AccountID: accountID,
 		Currency:  stellar1.OutsideCurrencyCode("CHF"),
 	})
 	require.NoError(t, err)
+	require.Equal(t, stellar1.OutsideCurrencyCode("CHF"), curr.Code)
 
 	tcs[0].Backend.ImportAccountsForUser(tcs[0])
 
@@ -351,11 +352,12 @@ func TestChangeWalletName(t *testing.T) {
 	chk("", "name required")
 	chk("office lunch money", "")
 	chk("savings", "")
-	err = tcs[0].Srv.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
+	res, err := tcs[0].Srv.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
 		AccountID: accs[0].AccountID,
 		NewName:   "office lunch money",
 	})
 	require.NoError(t, err)
+	require.Equal(t, "office lunch money", res.Name)
 	chk("office lunch money", "you already have an account with that name")
 	chk("career debter", "")
 
@@ -371,7 +373,7 @@ func TestChangeWalletName(t *testing.T) {
 
 	// Try invalid argument
 	invalidAccID, _ := randomStellarKeypair()
-	err = tcs[0].Srv.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
+	_, err = tcs[0].Srv.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
 		AccountID: invalidAccID,
 		NewName:   "savings",
 	})
@@ -398,10 +400,11 @@ func TestSetAccountAsDefault(t *testing.T) {
 
 	// Should work for accounts that are already primary and not post
 	// a bundle.
-	err = tcs[0].Srv.SetWalletAccountAsDefaultLocal(context.Background(), stellar1.SetWalletAccountAsDefaultLocalArg{
+	res, err := tcs[0].Srv.SetWalletAccountAsDefaultLocal(context.Background(), stellar1.SetWalletAccountAsDefaultLocalArg{
 		AccountID: accs[0].AccountID,
 	})
 	require.NoError(t, err)
+	require.Equal(t, accs[0].AccountID, res[0].AccountID)
 
 	mctx := libkb.NewMetaContextBackground(tcs[0].G)
 	bundle, err := remote.FetchSecretlessBundle(mctx)
@@ -410,19 +413,19 @@ func TestSetAccountAsDefault(t *testing.T) {
 
 	// Test invalid arguments
 	invalidAccID, _ := randomStellarKeypair()
-	err = tcs[0].Srv.SetWalletAccountAsDefaultLocal(context.Background(), stellar1.SetWalletAccountAsDefaultLocalArg{
+	_, err = tcs[0].Srv.SetWalletAccountAsDefaultLocal(context.Background(), stellar1.SetWalletAccountAsDefaultLocalArg{
 		AccountID: invalidAccID,
 	})
 	require.Error(t, err)
 
-	err = tcs[0].Srv.SetWalletAccountAsDefaultLocal(context.Background(), stellar1.SetWalletAccountAsDefaultLocalArg{
+	_, err = tcs[0].Srv.SetWalletAccountAsDefaultLocal(context.Background(), stellar1.SetWalletAccountAsDefaultLocalArg{
 		AccountID: stellar1.AccountID(""),
 	})
 	require.Error(t, err)
 
 	additionalAccs := []stellar1.AccountID{
-		tcs[0].Backend.AddAccountEmpty(t),
-		tcs[0].Backend.AddAccountEmpty(t),
+		tcs[0].Backend.AddAccountEmpty(t, tcs[0].Fu.GetUID()),
+		tcs[0].Backend.AddAccountEmpty(t, tcs[0].Fu.GetUID()),
 	}
 
 	for _, v := range additionalAccs {
@@ -439,7 +442,7 @@ func TestSetAccountAsDefault(t *testing.T) {
 		arg := stellar1.SetWalletAccountAsDefaultLocalArg{
 			AccountID: v,
 		}
-		err := tcs[0].Srv.SetWalletAccountAsDefaultLocal(context.Background(), arg)
+		_, err := tcs[0].Srv.SetWalletAccountAsDefaultLocal(context.Background(), arg)
 		require.NoError(t, err)
 
 		accs, err := tcs[0].Srv.WalletGetAccountsCLILocal(context.Background())
@@ -539,7 +542,7 @@ func TestDeleteWallet(t *testing.T) {
 
 	// Add new account, make it primary, now first account should be
 	// deletable.
-	accID2 := tcs[0].Backend.AddAccountEmpty(t)
+	accID2 := tcs[0].Backend.AddAccountEmpty(t, tcs[0].Fu.GetUID())
 	err = tcs[0].Srv.ImportSecretKeyLocal(context.Background(), stellar1.ImportSecretKeyLocalArg{
 		SecretKey:   tcs[0].Backend.SecretKey(accID2),
 		MakePrimary: true,
@@ -575,14 +578,14 @@ func TestChangeDisplayCurrency(t *testing.T) {
 	accID := getPrimaryAccountID(tcs[0])
 
 	// Try invalid currency first.
-	err := tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
+	_, err := tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
 		AccountID: accID,
 		Currency:  stellar1.OutsideCurrencyCode("ZZZ"),
 	})
 	require.Error(t, err)
 
 	// Try empty account id.
-	err = tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
+	_, err = tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
 		AccountID: stellar1.AccountID(""),
 		Currency:  stellar1.OutsideCurrencyCode("USD"),
 	})
@@ -590,7 +593,7 @@ func TestChangeDisplayCurrency(t *testing.T) {
 
 	// Try non-existant account id.
 	invalidAccID, _ := randomStellarKeypair()
-	err = tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
+	_, err = tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
 		AccountID: invalidAccID,
 		Currency:  stellar1.OutsideCurrencyCode("USD"),
 	})
@@ -601,18 +604,19 @@ func TestChangeDisplayCurrency(t *testing.T) {
 	acceptDisclaimer(tcs[1])
 	tcs[1].Backend.ImportAccountsForUser(tcs[1])
 	accID2 := getPrimaryAccountID(tcs[1])
-	err = tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
+	_, err = tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
 		AccountID: accID2,
 		Currency:  stellar1.OutsideCurrencyCode("EUR"),
 	})
 	require.Error(t, err)
 
 	// Finally, a happy path.
-	err = tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
+	res, err := tcs[0].Srv.ChangeDisplayCurrencyLocal(context.Background(), stellar1.ChangeDisplayCurrencyLocalArg{
 		AccountID: accID,
 		Currency:  stellar1.OutsideCurrencyCode("EUR"),
 	})
 	require.NoError(t, err)
+	require.Equal(t, stellar1.OutsideCurrencyCode("EUR"), res.Code)
 
 	// Check both CLI and Frontend RPCs.
 	accs, err := tcs[0].Srv.WalletGetAccountsCLILocal(context.Background())
@@ -724,9 +728,9 @@ func TestGetPaymentsLocal(t *testing.T) {
 
 	srvSender := tcs[0].Srv
 	rm := tcs[0].Backend
-	accountIDSender := rm.AddAccount()
-	accountIDRecip := rm.AddAccount()
-	accountIDRecip2 := rm.AddAccount()
+	accountIDSender := rm.AddAccount(tcs[0].Fu.GetUID())
+	accountIDRecip := rm.AddAccount(tcs[1].Fu.GetUID())
+	accountIDRecip2 := rm.AddAccount(tcs[1].Fu.GetUID())
 
 	srvRecip := tcs[1].Srv
 
@@ -737,7 +741,7 @@ func TestGetPaymentsLocal(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = srvSender.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
+	_, err = srvSender.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
 		AccountID: accountIDSender,
 		NewName:   "office lunch money",
 	})
@@ -1033,8 +1037,8 @@ func TestGetPaymentsLocal(t *testing.T) {
 	require.NoError(t, err)
 	recipPayments = recipPaymentsPage.Payments
 	require.Len(t, recipPayments, 1)
-	t.Logf("recipPayments: %+v", recipPayments)
 	p = recipPayments[0].Payment
+	t.Logf("recipPayments[0]: %+v", p)
 	require.NotNil(t, p)
 	require.Equal(t, stellar1.ParticipantType_KEYBASE, p.FromType)
 	require.Equal(t, accountIDSender, p.FromAccountID)
@@ -1054,8 +1058,8 @@ func TestSendToSelf(t *testing.T) {
 
 	acceptDisclaimer(tcs[0])
 	rm := tcs[0].Backend
-	accountID1 := rm.AddAccount()
-	accountID2 := rm.AddAccount()
+	accountID1 := rm.AddAccount(tcs[0].Fu.GetUID())
+	accountID2 := rm.AddAccount(tcs[0].Fu.GetUID())
 
 	err := tcs[0].Srv.ImportSecretKeyLocal(context.Background(), stellar1.ImportSecretKeyLocalArg{
 		SecretKey:   rm.SecretKey(accountID1),
@@ -1064,7 +1068,7 @@ func TestSendToSelf(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = tcs[0].Srv.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
+	_, err = tcs[0].Srv.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
 		AccountID: accountID1,
 		NewName:   "office lunch money",
 	})
@@ -1076,7 +1080,7 @@ func TestSendToSelf(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = tcs[0].Srv.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
+	_, err = tcs[0].Srv.ChangeWalletAccountNameLocal(context.Background(), stellar1.ChangeWalletAccountNameLocalArg{
 		AccountID: accountID2,
 		NewName:   "savings",
 	})
@@ -1528,7 +1532,7 @@ func TestBuildPaymentLocal(t *testing.T) {
 	}})
 
 	// The user's available-to-send is $6.0482288 which rounds up to $6.05.
-	// Avoid the situation where you type $6.05 and it responds "your ATS is $6.05" (CORE-9338)
+	// Avoid the situation where you type $6.05 and it responds "your ATS is $6.05" (CORE-9338, related PICNIC-464)
 	// Which while true in some way true, is not helpful for the user.
 	// A user should always be able to send the string that is presented as their ATS.
 	bres, err = tcs[0].Srv.BuildPaymentLocal(context.Background(), stellar1.BuildPaymentLocalArg{
@@ -1860,6 +1864,50 @@ func TestBuildPaymentLocal(t *testing.T) {
 	require.Equal(t, "26.7020180 XLM", bres.DisplayAmountXLM)
 	require.Equal(t, "$8.50 USD", bres.DisplayAmountFiat)
 	requireBannerSet(t, bres.DeepCopy().Banners, []stellar1.SendBannerLocal{})
+}
+
+// Regression test for a case where, under the given balance and exchange parameters,
+// an attempt to send $2.32 would respond that you only had $2.32 available to send.
+// Which didn't make sense. (was PICNIC-464, related CORE-9338)
+func TestBuildPaymentLocalATSRounding(t *testing.T) {
+	tcs, cleanup := setupNTests(t, 1)
+	defer cleanup()
+
+	acceptDisclaimer(tcs[0])
+	senderAccountID, err := stellar.GetOwnPrimaryAccountID(tcs[0].MetaContext())
+	require.NoError(t, err)
+
+	tcs[0].Backend.SetExchangeRate("0.0622381942426")
+	worthInfo := "$1.00 = 16.0673042 XLM\nSource: coinmarketcap.com"
+
+	tcs[0].Backend.ImportAccountsForUser(tcs[0])
+	tcs[0].Backend.Gift(senderAccountID, "38.2713786")
+	err = tcs[0].Srv.walletState.Refresh(tcs[0].MetaContext(), senderAccountID, "test")
+	require.NoError(t, err)
+
+	bres, err := tcs[0].Srv.BuildPaymentLocal(context.Background(), stellar1.BuildPaymentLocalArg{
+		From:     senderAccountID,
+		To:       "t_alice",
+		Amount:   "2.32",
+		Currency: &usd,
+	})
+	require.NoError(t, err)
+	t.Logf(spew.Sdump(bres))
+	require.Equal(t, false, bres.ReadyToReview)
+	require.Equal(t, "", bres.ToErrMsg)
+	// Before the fix, AmountErrMsg had $2.32
+	require.Equal(t, "You only have *$2.31 USD* worth of Lumens available to send.", bres.AmountErrMsg)
+	require.Equal(t, "", bres.SecretNoteErrMsg)
+	require.Equal(t, "", bres.PublicMemoErrMsg)
+	require.Equal(t, "37.2761458 XLM", bres.WorthDescription)
+	require.Equal(t, worthInfo, bres.WorthInfo)
+	require.False(t, bres.SendingIntentionXLM)
+	require.Equal(t, "37.2761458 XLM", bres.DisplayAmountXLM)
+	require.Equal(t, "$2.32 USD", bres.DisplayAmountFiat)
+	requireBannerSet(t, bres.DeepCopy().Banners, []stellar1.SendBannerLocal{{
+		Level:   "info",
+		Message: fmt.Sprintf("Because it's %v's first transaction, you must send at least 2.01 XLM.", "t_alice"),
+	}})
 }
 
 func TestBuildPaymentLocalAdvancedBanner(t *testing.T) {
@@ -2689,7 +2737,7 @@ func TestGetSendAssetChoices(t *testing.T) {
 	require.True(t, choices2[1].Enabled)
 
 	// Try with arg.To AccountID not in the system.
-	externalAcc := tcs[0].Backend.AddAccount()
+	externalAcc := tcs[0].Backend.AddAccount(tcs[0].Fu.GetUID())
 	choices3, err := tcs[0].Srv.GetSendAssetChoicesLocal(context.Background(), stellar1.GetSendAssetChoicesLocalArg{
 		From: fakeAccts[0].accountID,
 		To:   externalAcc.String(),
@@ -2860,7 +2908,7 @@ func TestSetMobileOnly(t *testing.T) {
 	// service_test verifies that `SetAccountMobileOnlyLocal` behaves correctly under the covers
 
 	// Provision new mobile to check AccountModeEditable and DeviceReadOnly
-	tc2, cleanup2 := provisionNewDeviceForTest(t, tcs[0], libkb.DeviceTypeMobile)
+	tc2, cleanup2 := provisionNewDeviceForTest(t, tcs[0], keybase1.DeviceTypeV2_MOBILE)
 	defer cleanup2()
 	details, err = tc2.Srv.GetWalletAccountLocal(context.Background(), walletAcctLocalArg)
 	require.NoError(t, err)
@@ -2869,7 +2917,7 @@ func TestSetMobileOnly(t *testing.T) {
 	require.Equal(t, true, details.DeviceReadOnly)
 
 	// Provision new desktop device.
-	tc3, cleanup3 := provisionNewDeviceForTest(t, tcs[0], libkb.DeviceTypeDesktop)
+	tc3, cleanup3 := provisionNewDeviceForTest(t, tcs[0], keybase1.DeviceTypeV2_DESKTOP)
 	defer cleanup3()
 	details, err = tc3.Srv.GetWalletAccountLocal(context.Background(), walletAcctLocalArg)
 	require.NoError(t, err)

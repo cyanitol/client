@@ -1,3 +1,5 @@
+// This is the desktop storybook configuration. The mobile version is in ../.storybook
+
 const webpack = require('webpack')
 const path = require('path')
 // you can use this file to add your custom webpack plugins, loaders and anything you like.
@@ -21,6 +23,11 @@ const babelRule = {
   },
 }
 
+const replacements = require('../mocks').replacements
+const moduleReplacementPlugins = replacements.map(rep => {
+  const [regex, replacement] = rep
+  return new webpack.NormalModuleReplacementPlugin(regex, __dirname + '/../' + replacement + '.tsx')
+})
 module.exports = ({config, mode}) => {
   config.resolve = {
     extensions: ['.desktop.js', '.desktop.tsx', '.js', '.jsx', '.json', '.flow', '.ts', '.tsx'],
@@ -34,14 +41,7 @@ module.exports = ({config, mode}) => {
       __STORYSHOT__: false,
       'process.platform': JSON.stringify('darwin'),
     }),
-    new webpack.NormalModuleReplacementPlugin(
-      /typed-connect/,
-      __dirname + '/../util/__mocks__/typed-connect.tsx'
-    ),
-    new webpack.NormalModuleReplacementPlugin(/^electron$/, __dirname + '/../__mocks__/electron.tsx'),
-    new webpack.NormalModuleReplacementPlugin(/engine/, __dirname + '/../__mocks__/engine.tsx'),
-    new webpack.NormalModuleReplacementPlugin(/util\/saga/, __dirname + '/../__mocks__/saga.tsx'),
-    new webpack.NormalModuleReplacementPlugin(/feature-flags/, __dirname + '/../__mocks__/feature-flags.tsx'),
+    ...moduleReplacementPlugins,
   ]
 
   // Override default ignoring node_modules
@@ -74,6 +74,11 @@ module.exports = ({config, mode}) => {
     {
       include: path.resolve(__dirname, '../images/install'),
       test: [/.*\.(gif|png)$/],
+      use: [fileLoaderRule],
+    },
+    {
+      include: path.resolve(__dirname, '../images/releases'),
+      test: [/.*\.png$/],
       use: [fileLoaderRule],
     },
     {

@@ -1,6 +1,6 @@
 // A utility to convert our log sends to something consumable by chrome://tracing
 import fs from 'fs'
-import moment from 'moment'
+import * as dateFns from 'date-fns'
 
 type Args = {
   counter?: string
@@ -45,7 +45,7 @@ const methodPrefixReg = /^(\+\+Chat: )?/
 const methodResultReg = / -> .*$/
 const typeAndMethodReg = /^(gui|[+\-|])/
 // gui regs
-const guiCountTypeTimeReg = /\["(Info|Warn|Action)","([^"]+)","(.*)"]/
+const guiCountTypeTimeReg = /(Error|Info|Warn|Action),([^,]+),(.*)/
 const actionReg = /type: ([^ ]+) (.*)/
 const actionPayloadReg = /\\"/g
 
@@ -65,6 +65,9 @@ const convertGuiLine = (line: string): Info | undefined => {
   let name = ''
   let args = {}
   switch (type) {
+    case 'Error':
+      name = `E: ${_data}`
+      break
     case 'Warn':
       name = `W: ${_data}`
       break
@@ -172,15 +175,17 @@ const output: {
   unmatched: [],
 }
 
-const buildEvent = (info: Info, ph: 'B' | 'E' | 'i'): Event => ({
-  args: info.args,
-  id: info.id,
-  name: info.name,
-  ph,
-  pid: 0,
-  tid: info.app,
-  ts: moment(info.time).valueOf() * (isGUI ? 1 : 1000),
-})
+const buildEvent = (info: Info, ph: 'B' | 'E' | 'i'): Event => {
+  return {
+    args: info.args,
+    id: info.id,
+    name: info.name,
+    ph,
+    pid: 0,
+    tid: info.app,
+    ts: dateFns.parseISO(info.time).getMilliseconds() * (isGUI ? 1 : 1000),
+  }
+}
 
 const buildGood = (old: Info, info: Info) => {
   const s = buildEvent(old, 'B')

@@ -2,8 +2,8 @@ import * as ProfileGen from '../../actions/profile-gen'
 import * as RouteTreeGen from '../../actions/route-tree-gen'
 import * as Tracker2Gen from '../../actions/tracker2-gen'
 import NameWithIcon, {NameWithIconProps} from '.'
-import {namedConnect, isMobile} from '../../util/container'
-import {teamsTab} from '../../constants/tabs'
+import * as Container from '../../util/container'
+import {TeamID} from '../../constants/types/teams'
 
 export type ConnectedNameWithIconProps = {
   onClick?: 'tracker' | 'profile' | NameWithIconProps['onClick']
@@ -11,54 +11,59 @@ export type ConnectedNameWithIconProps = {
 
 type OwnProps = ConnectedNameWithIconProps
 
-const mapStateToProps = () => ({})
+const ConnectedNameWithIcon = Container.namedConnect(
+  state => ({_teamNameToID: state.teams.teamNameToID}),
+  dispatch => ({
+    onOpenTeamProfile: (teamID: TeamID) => {
+      dispatch(RouteTreeGen.createClearModals())
+      dispatch(RouteTreeGen.createNavigateAppend({path: [{props: {teamID}, selected: 'team'}]}))
+    },
+    onOpenTracker: (username: string) => dispatch(Tracker2Gen.createShowUser({asTracker: true, username})),
+    onOpenUserProfile: (username: string) => dispatch(ProfileGen.createShowUserProfile({username})),
+  }),
+  (_stateProps, dispatchProps, ownProps: OwnProps) => {
+    const {onClick, username, teamname, ...props} = ownProps
+    const teamID = teamname && _stateProps._teamNameToID.get(teamname)
+    let functionOnClick: NameWithIconProps['onClick']
+    let clickType: NameWithIconProps['clickType'] = 'onClick'
 
-const mapDispatchToProps = dispatch => ({
-  onOpenTeamProfile: (teamname: string) => {
-    dispatch(RouteTreeGen.createClearModals())
-    dispatch(
-      RouteTreeGen.createNavigateTo({path: [teamsTab, {props: {teamname: teamname}, selected: 'team'}]})
-    )
+    switch (onClick) {
+      case 'tracker': {
+        if (!Container.isMobile) {
+          if (username) {
+            functionOnClick = () => dispatchProps.onOpenTracker(username)
+          }
+        } else {
+          if (username) {
+            functionOnClick = () => dispatchProps.onOpenUserProfile(username)
+          } else if (teamID) {
+            functionOnClick = () => dispatchProps.onOpenTeamProfile(teamID)
+          }
+        }
+        break
+      }
+      case 'profile': {
+        if (username) {
+          functionOnClick = () => dispatchProps.onOpenUserProfile(username)
+        } else if (teamID) {
+          functionOnClick = () => dispatchProps.onOpenTeamProfile(teamID)
+        }
+        clickType = 'profile'
+        break
+      }
+      default:
+        functionOnClick = onClick
+    }
+
+    return {
+      ...props,
+      clickType,
+      onClick: functionOnClick,
+      teamname,
+      username,
+    }
   },
-  onOpenTracker: (username: string) => dispatch(Tracker2Gen.createShowUser({asTracker: true, username})),
-  onOpenUserProfile: (username: string) => dispatch(ProfileGen.createShowUserProfile({username})),
-})
-
-const mergeProps = (
-  _stateProps,
-  dispatchProps: ReturnType<typeof mapDispatchToProps>,
-  ownProps: ConnectedNameWithIconProps
-) => {
-  const {onClick, username, teamname, ...props} = ownProps
-
-  let functionOnClick
-  let clickType
-  // Since there's no tracker on mobile, we can't open it. Fallback to profile.
-  if (!isMobile && onClick === 'tracker') {
-    if (username) {
-      functionOnClick = () => dispatchProps.onOpenTracker(username)
-    }
-    clickType = 'tracker'
-  } else if (onClick === 'profile' || (isMobile && onClick === 'tracker')) {
-    if (username) {
-      functionOnClick = () => dispatchProps.onOpenUserProfile(username)
-    } else if (teamname) {
-      functionOnClick = () => dispatchProps.onOpenTeamProfile(teamname)
-    }
-    clickType = 'profile'
-  }
-
-  return {
-    ...props,
-    clickType,
-    onClick: functionOnClick,
-    teamname,
-    username,
-  }
-}
-
-const ConnectedNameWithIcon = namedConnect(mapStateToProps, mapDispatchToProps, mergeProps, 'NameWithIcon')(
-  NameWithIcon
-)
+  'NameWithIcon'
+)(NameWithIcon)
 
 export default ConnectedNameWithIcon

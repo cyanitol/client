@@ -28,17 +28,14 @@ const EnterName = (props: EnterNameProps) => {
         </Kb.Box2>
       )}
       <Kb.Box2 direction="vertical" gap="xtiny" fullWidth={true} style={styles.inputContainer}>
-        <Kb.Text type="BodySmallSemibold" style={{color: Styles.globalColors.blueDark}}>
-          Account name
-        </Kb.Text>
-        <Kb.NewInput
-          style={styles.input}
+        <Kb.LabeledInput
+          placeholder="Account name"
           value={props.name}
           onEnterKeyDown={props.onEnterKeyDown}
           onChangeText={props.onNameChange}
           autoFocus={true}
           maxLength={accountNameMaxLength}
-          hideBorder={Styles.isMobile}
+          error={!!props.error}
         />
         {!!props.error && (
           <Kb.Text type="BodySmall" style={styles.error}>
@@ -57,43 +54,42 @@ const EnterName = (props: EnterNameProps) => {
   )
 }
 
-const styles = Styles.styleSheetCreate({
-  error: Styles.platformStyles({
-    common: {
-      color: Styles.globalColors.redDark,
-      textAlign: 'left',
-      width: '100%',
-    },
-    isElectron: {
-      wordWrap: 'break-word',
-    },
-  }),
-  icon: {
-    height: 48,
-    width: 48,
-  },
-  infoText: Styles.platformStyles({
-    isMobile: {
-      paddingLeft: Styles.globalMargins.medium,
-      paddingRight: Styles.globalMargins.medium,
-    },
-  }),
-  input: Styles.platformStyles({common: {margin: 0}, isElectron: {width: '100%'}}),
-  inputContainer: Styles.platformStyles({
-    common: {
-      alignItems: 'flex-start',
-    },
-    isElectron: {width: '100%'},
-    isMobile: {
-      borderBottomWidth: 1,
-      borderColor: Styles.globalColors.black_05,
-      borderStyle: 'solid',
-      paddingBottom: Styles.globalMargins.tiny,
-      paddingLeft: Styles.globalMargins.small,
-      paddingRight: Styles.globalMargins.small,
-      paddingTop: Styles.globalMargins.tiny,
-    },
-  }),
-})
+const styles = Styles.styleSheetCreate(
+  () =>
+    ({
+      error: Styles.platformStyles({
+        common: {
+          color: Styles.globalColors.redDark,
+          textAlign: 'left',
+          width: '100%',
+        },
+        isElectron: {
+          wordWrap: 'break-word',
+        },
+      }),
+      icon: {
+        height: 48,
+        width: 48,
+      },
+      infoText: Styles.platformStyles({
+        isMobile: {
+          paddingLeft: Styles.globalMargins.medium,
+          paddingRight: Styles.globalMargins.medium,
+        },
+      }),
+      inputContainer: Styles.platformStyles({
+        common: {
+          alignItems: 'flex-start',
+        },
+        isElectron: {width: '100%'},
+        isMobile: {
+          paddingBottom: Styles.globalMargins.tiny,
+          paddingLeft: Styles.globalMargins.small,
+          paddingRight: Styles.globalMargins.small,
+          paddingTop: Styles.globalMargins.tiny,
+        },
+      }),
+    } as const)
+)
 
 export default EnterName
